@@ -6,7 +6,7 @@
 
     <groupId>nl.hauntedmc.dataregistry</groupId>
     <artifactId>dataregistry</artifactId>
-    <version>1.1.14</version>
+    <version>1.1.15</version>
     <packaging>jar</packaging>
     <name>DataRegistry</name>
     <url>http://maven.apache.org</url>
