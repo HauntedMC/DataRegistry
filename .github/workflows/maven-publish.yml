@@ -46,7 +46,7 @@ jobs:
         path: ./target/${{ env.TARGET_NAME }}.jar
 
     - name: Publish to GitHub Packages Apache Maven
-      run: mvn deploy -s $GITHUB_WORKSPACE/settings.xml --settings ${{ github.workspace }}/.m2/settings.xml
+      run: mvn deploy --settings ${{ github.workspace }}/.m2/settings.xml
       env:
         GITHUB_TOKEN: ${{ github.token }}
 
