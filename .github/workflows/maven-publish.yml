@@ -1,3 +1,6 @@
+# This workflow will build a package using Maven and then publish it to GitHub packages when a release is created
+# For more information see: https://github.com/actions/setup-java/blob/main/docs/advanced-usage.md#apache-maven-with-a-settings-path
+
 name: Maven Package HauntedMC Plugin
 
 on:
@@ -7,89 +10,69 @@ on:
 
 jobs:
   deploy:
-    name: Deploy Distributables
+    name:  Deploy Distributables
     runs-on: ubuntu-latest
     permissions:
       contents: write
       packages: write
 
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+    - name: Set up JDK 21
+      uses: actions/setup-java@v3
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        server-id: github
+        server-username: GITHUB_USER_REF
+        server-password: GITHUB_TOKEN_REF
+        settings-path: ${{ github.workspace }}
 
-      # Set up Java without generating settings.xml (we’ll create our own below)
-      - name: Set up JDK 21
-        uses: actions/setup-java@v3
-        with:
-          java-version: '21'
-          distribution: 'temurin'
 
-      # Create a custom settings.xml that supplies credentials for both deployment and dependency resolution.
-      # Make sure the <id> here (github) matches the <repository>/<server> id in your pom.xml.
-      - name: Create settings.xml for GitHub Packages
-        run: |
-          cat > "$GITHUB_WORKSPACE/settings.xml" <<'EOF'
-          <settings>
-            <servers>
-              <server>
-                <id>github</id>
-                <username>${GH_PACKAGE_REPO_USERNAME}</username>
-                <password>${GH_PACKAGE_REPO_PASSWORD}</password>
-              </server>
-            </servers>
-            <!-- The mirror section ensures that when Maven resolves dependencies from a repository with id "github",
-                 it uses the provided credentials via the URL below. Adjust the URL if your packages are hosted under a different path. -->
-            <mirrors>
-              <mirror>
-                <id>github</id>
-                <mirrorOf>github</mirrorOf>
-                <url>https://maven.pkg.github.com/HauntedMC</url>
-              </mirror>
-            </mirrors>
-          </settings>
-          EOF
-        env:
-          GH_PACKAGE_REPO_USERNAME: ${{ secrets.GH_PACKAGE_REPO_USERNAME }}
-          GH_PACKAGE_REPO_PASSWORD: ${{ secrets.GH_PACKAGE_REPO_PASSWORD }}
+    - name: Build with Maven
+      run: mvn -B -Pgithub package --file pom.xml --settings ${{ github.workspace }}/settings.xml
+      env:
+        GITHUB_USER_REF: ${{ secrets.GH_PACKAGE_REPO_USERNAME }}
+        GITHUB_TOKEN_REF: ${{ secrets.GH_PACKAGE_REPO_PASSWORD }}
 
-      # Build the project using Maven (the settings.xml now supplies credentials for any repository with id "github")
-      - name: Build with Maven
-        run: mvn -B -Pgithub package --file pom.xml --settings ${{ github.workspace }}/settings.xml
+    - name: Get Target Name
+      run: bash ./scripts/get_target_name.sh
 
-      - name: Get Target Name
-        run: bash ./scripts/get_target_name.sh
+    - name: Upload Distributable Jar
+      id: upload-final
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist
+        path: ./target/${{ env.TARGET_NAME }}.jar
 
-      - name: Upload Distributable Jar
-        id: upload-final
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: ./target/${{ env.TARGET_NAME }}.jar
+    - name: Publish to GitHub Packages Apache Maven
+      run: mvn deploy --file pom.xml --settings ${{ github.workspace }}/settings.xml
+      env:
+        GITHUB_USER_REF: ${{ secrets.GH_PACKAGE_REPO_USERNAME }}
+        GITHUB_TOKEN_REF: ${{ secrets.GH_PACKAGE_REPO_PASSWORD }}
 
-      # Deploy the artifact using Maven deploy (credentials in settings.xml will be used)
-      - name: Publish to GitHub Packages Apache Maven
-        run: mvn deploy --settings ${{ github.workspace }}/settings.xml
 
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
 
-      - name: Download Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist
+    - name: Download Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: dist
+        path: dist
 
-      - name: Set Release Variables
-        run: bash ./scripts/set_release_ver.sh
+    - name: Set Release Variables
+      run: bash ./scripts/set_release_ver.sh
 
-      - name: Create Release
-        id: create-release
-        uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PACKAGE_REPO_PASSWORD }}
-        with:
-          name: ${{ env.VERSIONED_NAME }}
-          body: ${{ env.GENERATED_CHANGELOG }}
-          draft: false
-          prerelease: false
-          files: ./dist/${{ env.TARGET_NAME }}.jar
+    - name: Create Release
+      id: create-release
+      uses: softprops/action-gh-release@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        name: ${{ env.VERSIONED_NAME }}
+        body: ${{ env.GENERATED_CHANGELOG }}
+        draft: false
+        prerelease: false
+        files: ./dist/${{ env.TARGET_NAME }}.jar
