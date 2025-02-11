@@ -24,6 +24,7 @@ jobs:
         java-version: '21'
         distribution: 'temurin'
         server-id: github
+        settings-path: ${{ github.workspace }}
         server-username: GITHUB_USER_REF
         server-password: GITHUB_TOKEN_REF
 
