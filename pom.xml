@@ -66,18 +66,17 @@
 
     <repositories>
         <repository>
+            <id>github</id>
+            <name>GitHub Packages - DataProvider</name>
+            <url>https://maven.pkg.github.com/HauntedMC/DataProvider</url>
+            <layout>default</layout>
+        </repository>
+        <repository>
             <id>papermc</id>
             <url>https://repo.papermc.io/repository/maven-public/</url>
         </repository>
     </repositories>
     <dependencies>
-        <!-- Hibernate Core -->
-<!--        <dependency>-->
-<!--            <groupId>org.hibernate.orm</groupId>-->
-<!--            <artifactId>hibernate-core</artifactId>-->
-<!--            <version>6.6.6.Final</version>-->
-<!--        </dependency>-->
-
         <!-- Jakarta Persistence API -->
         <dependency>
             <groupId>jakarta.persistence</groupId>

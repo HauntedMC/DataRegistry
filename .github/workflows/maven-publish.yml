@@ -28,7 +28,7 @@ jobs:
         settings-path: ${{ github.workspace }} # location for the settings.xml file
 
     - name: Build with Maven
-      run: mvn -B package --file pom.xml
+      run: mvn -B package --file pom.xml --settings ${{ github.workspace }}/settings.xml
 
     - name: Get Target Name
       run: bash ./scripts/get_target_name.sh
