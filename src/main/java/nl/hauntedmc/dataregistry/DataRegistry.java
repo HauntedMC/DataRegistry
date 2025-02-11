@@ -5,7 +5,7 @@ import nl.hauntedmc.dataprovider.api.DataProviderAPI;
 import nl.hauntedmc.dataprovider.database.base.BaseDatabaseProvider;
 import nl.hauntedmc.dataprovider.database.DatabaseType;
 import nl.hauntedmc.dataprovider.database.relational.RelationalDatabaseProvider;
-import nl.hauntedmc.dataprovider.orm.ORMManager;
+import nl.hauntedmc.dataprovider.orm.ORMContext;
 import nl.hauntedmc.dataregistry.entities.GamePlayer;
 import nl.hauntedmc.dataregistry.listener.PlayerListener;
 import nl.hauntedmc.dataregistry.service.PlayerService;
@@ -17,10 +17,11 @@ public class DataRegistry extends JavaPlugin {
 
     private static DataRegistry instance;
     private DataProviderAPI dataProviderAPI;
+    ORMContext ormContext;
 
     @Override
     public void onDisable() {
-        ORMManager.shutdown();
+        ormContext.shutdown();
         dataProviderAPI.unregisterAllDatabases(this);
     }
 
@@ -41,10 +42,10 @@ public class DataRegistry extends JavaPlugin {
         // Initialize ORM with the DataSource and register entity classes.
         RelationalDatabaseProvider relationalProvider = (RelationalDatabaseProvider) provider;
         DataSource dataSource = relationalProvider.getDataSource();
-        ORMManager.initialize(dataSource,
-                GamePlayer.class);
 
-        PlayerService playerService = new PlayerService();
+        ormContext = new ORMContext(this, dataSource, GamePlayer.class);
+
+        PlayerService playerService = new PlayerService(this);
         getServer().getPluginManager().registerEvents(new PlayerListener(playerService), this);
 
 
@@ -53,6 +54,10 @@ public class DataRegistry extends JavaPlugin {
 
     public static DataRegistry getInstance() {
         return instance;
+    }
+
+    public ORMContext getORM() {
+        return ormContext;
     }
 
 }

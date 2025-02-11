@@ -1,6 +1,6 @@
 package nl.hauntedmc.dataregistry.service;
 
-import nl.hauntedmc.dataprovider.orm.ORMManager;
+import nl.hauntedmc.dataregistry.DataRegistry;
 import nl.hauntedmc.dataregistry.entities.GamePlayer;
 import org.bukkit.entity.Player;
 
@@ -11,6 +11,11 @@ public class PlayerService {
 
     // A thread-safe map to hold active players.
     private final Map<String, GamePlayer> activePlayers = new ConcurrentHashMap<>();
+    private final DataRegistry plugin;
+
+    public PlayerService(DataRegistry plugin) {
+        this.plugin = plugin;
+    }
 
 
     public void onPlayerJoin(Player player) {
@@ -18,7 +23,7 @@ public class PlayerService {
         final String playerName = player.getName();
 
         // Run a transaction to load or create the player record.
-        GamePlayer gp = ORMManager.runInTransaction(session -> {
+        GamePlayer gp = plugin.getORM().runInTransaction(session -> {
             GamePlayer found = session.find(GamePlayer.class, uuid);
             if (found == null) {
                 found = new GamePlayer();
@@ -37,7 +42,7 @@ public class PlayerService {
         final String uuid = player.getUniqueId().toString();
         final String playerName = player.getName();
 
-        ORMManager.runInTransaction(session -> {
+        plugin.getORM().runInTransaction(session -> {
             GamePlayer gp = session.find(GamePlayer.class, uuid);
             if (gp != null) {
                 // Update the username (if needed) and mark offline.

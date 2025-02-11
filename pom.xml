@@ -89,7 +89,7 @@
         <dependency>
             <groupId>nl.hauntedmc.dataprovider</groupId>
             <artifactId>dataprovider</artifactId>
-            <version>1.14.5</version>
+            <version>1.15.0</version>
             <scope>provided</scope>
         </dependency>
 
