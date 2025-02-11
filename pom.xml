@@ -37,6 +37,14 @@
             </repositories>
         </profile>
     </profiles>
+    
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages - DataRegistry</name>
+            <url>https://maven.pkg.github.com/HauntedMC/DataRegistry</url>
+        </repository>
+    </distributionManagement>
 
     <build>
         <finalName>${project.name}</finalName>
