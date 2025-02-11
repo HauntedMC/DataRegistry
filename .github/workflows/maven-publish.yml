@@ -1,5 +1,6 @@
-# This workflow will build a package using Maven and then publish it to GitHub Packages when a release is created
-# For more information see: https://github.com/actions/setup-java/blob/main/docs/advanced-usage.md#apache-maven-with-a-settings-path
+# This workflow builds a package using Maven and then publishes it to GitHub Packages when a release is created.
+# For more information, see:
+# https://github.com/actions/setup-java/blob/main/docs/advanced-usage.md#apache-maven-with-a-settings-path
 
 name: Maven Package HauntedMC Plugin
 
@@ -19,33 +20,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 21
+      - name: Set up JDK 21 and configure Maven settings
         uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
+          # This server-id must match the <id> in your pom.xml repository declaration.
+          server-id: github
+          # The settings.xml file will be written to this path.
           settings-path: ${{ github.workspace }}
+          # Use your PAT stored in the secret GH_PAT.
+          token: ${{ secrets.GH_PAT }}
 
-      # Create a custom Maven settings.xml that uses the built-in GITHUB_TOKEN
-      - name: Configure Maven settings for GitHub Packages
-        run: |
-          mkdir -p $HOME/.m2
-          cat <<EOF > $HOME/.m2/settings.xml
-          <settings>
-            <servers>
-              <server>
-                <id>github</id>
-                <username>x-access-token</username>
-                <password>${GITHUB_TOKEN}</password>
-              </server>
-            </servers>
-          </settings>
-          EOF
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+      # Now, use the generated settings.xml for Maven commands:
       - name: Build with Maven
-        run: mvn -B package --file pom.xml --settings $HOME/.m2/settings.xml
+        run: mvn -B package --file pom.xml --settings ${{ github.workspace }}/settings.xml
 
       - name: Get Target Name
         run: bash ./scripts/get_target_name.sh
@@ -58,9 +47,10 @@ jobs:
           path: ./target/${{ env.TARGET_NAME }}.jar
 
       - name: Publish to GitHub Packages Apache Maven
-        run: mvn deploy -s $HOME/.m2/settings.xml
+        run: mvn deploy -s ${{ github.workspace }}/settings.xml
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # You can also export the PAT as an environment variable if needed.
+          GH_PAT: ${{ secrets.GH_PAT }}
 
       - uses: actions/checkout@v3
         with:
@@ -79,7 +69,7 @@ jobs:
         id: create-release
         uses: softprops/action-gh-release@v2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         with:
           name: ${{ env.VERSIONED_NAME }}
           body: ${{ env.GENERATED_CHANGELOG }}
