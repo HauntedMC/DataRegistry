@@ -1,6 +1,5 @@
-# This workflow builds a package using Maven and then publishes it to GitHub Packages when a release is created.
-# For more information, see:
-# https://github.com/actions/setup-java/blob/main/docs/advanced-usage.md#apache-maven-with-a-settings-path
+# This workflow will build a package using Maven and then publish it to GitHub packages when a release is created
+# For more information see: https://github.com/actions/setup-java/blob/main/docs/advanced-usage.md#apache-maven-with-a-settings-path
 
 name: Maven Package HauntedMC Plugin
 
@@ -11,68 +10,65 @@ on:
 
 jobs:
   deploy:
-    name: Deploy Distributables
+    name:  Deploy Distributables
     runs-on: ubuntu-latest
     permissions:
       contents: write
       packages: write
 
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+    - name: Set up JDK 21
+      uses: actions/setup-java@v3
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        server-id: github
+        server-username: GITHUB_USER_REF
+        server-password: GITHUB_TOKEN_REF
 
-      - name: Set up JDK 21 and configure Maven settings
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          # This server-id must match the <id> in your pom.xml repository declaration.
-          server-id: github
-          # The settings.xml file will be written to this path.
-          settings-path: ${{ github.workspace }}
-          # Use your PAT stored in the secret GH_PAT.
-          token: ${{ secrets.GH_PAT }}
+    - name: Build with Maven
+      run: mvn -B -Pgithub package --file pom.xml
+      env:
+        GITHUB_USER_REF: ${{ secrets.GH_PACKAGE_REPO_USERNAME }}
+        GITHUB_TOKEN_REF: ${{ secrets.GH_PACKAGE_REPO_PASSWORD }}
 
-      # Now, use the generated settings.xml for Maven commands:
-      - name: Build with Maven
-        run: mvn -B package --file pom.xml --settings ${{ github.workspace }}/settings.xml
+    - name: Get Target Name
+      run: bash ./scripts/get_target_name.sh
 
-      - name: Get Target Name
-        run: bash ./scripts/get_target_name.sh
+    - name: Upload Distributable Jar
+      id: upload-final
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist
+        path: ./target/${{ env.TARGET_NAME }}.jar
 
-      - name: Upload Distributable Jar
-        id: upload-final
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: ./target/${{ env.TARGET_NAME }}.jar
+    - name: Publish to GitHub Packages Apache Maven
+      run: mvn deploy -s $GITHUB_WORKSPACE/settings.xml
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
 
-      - name: Publish to GitHub Packages Apache Maven
-        run: mvn deploy -s ${{ github.workspace }}/settings.xml
-        env:
-          # You can also export the PAT as an environment variable if needed.
-          GH_PAT: ${{ secrets.GH_PAT }}
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
 
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
+    - name: Download Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: dist
+        path: dist
 
-      - name: Download Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist
+    - name: Set Release Variables
+      run: bash ./scripts/set_release_ver.sh
 
-      - name: Set Release Variables
-        run: bash ./scripts/set_release_ver.sh
-
-      - name: Create Release
-        id: create-release
-        uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-        with:
-          name: ${{ env.VERSIONED_NAME }}
-          body: ${{ env.GENERATED_CHANGELOG }}
-          draft: false
-          prerelease: false
-          files: ./dist/${{ env.TARGET_NAME }}.jar
+    - name: Create Release
+      id: create-release
+      uses: softprops/action-gh-release@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        name: ${{ env.VERSIONED_NAME }}
+        body: ${{ env.GENERATED_CHANGELOG }}
+        draft: false
+        prerelease: false
+        files: ./dist/${{ env.TARGET_NAME }}.jar

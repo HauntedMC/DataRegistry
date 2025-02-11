@@ -16,13 +16,28 @@
         <paper.version>1.21.4-R0.1-SNAPSHOT</paper.version>
     </properties>
 
-    <distributionManagement>
-        <repository>
+
+    <profiles>
+        <profile>
             <id>github</id>
-            <name>GitHub Packages</name>
-            <url>https://maven.pkg.github.com/HauntedMC/${project.name}</url>
-        </repository>
-    </distributionManagement>
+            <repositories>
+                <repository>
+                    <id>central</id>
+                    <url>https://repo1.maven.org/maven2</url>
+                    <releases><enabled>true</enabled></releases>
+                    <snapshots><enabled>true</enabled></snapshots>
+                </repository>
+                <repository>
+                    <id>github</id>
+                    <name>Github Packages </name>
+                    <url>https://maven.pkg.github.com/HauntedMC/CommonAPI</url>
+                    <snapshots><enabled>true</enabled></snapshots>
+                    <releases><enabled>true</enabled></releases>
+                </repository>
+            </repositories>
+        </profile>
+    </profiles>
+
     <build>
         <finalName>${project.name}</finalName>
         <plugins>
