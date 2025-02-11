@@ -24,12 +24,13 @@ jobs:
         java-version: '21'
         distribution: 'temurin'
         server-id: github
-        settings-path: ${{ github.workspace }}
         server-username: GITHUB_USER_REF
         server-password: GITHUB_TOKEN_REF
+        settings-path: ${{ env.HOME }}/.m2
+
 
     - name: Build with Maven
-      run: mvn -B -Pgithub package --file pom.xml
+      run: mvn -B -Pgithub package --file pom.xml --settings $HOME/.m2/settings.xml
       env:
         GITHUB_USER_REF: ${{ secrets.GH_PACKAGE_REPO_USERNAME }}
         GITHUB_TOKEN_REF: ${{ secrets.GH_PACKAGE_REPO_PASSWORD }}
@@ -45,9 +46,10 @@ jobs:
         path: ./target/${{ env.TARGET_NAME }}.jar
 
     - name: Publish to GitHub Packages Apache Maven
-      run: mvn deploy -s $GITHUB_WORKSPACE/settings.xml
+      run: mvn deploy -s $GITHUB_WORKSPACE/settings.xml --settings $HOME/.m2/settings.xml
       env:
         GITHUB_TOKEN: ${{ github.token }}
+
 
     - uses: actions/checkout@v3
       with:
