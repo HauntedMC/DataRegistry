@@ -1,63 +1,70 @@
 package nl.hauntedmc.dataregistry;
 
-import nl.hauntedmc.dataprovider.BukkitDataProvider;
 import nl.hauntedmc.dataprovider.api.DataProviderAPI;
 import nl.hauntedmc.dataprovider.database.base.BaseDatabaseProvider;
 import nl.hauntedmc.dataprovider.database.DatabaseType;
 import nl.hauntedmc.dataprovider.database.relational.RelationalDatabaseProvider;
 import nl.hauntedmc.dataprovider.orm.ORMContext;
-import nl.hauntedmc.dataregistry.entities.GamePlayer;
-import nl.hauntedmc.dataregistry.listener.PlayerListener;
-import nl.hauntedmc.dataregistry.service.PlayerService;
-import org.bukkit.plugin.java.JavaPlugin;
+import nl.hauntedmc.dataprovider.platform.common.logger.ILoggerAdapter;
+import nl.hauntedmc.dataregistry.entities.PlayerEntity;
+import nl.hauntedmc.dataregistry.entities.PlayerOnlineStatusEntity;
+import nl.hauntedmc.dataregistry.repository.impl.PlayerRepository;
 
 import javax.sql.DataSource;
 
-public class DataRegistry extends JavaPlugin {
+public class DataRegistry {
 
-    private static DataRegistry instance;
-    private DataProviderAPI dataProviderAPI;
-    ORMContext ormContext;
+    private static ILoggerAdapter logInstance;
 
-    @Override
-    public void onDisable() {
-        ormContext.shutdown();
-        dataProviderAPI.unregisterAllDatabases(this.getName());
+    private final String pluginName;
+    private final DataProviderAPI dataProviderAPI;
+
+    private PlayerRepository playerRepository;
+    private ORMContext ormContext;
+
+    public DataRegistry(ILoggerAdapter logger, String pluginName, DataProviderAPI dataProviderAPI) {
+        logInstance = logger;
+        this.pluginName = pluginName;
+        this.dataProviderAPI = dataProviderAPI;
     }
 
-    @Override
-    public void onEnable() {
-        instance = this;
-
-        dataProviderAPI = BukkitDataProvider.getDataProviderAPI();
-        dataProviderAPI.authenticate(this.getName(), "c5c052c7-b1a3-4c58-8b04-78496b2d4bd8");
-        BaseDatabaseProvider provider = dataProviderAPI.registerDatabase(this.getName(), DatabaseType.MYSQL, "test_conn");
+    /**
+     * Authenticate, register database and create ORMContext.
+     */
+    public boolean initialize() {
+        dataProviderAPI.authenticate(pluginName, "c5c052c7-b1a3-4c58-8b04-78496b2d4bd8");
+        BaseDatabaseProvider provider = dataProviderAPI.registerDatabase(pluginName, DatabaseType.MYSQL, "test_conn");
 
         if (provider == null || !provider.isConnected()) {
-            getLogger().severe("Database connection not established, disabling plugin.");
-            getServer().getPluginManager().disablePlugin(this);
-            return;
+            getLogger().error("Database Provider is not connected.");
+            return false;
         }
-
-        // Initialize ORM with the DataSource and register entity classes.
         RelationalDatabaseProvider relationalProvider = (RelationalDatabaseProvider) provider;
         DataSource dataSource = relationalProvider.getDataSource();
 
-        ormContext = new ORMContext(this.getName(), dataSource, GamePlayer.class);
+        ormContext = new ORMContext(pluginName, dataSource, PlayerEntity.class, PlayerOnlineStatusEntity.class);
 
-        PlayerService playerService = new PlayerService(this);
-        getServer().getPluginManager().registerEvents(new PlayerListener(playerService), this);
+        this.playerRepository = new PlayerRepository(ormContext);
 
-
-        getLogger().info("dataregistry enabled successfully.");
+        return true;
     }
 
-    public static DataRegistry getInstance() {
-        return instance;
+    public void shutdown() {
+        if (ormContext != null) {
+            ormContext.shutdown();
+        }
+        dataProviderAPI.unregisterAllDatabases(pluginName);
+    }
+
+    public static ILoggerAdapter getLogger() {
+        return logInstance;
     }
 
     public ORMContext getORM() {
         return ormContext;
     }
 
+    public PlayerRepository getPlayerRepository() {
+        return playerRepository;
+    }
 }
