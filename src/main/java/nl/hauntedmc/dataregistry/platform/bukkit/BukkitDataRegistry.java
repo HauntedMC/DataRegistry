@@ -1,12 +1,13 @@
-package nl.hauntedmc.dataregistry;
+package nl.hauntedmc.dataregistry.platform.bukkit;
 
-import nl.hauntedmc.dataprovider.BukkitDataProvider;
 import nl.hauntedmc.dataprovider.api.DataProviderAPI;
+import nl.hauntedmc.dataregistry.api.DataRegistry;
+import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
+import nl.hauntedmc.dataprovider.platform.bukkit.BukkitDataProvider;
 import nl.hauntedmc.dataprovider.platform.bukkit.logger.BukkitLoggerAdapter;
 import nl.hauntedmc.dataregistry.platform.bukkit.listener.PlayerStatusListener;
 import nl.hauntedmc.dataregistry.platform.bukkit.service.PlayerService;
 import nl.hauntedmc.dataregistry.platform.bukkit.service.PlayerStatusService;
-import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class BukkitDataRegistry extends JavaPlugin {

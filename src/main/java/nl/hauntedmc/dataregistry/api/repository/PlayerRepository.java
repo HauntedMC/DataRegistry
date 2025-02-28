@@ -1,8 +1,7 @@
 package nl.hauntedmc.dataregistry.api.repository;
 
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
-import nl.hauntedmc.dataprovider.orm.ORMContext;
-import nl.hauntedmc.dataregistry.repository.AbstractRepository;
+import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 
 import java.util.Map;
 import java.util.Optional;

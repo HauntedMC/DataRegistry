@@ -1,6 +1,6 @@
-package nl.hauntedmc.dataregistry.repository;
+package nl.hauntedmc.dataregistry.api.repository;
 
-import nl.hauntedmc.dataprovider.orm.ORMContext;
+import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import java.util.List;
 import java.util.Optional;
 

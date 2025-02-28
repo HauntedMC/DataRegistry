@@ -1,4 +1,4 @@
-package nl.hauntedmc.dataregistry;
+package nl.hauntedmc.dataregistry.platform.velocity;
 
 import com.google.inject.Inject;
 import com.google.inject.Injector;
@@ -9,10 +9,11 @@ import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
 import nl.hauntedmc.dataprovider.api.DataProviderAPI;
-import nl.hauntedmc.dataprovider.VelocityDataProvider;
-import nl.hauntedmc.dataprovider.platform.velocity.logger.SLF4JLoggerAdapter;
-import nl.hauntedmc.dataregistry.platform.velocity.VelocityPlayerAdapter;
+import nl.hauntedmc.dataregistry.api.DataRegistry;
 import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
+import nl.hauntedmc.dataprovider.platform.velocity.VelocityDataProvider;
+import nl.hauntedmc.dataprovider.platform.velocity.logger.SLF4JLoggerAdapter;
+import nl.hauntedmc.dataregistry.platform.velocity.util.VelocityPlayerAdapter;
 import org.slf4j.Logger;
 
 import java.nio.file.Path;

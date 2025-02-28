@@ -1,4 +1,4 @@
-package nl.hauntedmc.dataregistry.platform.bukkit;
+package nl.hauntedmc.dataregistry.platform.bukkit.util;
 
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import org.bukkit.Bukkit;

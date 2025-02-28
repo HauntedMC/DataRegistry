@@ -1,4 +1,4 @@
-package nl.hauntedmc.dataregistry.platform.velocity;
+package nl.hauntedmc.dataregistry.platform.velocity.util;
 
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import com.velocitypowered.api.proxy.Player;

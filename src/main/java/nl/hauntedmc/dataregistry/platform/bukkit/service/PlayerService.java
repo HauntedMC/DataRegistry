@@ -1,6 +1,6 @@
 package nl.hauntedmc.dataregistry.platform.bukkit.service;
 
-import nl.hauntedmc.dataregistry.BukkitDataRegistry;
+import nl.hauntedmc.dataregistry.platform.bukkit.BukkitDataRegistry;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import java.util.Optional;
 

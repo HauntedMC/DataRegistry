@@ -1,4 +1,4 @@
-package nl.hauntedmc.dataregistry.repository;
+package nl.hauntedmc.dataregistry.api.repository;
 
 import java.util.List;
 import java.util.Optional;
