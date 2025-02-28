@@ -1,6 +1,6 @@
 package nl.hauntedmc.dataregistry.platform.bukkit.logger;
 
-import nl.hauntedmc.dataprovider.platform.common.logger.ILoggerAdapter;
+import nl.hauntedmc.dataregistry.platform.logger.ILoggerAdapter;
 
 import java.util.logging.Level;
 import java.util.logging.Logger;

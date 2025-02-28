@@ -38,9 +38,14 @@ public abstract class AbstractRepository<T, ID> implements Repository<T, ID> {
     @Override
     public void delete(T entity) {
         ormContext.runInTransaction(session -> {
-            session.delete(entity);
+            session.remove(entity);
             return null;
         });
+    }
+
+    @Override
+    public void deleteById(ID id) {
+        findById(id).ifPresent(this::delete);
     }
 
     @Override

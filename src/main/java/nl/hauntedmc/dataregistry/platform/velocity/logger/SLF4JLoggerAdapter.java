@@ -1,6 +1,6 @@
 package nl.hauntedmc.dataregistry.platform.velocity.logger;
 
-import nl.hauntedmc.dataprovider.platform.common.logger.ILoggerAdapter;
+import nl.hauntedmc.dataregistry.platform.logger.ILoggerAdapter;
 import org.slf4j.Logger;
 
 public class SLF4JLoggerAdapter implements ILoggerAdapter {

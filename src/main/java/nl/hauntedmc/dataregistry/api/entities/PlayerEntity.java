@@ -1,14 +1,13 @@
-package nl.hauntedmc.dataregistry.entities;
+package nl.hauntedmc.dataregistry.api.entities;
 
 import jakarta.persistence.*;
 
-@Entity(name = "PlayerEntity")
+@Entity
 @Table(name = "player_entity")
 public class PlayerEntity {
 
     @Id
-    @GeneratedValue (strategy = GenerationType.IDENTITY)
-    @Column(name = "id")
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @Column(name = "uuid", length = 36, unique = true, nullable = false)
@@ -17,7 +16,8 @@ public class PlayerEntity {
     @Column(name = "username", length = 32, nullable = false)
     private String username;
 
-    public PlayerEntity() { }
+    public PlayerEntity() {
+    }
 
     public Long getId() {
         return id;

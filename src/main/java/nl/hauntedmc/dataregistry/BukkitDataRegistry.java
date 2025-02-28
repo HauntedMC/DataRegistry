@@ -6,6 +6,7 @@ import nl.hauntedmc.dataprovider.platform.bukkit.logger.BukkitLoggerAdapter;
 import nl.hauntedmc.dataregistry.platform.bukkit.listener.PlayerStatusListener;
 import nl.hauntedmc.dataregistry.platform.bukkit.service.PlayerService;
 import nl.hauntedmc.dataregistry.platform.bukkit.service.PlayerStatusService;
+import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class BukkitDataRegistry extends JavaPlugin {
@@ -42,7 +43,11 @@ public class BukkitDataRegistry extends JavaPlugin {
         }
     }
 
-    public static DataRegistry getDataRegistry() {
+    public DataRegistry getDataRegistry() {
         return dataRegistry;
+    }
+
+    public static PlayerRepository getPlayerRepository() {
+        return dataRegistry != null ? dataRegistry.getPlayerRepository() : null;
     }
 }

@@ -10,9 +10,9 @@ import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
 import nl.hauntedmc.dataprovider.api.DataProviderAPI;
 import nl.hauntedmc.dataprovider.VelocityDataProvider;
-import nl.hauntedmc.dataprovider.orm.ORMContext;
 import nl.hauntedmc.dataprovider.platform.velocity.logger.SLF4JLoggerAdapter;
 import nl.hauntedmc.dataregistry.platform.velocity.VelocityPlayerAdapter;
+import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
 import org.slf4j.Logger;
 
 import java.nio.file.Path;
@@ -47,8 +47,8 @@ public class VelocityDataRegistry {
 
         DataProviderAPI dataProviderAPI = VelocityDataProvider.getDataProviderAPI();
         SLF4JLoggerAdapter logInstance = new SLF4JLoggerAdapter(logger);
-        dataRegistry = new DataRegistry(logInstance,"DataRegistry", dataProviderAPI);
 
+        dataRegistry = new DataRegistry(logInstance,"DataRegistry", dataProviderAPI);
         if (!dataRegistry.initialize()) {
             logger.error("Database connection not established, disabling plugin.");
             return;
@@ -67,5 +67,9 @@ public class VelocityDataRegistry {
 
     public static DataRegistry getDataRegistry() {
         return dataRegistry;
+    }
+
+    public static PlayerRepository getPlayerRepository() {
+        return dataRegistry != null ? dataRegistry.getPlayerRepository() : null;
     }
 }

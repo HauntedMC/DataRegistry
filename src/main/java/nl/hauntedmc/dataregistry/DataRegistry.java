@@ -6,16 +6,14 @@ import nl.hauntedmc.dataprovider.database.DatabaseType;
 import nl.hauntedmc.dataprovider.database.relational.RelationalDatabaseProvider;
 import nl.hauntedmc.dataprovider.orm.ORMContext;
 import nl.hauntedmc.dataprovider.platform.common.logger.ILoggerAdapter;
-import nl.hauntedmc.dataregistry.entities.PlayerEntity;
-import nl.hauntedmc.dataregistry.entities.PlayerOnlineStatusEntity;
-import nl.hauntedmc.dataregistry.repository.impl.PlayerRepository;
-
+import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerOnlineStatusEntity;
+import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
 import javax.sql.DataSource;
 
 public class DataRegistry {
 
     private static ILoggerAdapter logInstance;
-
     private final String pluginName;
     private final DataProviderAPI dataProviderAPI;
 
@@ -28,22 +26,22 @@ public class DataRegistry {
         this.dataProviderAPI = dataProviderAPI;
     }
 
-    /**
-     * Authenticate, register database and create ORMContext.
-     */
     public boolean initialize() {
         dataProviderAPI.authenticate(pluginName, "c5c052c7-b1a3-4c58-8b04-78496b2d4bd8");
-        BaseDatabaseProvider provider = dataProviderAPI.registerDatabase(pluginName, DatabaseType.MYSQL, "test_conn");
 
+        BaseDatabaseProvider provider = dataProviderAPI.registerDatabase(pluginName, DatabaseType.MYSQL, "test_conn");
         if (provider == null || !provider.isConnected()) {
             getLogger().error("Database Provider is not connected.");
             return false;
         }
+
         RelationalDatabaseProvider relationalProvider = (RelationalDatabaseProvider) provider;
         DataSource dataSource = relationalProvider.getDataSource();
+        ormContext = new ORMContext(pluginName, dataSource,
+                PlayerEntity.class,
+                PlayerOnlineStatusEntity.class);
 
-        ormContext = new ORMContext(pluginName, dataSource, PlayerEntity.class, PlayerOnlineStatusEntity.class);
-
+        // Instantiate the PlayerRepository.
         this.playerRepository = new PlayerRepository(ormContext);
 
         return true;

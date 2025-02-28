@@ -1,9 +1,10 @@
 package nl.hauntedmc.dataregistry.platform.velocity;
 
-import nl.hauntedmc.dataregistry.entities.PlayerEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 
+import java.util.Optional;
 import java.util.UUID;
 
 public class VelocityPlayerAdapter {
@@ -44,6 +45,7 @@ public class VelocityPlayerAdapter {
             throw new IllegalStateException("ProxyServer not set in VelocityPlayerAdapter. Call setProxy() during initialization.");
         }
         UUID uuid = UUID.fromString(entity.getUuid());
-        return proxy.getPlayer(uuid).orElse(null);
+        Optional<Player> player = proxy.getPlayer(uuid);
+        return player.orElse(null);
     }
 }

@@ -1,7 +1,7 @@
 package nl.hauntedmc.dataregistry.platform.bukkit.service;
 
 import nl.hauntedmc.dataregistry.BukkitDataRegistry;
-import nl.hauntedmc.dataregistry.entities.PlayerEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import java.util.Optional;
 
 public class PlayerService {

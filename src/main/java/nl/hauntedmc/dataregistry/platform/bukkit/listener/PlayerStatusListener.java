@@ -1,7 +1,7 @@
 package nl.hauntedmc.dataregistry.platform.bukkit.listener;
 
 import nl.hauntedmc.dataregistry.platform.bukkit.BukkitPlayerAdapter;
-import nl.hauntedmc.dataregistry.entities.PlayerEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.platform.bukkit.service.PlayerService;
 import nl.hauntedmc.dataregistry.platform.bukkit.service.PlayerStatusService;
 import org.bukkit.event.EventHandler;
