@@ -5,6 +5,7 @@ import com.google.inject.Injector;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.event.Subscribe;
+import com.velocitypowered.api.plugin.Dependency;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
@@ -23,7 +24,10 @@ import java.nio.file.Path;
         name = "DataRegistry",
         version = "1.2.0",
         description = "DataRegistry for cross-platform data handling.",
-        authors = {"HauntedMC"}
+        authors = {"HauntedMC"},
+        dependencies = {
+                @Dependency(id = "dataprovider")
+        }
 )
 public class VelocityDataRegistry {
 
