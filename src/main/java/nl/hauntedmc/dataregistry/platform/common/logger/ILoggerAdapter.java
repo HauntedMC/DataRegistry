@@ -1,4 +1,4 @@
-package nl.hauntedmc.dataregistry.platform.logger;
+package nl.hauntedmc.dataregistry.platform.common.logger;
 
 /**
  * A common logging interface for both Bukkit and Velocity implementations.

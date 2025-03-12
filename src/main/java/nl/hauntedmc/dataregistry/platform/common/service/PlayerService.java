@@ -1,14 +1,15 @@
-package nl.hauntedmc.dataregistry.platform.bukkit.service;
+package nl.hauntedmc.dataregistry.platform.common.service;
 
-import nl.hauntedmc.dataregistry.platform.bukkit.BukkitDataRegistry;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
+import nl.hauntedmc.dataregistry.platform.common.PlatformPlugin;
+
 import java.util.Optional;
 
 public class PlayerService {
 
-    private final BukkitDataRegistry plugin;
+    private final PlatformPlugin plugin;
 
-    public PlayerService(BukkitDataRegistry plugin) {
+    public PlayerService(PlatformPlugin plugin) {
         this.plugin = plugin;
     }
 

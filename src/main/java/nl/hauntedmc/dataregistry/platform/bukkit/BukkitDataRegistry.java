@@ -6,11 +6,12 @@ import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
 import nl.hauntedmc.dataprovider.platform.bukkit.BukkitDataProvider;
 import nl.hauntedmc.dataprovider.platform.bukkit.logger.BukkitLoggerAdapter;
 import nl.hauntedmc.dataregistry.platform.bukkit.listener.PlayerStatusListener;
-import nl.hauntedmc.dataregistry.platform.bukkit.service.PlayerService;
-import nl.hauntedmc.dataregistry.platform.bukkit.service.PlayerStatusService;
+import nl.hauntedmc.dataregistry.platform.common.PlatformPlugin;
+import nl.hauntedmc.dataregistry.platform.common.service.PlayerService;
+import nl.hauntedmc.dataregistry.platform.common.service.PlayerStatusService;
 import org.bukkit.plugin.java.JavaPlugin;
 
-public class BukkitDataRegistry extends JavaPlugin {
+public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
 
     private static DataRegistry dataRegistry;
 
@@ -28,11 +29,9 @@ public class BukkitDataRegistry extends JavaPlugin {
 
         // Initialize services.
         PlayerService playerService = new PlayerService(this);
-        PlayerStatusService statusService = new PlayerStatusService(this);
-        String serverName = getServer().getName();
 
         // Register the join/quit listener.
-        getServer().getPluginManager().registerEvents(new PlayerStatusListener(playerService, statusService, serverName), this);
+        getServer().getPluginManager().registerEvents(new PlayerStatusListener(playerService), this);
 
         getLogger().info("DataRegistry enabled successfully.");
     }

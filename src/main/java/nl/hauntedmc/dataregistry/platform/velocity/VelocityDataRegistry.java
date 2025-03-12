@@ -14,6 +14,10 @@ import nl.hauntedmc.dataregistry.api.DataRegistry;
 import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
 import nl.hauntedmc.dataprovider.platform.velocity.VelocityDataProvider;
 import nl.hauntedmc.dataprovider.platform.velocity.logger.SLF4JLoggerAdapter;
+import nl.hauntedmc.dataregistry.platform.common.PlatformPlugin;
+import nl.hauntedmc.dataregistry.platform.common.service.PlayerService;
+import nl.hauntedmc.dataregistry.platform.common.service.PlayerStatusService;
+import nl.hauntedmc.dataregistry.platform.velocity.listener.PlayerStatusListener;
 import nl.hauntedmc.dataregistry.platform.velocity.util.VelocityPlayerAdapter;
 import org.slf4j.Logger;
 
@@ -29,7 +33,7 @@ import java.nio.file.Path;
                 @Dependency(id = "dataprovider")
         }
 )
-public class VelocityDataRegistry {
+public class VelocityDataRegistry implements PlatformPlugin {
 
     private final ProxyServer proxyServer;
     private final Logger logger;
@@ -59,6 +63,10 @@ public class VelocityDataRegistry {
             return;
         }
 
+        PlayerService playerService = new PlayerService(this);
+        PlayerStatusService statusService = new PlayerStatusService(this);
+        proxyServer.getEventManager().register(this, new PlayerStatusListener(playerService, statusService));
+
         logger.info("DataRegistry enabled successfully on Velocity.");
     }
 
@@ -70,7 +78,7 @@ public class VelocityDataRegistry {
         logger.info("DataRegistry disabled on Velocity.");
     }
 
-    public static DataRegistry getDataRegistry() {
+    public DataRegistry getDataRegistry() {
         return dataRegistry;
     }
 
