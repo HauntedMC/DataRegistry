@@ -27,9 +27,9 @@ public class DataRegistry {
     }
 
     public boolean initialize() {
-        dataProviderAPI.authenticate(pluginName, "c5c052c7-b1a3-4c58-8b04-78496b2d4bd8");
+        dataProviderAPI.authenticate(pluginName, "7ebbeae6-b52e-484a-ae61-8a215f8efc2b");
 
-        DatabaseProvider provider = dataProviderAPI.registerDatabase(pluginName, DatabaseType.MYSQL, "test_conn");
+        DatabaseProvider provider = dataProviderAPI.registerDatabase(pluginName, DatabaseType.MYSQL, "player_data_rw");
         if (provider == null || !provider.isConnected()) {
             getLogger().error("Database Provider is not connected.");
             return false;
