@@ -13,11 +13,12 @@ import nl.hauntedmc.dataprovider.api.DataProviderAPI;
 import nl.hauntedmc.dataregistry.api.DataRegistry;
 import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
 import nl.hauntedmc.dataprovider.platform.velocity.VelocityDataProvider;
-import nl.hauntedmc.dataprovider.platform.velocity.logger.SLF4JLoggerAdapter;
 import nl.hauntedmc.dataregistry.platform.common.PlatformPlugin;
+import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import nl.hauntedmc.dataregistry.platform.common.service.PlayerService;
 import nl.hauntedmc.dataregistry.platform.common.service.PlayerStatusService;
 import nl.hauntedmc.dataregistry.platform.velocity.listener.PlayerStatusListener;
+import nl.hauntedmc.dataregistry.platform.velocity.logger.SLF4JLoggerAdapter;
 import nl.hauntedmc.dataregistry.platform.velocity.util.VelocityPlayerAdapter;
 import org.slf4j.Logger;
 
@@ -42,6 +43,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
 
     @Inject
     private Injector injector;
+    private SLF4JLoggerAdapter logInstance;
 
     @Inject
     public VelocityDataRegistry(ProxyServer proxyServer, Logger logger, @DataDirectory Path dataDirectory) {
@@ -55,7 +57,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
         VelocityPlayerAdapter.setProxy(proxyServer);
 
         DataProviderAPI dataProviderAPI = VelocityDataProvider.getDataProviderAPI();
-        SLF4JLoggerAdapter logInstance = new SLF4JLoggerAdapter(logger);
+        logInstance = new SLF4JLoggerAdapter(logger);
 
         dataRegistry = new DataRegistry(logInstance,"DataRegistry", dataProviderAPI);
         if (!dataRegistry.initialize()) {
@@ -80,6 +82,11 @@ public class VelocityDataRegistry implements PlatformPlugin {
 
     public DataRegistry getDataRegistry() {
         return dataRegistry;
+    }
+
+    @Override
+    public ILoggerAdapter getPlatformLogger() {
+        return logInstance;
     }
 
     public static PlayerRepository getPlayerRepository() {

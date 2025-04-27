@@ -1,24 +1,25 @@
 package nl.hauntedmc.dataregistry.platform.bukkit;
 
 import nl.hauntedmc.dataprovider.api.DataProviderAPI;
+import nl.hauntedmc.dataprovider.platform.bukkit.BukkitDataProvider;
 import nl.hauntedmc.dataregistry.api.DataRegistry;
 import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
-import nl.hauntedmc.dataprovider.platform.bukkit.BukkitDataProvider;
-import nl.hauntedmc.dataprovider.platform.bukkit.logger.BukkitLoggerAdapter;
+import nl.hauntedmc.dataregistry.platform.bukkit.logger.BukkitLoggerAdapter;
 import nl.hauntedmc.dataregistry.platform.bukkit.listener.PlayerStatusListener;
 import nl.hauntedmc.dataregistry.platform.common.PlatformPlugin;
+import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import nl.hauntedmc.dataregistry.platform.common.service.PlayerService;
-import nl.hauntedmc.dataregistry.platform.common.service.PlayerStatusService;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
 
     private static DataRegistry dataRegistry;
+    private BukkitLoggerAdapter logInstance;
 
     @Override
     public void onEnable() {
         DataProviderAPI dataProviderAPI = BukkitDataProvider.getDataProviderAPI();
-        BukkitLoggerAdapter logInstance = new BukkitLoggerAdapter(getLogger());
+        logInstance = new BukkitLoggerAdapter(getLogger());
         dataRegistry = new DataRegistry(logInstance, getName(), dataProviderAPI);
 
         if (!dataRegistry.initialize()) {
@@ -31,7 +32,7 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
         PlayerService playerService = new PlayerService(this);
 
         // Register the join/quit listener.
-        getServer().getPluginManager().registerEvents(new PlayerStatusListener(playerService), this);
+        getServer().getPluginManager().registerEvents(new PlayerStatusListener(this, playerService), this);
 
         getLogger().info("DataRegistry enabled successfully.");
     }
@@ -47,7 +48,13 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
         return dataRegistry;
     }
 
+    @Override
+    public ILoggerAdapter getPlatformLogger() {
+        return logInstance;
+    }
+
     public static PlayerRepository getPlayerRepository() {
         return dataRegistry != null ? dataRegistry.getPlayerRepository() : null;
     }
+
 }

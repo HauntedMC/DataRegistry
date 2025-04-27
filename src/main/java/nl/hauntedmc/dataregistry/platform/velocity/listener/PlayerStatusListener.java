@@ -27,8 +27,9 @@ public class PlayerStatusListener {
 
     @Subscribe(priority = 10, async = true)
     public void onPlayerQuit(DisconnectEvent event) {
+        String username = event.getPlayer().getUsername();
         String uuid = event.getPlayer().getUniqueId().toString();
         playerService.getActivePlayer(uuid).ifPresent(statusService::updateStatusOnQuit);
-        playerService.onPlayerQuit(uuid);
+        playerService.onPlayerQuit(username, uuid);
     }
 }

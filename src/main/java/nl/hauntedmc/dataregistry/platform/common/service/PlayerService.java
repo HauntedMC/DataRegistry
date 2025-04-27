@@ -23,7 +23,9 @@ public class PlayerService {
     public PlayerEntity onPlayerJoin(PlayerEntity tempEntity) {
         String uuid = tempEntity.getUuid();
         String username = tempEntity.getUsername();
-        return plugin.getDataRegistry().getPlayerRepository().getOrCreateActivePlayer(uuid, username);
+        PlayerEntity player = plugin.getDataRegistry().getPlayerRepository().getOrCreateActivePlayer(uuid, username);
+        plugin.getPlatformLogger().info("Added " + username + " ("+uuid+") to the local player repository.");
+        return player;
     }
 
     /**
@@ -31,8 +33,9 @@ public class PlayerService {
      *
      * @param uuid the player's UUID.
      */
-    public void onPlayerQuit(String uuid) {
+    public void onPlayerQuit(String username, String uuid) {
         plugin.getDataRegistry().getPlayerRepository().removeActivePlayer(uuid);
+        plugin.getPlatformLogger().info("Removed " + username + " ("+uuid+") from the local player repository.");
     }
 
     /**
