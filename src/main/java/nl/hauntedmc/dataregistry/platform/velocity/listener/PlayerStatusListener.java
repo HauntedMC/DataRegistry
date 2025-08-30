@@ -68,6 +68,7 @@ public class PlayerStatusListener {
 
         Optional<PlayerEntity> activeOpt = playerService.getActivePlayer(uuid);
         activeOpt.ifPresent(statusService::updateStatusOnQuit);
+        activeOpt.ifPresent(connectionService::updateOnDisconnect);
         activeOpt.ifPresent(sessionService::closeSessionOnDisconnect);
 
         // Remove from active cache last
