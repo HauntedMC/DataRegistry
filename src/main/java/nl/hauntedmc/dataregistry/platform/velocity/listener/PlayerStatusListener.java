@@ -2,34 +2,91 @@ package nl.hauntedmc.dataregistry.platform.velocity.listener;
 
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
+import com.velocitypowered.api.event.connection.PostLoginEvent;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
+import com.velocitypowered.api.proxy.Player;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
+import nl.hauntedmc.dataregistry.platform.common.service.PlayerConnectionInfoService;
 import nl.hauntedmc.dataregistry.platform.common.service.PlayerService;
 import nl.hauntedmc.dataregistry.platform.common.service.PlayerStatusService;
 import nl.hauntedmc.dataregistry.platform.velocity.util.VelocityPlayerAdapter;
+
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.util.Optional;
 
 public class PlayerStatusListener {
 
     private final PlayerService playerService;
     private final PlayerStatusService statusService;
+    private final PlayerConnectionInfoService connectionService;
 
-    public PlayerStatusListener(PlayerService playerService, PlayerStatusService statusService) {
+    public PlayerStatusListener(PlayerService playerService,
+                                PlayerStatusService statusService,
+                                PlayerConnectionInfoService connectionService) {
         this.playerService = playerService;
         this.statusService = statusService;
+        this.connectionService = connectionService;
     }
 
     @Subscribe(priority = 10, async = true)
-    public void onPlayerJoin(ServerConnectedEvent event) {
-        PlayerEntity temp = VelocityPlayerAdapter.fromPlatformPlayer(event.getPlayer());
+    public void onPlayerJoin(PostLoginEvent event) {
+        Player player = event.getPlayer();
+
+        // Persist & cache player, returns persistent entity with generated ID
+        PlayerEntity temp = VelocityPlayerAdapter.fromPlatformPlayer(player);
         PlayerEntity persistent = playerService.onPlayerJoin(temp);
-        statusService.updateStatus(persistent, event.getServer().getServerInfo().getName());
+
+        // Extract connection info safely
+        String ip = extractIp(player);
+        String vhost = extractVirtualHost(player);
+
+        // Update connection info (first/last connect, IP, vhost)
+        connectionService.updateOnLogin(persistent, ip, vhost);
+    }
+
+    @Subscribe(priority = 10, async = true)
+    public void onServerSwitch(ServerConnectedEvent event) {
+        String uuid = event.getPlayer().getUniqueId().toString();
+        playerService.getActivePlayer(uuid)
+                .ifPresent(player -> statusService.updateStatus(player, event.getServer().getServerInfo().getName()));
     }
 
     @Subscribe(priority = 10, async = true)
     public void onPlayerQuit(DisconnectEvent event) {
         String username = event.getPlayer().getUsername();
         String uuid = event.getPlayer().getUniqueId().toString();
-        playerService.getActivePlayer(uuid).ifPresent(statusService::updateStatusOnQuit);
+
+        // Update status and connection info before removing from cache
+        Optional<PlayerEntity> activeOpt = playerService.getActivePlayer(uuid);
+        activeOpt.ifPresent(statusService::updateStatusOnQuit);
+        activeOpt.ifPresent(connectionService::updateOnDisconnect);
+
+        // Remove from active cache last
         playerService.onPlayerQuit(username, uuid);
+    }
+
+    private String extractIp(Player player) {
+        try {
+            SocketAddress sa = player.getRemoteAddress();
+            if (sa instanceof InetSocketAddress isa) {
+                if (isa.getAddress() != null) {
+                    return isa.getAddress().getHostAddress();
+                }
+                return isa.getHostString();
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
+    }
+
+    private String extractVirtualHost(Player player) {
+        try {
+            return player.getVirtualHost()
+                    .map(addr -> addr.getHostString() + ":" + addr.getPort())
+                    .orElse("");
+        } catch (Exception ignored) {
+            return "";
+        }
     }
 }

@@ -7,6 +7,7 @@ import nl.hauntedmc.dataprovider.database.relational.RelationalDatabaseProvider;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerOnlineStatusEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 
@@ -38,9 +39,14 @@ public class DataRegistry {
 
         RelationalDatabaseProvider relationalProvider = (RelationalDatabaseProvider) provider;
         DataSource dataSource = relationalProvider.getDataSource();
-        ormContext = new ORMContext(pluginName, dataSource,
+
+        ormContext = new ORMContext(
+                pluginName,
+                dataSource,
                 PlayerEntity.class,
-                PlayerOnlineStatusEntity.class);
+                PlayerOnlineStatusEntity.class,
+                PlayerConnectionInfoEntity.class // <-- include new entity
+        );
 
         // Instantiate the PlayerRepository.
         this.playerRepository = new PlayerRepository(ormContext);
