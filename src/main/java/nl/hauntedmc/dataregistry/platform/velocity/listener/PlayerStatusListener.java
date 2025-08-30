@@ -8,6 +8,7 @@ import com.velocitypowered.api.proxy.Player;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.platform.common.service.PlayerConnectionInfoService;
 import nl.hauntedmc.dataregistry.platform.common.service.PlayerService;
+import nl.hauntedmc.dataregistry.platform.common.service.PlayerSessionService;
 import nl.hauntedmc.dataregistry.platform.common.service.PlayerStatusService;
 import nl.hauntedmc.dataregistry.platform.velocity.util.VelocityPlayerAdapter;
 
@@ -20,36 +21,44 @@ public class PlayerStatusListener {
     private final PlayerService playerService;
     private final PlayerStatusService statusService;
     private final PlayerConnectionInfoService connectionService;
+    private final PlayerSessionService sessionService;
 
     public PlayerStatusListener(PlayerService playerService,
                                 PlayerStatusService statusService,
-                                PlayerConnectionInfoService connectionService) {
+                                PlayerConnectionInfoService connectionService,
+                                PlayerSessionService sessionService) {
         this.playerService = playerService;
         this.statusService = statusService;
         this.connectionService = connectionService;
+        this.sessionService = sessionService;
     }
 
     @Subscribe(priority = 10, async = true)
     public void onPlayerJoin(PostLoginEvent event) {
         Player player = event.getPlayer();
 
-        // Persist & cache player, returns persistent entity with generated ID
+        // Persist & cache player
         PlayerEntity temp = VelocityPlayerAdapter.fromPlatformPlayer(player);
         PlayerEntity persistent = playerService.onPlayerJoin(temp);
 
-        // Extract connection info safely
+        // Extract connection info
         String ip = extractIp(player);
         String vhost = extractVirtualHost(player);
 
-        // Update connection info (first/last connect, IP, vhost)
+        // Update connection summary + open a new session
         connectionService.updateOnLogin(persistent, ip, vhost);
+        sessionService.openSessionOnLogin(persistent, ip, vhost);
     }
 
     @Subscribe(priority = 10, async = true)
     public void onServerSwitch(ServerConnectedEvent event) {
         String uuid = event.getPlayer().getUniqueId().toString();
-        playerService.getActivePlayer(uuid)
-                .ifPresent(player -> statusService.updateStatus(player, event.getServer().getServerInfo().getName()));
+        String serverName = event.getServer().getServerInfo().getName();
+
+        playerService.getActivePlayer(uuid).ifPresent(player -> {
+            statusService.updateStatus(player, serverName);
+            sessionService.updateServerOnSwitch(player, serverName);
+        });
     }
 
     @Subscribe(priority = 10, async = true)
@@ -57,10 +66,9 @@ public class PlayerStatusListener {
         String username = event.getPlayer().getUsername();
         String uuid = event.getPlayer().getUniqueId().toString();
 
-        // Update status and connection info before removing from cache
         Optional<PlayerEntity> activeOpt = playerService.getActivePlayer(uuid);
         activeOpt.ifPresent(statusService::updateStatusOnQuit);
-        activeOpt.ifPresent(connectionService::updateOnDisconnect);
+        activeOpt.ifPresent(sessionService::closeSessionOnDisconnect);
 
         // Remove from active cache last
         playerService.onPlayerQuit(username, uuid);
@@ -75,8 +83,7 @@ public class PlayerStatusListener {
                 }
                 return isa.getHostString();
             }
-        } catch (Exception ignored) {
-        }
+        } catch (Exception ignored) {}
         return "";
     }
 

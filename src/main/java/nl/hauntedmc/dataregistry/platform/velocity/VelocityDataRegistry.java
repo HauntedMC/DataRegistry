@@ -17,6 +17,7 @@ import nl.hauntedmc.dataregistry.platform.common.PlatformPlugin;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import nl.hauntedmc.dataregistry.platform.common.service.PlayerConnectionInfoService;
 import nl.hauntedmc.dataregistry.platform.common.service.PlayerService;
+import nl.hauntedmc.dataregistry.platform.common.service.PlayerSessionService;
 import nl.hauntedmc.dataregistry.platform.common.service.PlayerStatusService;
 import nl.hauntedmc.dataregistry.platform.velocity.listener.PlayerStatusListener;
 import nl.hauntedmc.dataregistry.platform.velocity.logger.SLF4JLoggerAdapter;
@@ -69,9 +70,10 @@ public class VelocityDataRegistry implements PlatformPlugin {
         PlayerService playerService = new PlayerService(this);
         PlayerStatusService statusService = new PlayerStatusService(this);
         PlayerConnectionInfoService connectionInfoService = new PlayerConnectionInfoService(this);
+        PlayerSessionService sessionService = new PlayerSessionService(this);
 
         proxyServer.getEventManager().register(this,
-                new PlayerStatusListener(playerService, statusService, connectionInfoService));
+                new PlayerStatusListener(playerService, statusService, connectionInfoService, sessionService));
 
         logger.info("DataRegistry enabled successfully on Velocity.");
     }

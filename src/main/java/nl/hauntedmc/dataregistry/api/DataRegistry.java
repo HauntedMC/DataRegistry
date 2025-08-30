@@ -8,6 +8,7 @@ import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerOnlineStatusEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerConnectionInfoEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 
@@ -45,7 +46,8 @@ public class DataRegistry {
                 dataSource,
                 PlayerEntity.class,
                 PlayerOnlineStatusEntity.class,
-                PlayerConnectionInfoEntity.class // <-- include new entity
+                PlayerConnectionInfoEntity.class,
+                PlayerSessionEntity.class
         );
 
         // Instantiate the PlayerRepository.
