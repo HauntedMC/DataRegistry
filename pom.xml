@@ -6,7 +6,7 @@
 
     <groupId>nl.hauntedmc.dataregistry</groupId>
     <artifactId>dataregistry</artifactId>
-    <version>1.5.0</version>
+    <version>1.5.1</version>
     <packaging>jar</packaging>
     <name>DataRegistry</name>
     <url>http://maven.apache.org</url>
@@ -126,6 +126,15 @@
             <groupId>nl.hauntedmc.dataprovider</groupId>
             <artifactId>dataprovider</artifactId>
             <version>1.18.0</version>
+            <scope>provided</scope>
+        </dependency>
+
+
+        <!-- Commonlib (provided) -->
+        <dependency>
+            <groupId>nl.hauntedmc.commonlib</groupId>
+            <artifactId>commonlib</artifactId>
+            <version>1.1.0</version>
             <scope>provided</scope>
         </dependency>
 
