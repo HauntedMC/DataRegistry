@@ -7,20 +7,21 @@ import jakarta.persistence.*;
 public class PlayerOnlineStatusEntity {
 
     @Id
+    @Column(name = "player_id")
     private Long playerId;
 
-    @OneToOne
+    @OneToOne(optional = false)
     @MapsId
-    @JoinColumn(name = "player_id")
+    @JoinColumn(name = "player_id", nullable = false)
     private PlayerEntity player;
 
-    @Column(name = "online")
+    @Column(name = "online", nullable = false)
     private boolean online;
 
-    @Column(name = "current_server", length = 32)
-    private String currentServer;
+    @Column(name = "current_server", length = 64, nullable = false)
+    private String currentServer = "";
 
-    @Column(name = "previous_server", length = 32)
+    @Column(name = "previous_server", length = 64)
     private String previousServer;
 
     public PlayerOnlineStatusEntity() {

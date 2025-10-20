@@ -29,7 +29,7 @@ import java.nio.file.Path;
 @Plugin(
         id = "dataregistry",
         name = "DataRegistry",
-        version = "1.2.0",
+        version = "1.5.2",
         description = "DataRegistry for cross-platform data handling.",
         authors = {"HauntedMC"},
         dependencies = {
