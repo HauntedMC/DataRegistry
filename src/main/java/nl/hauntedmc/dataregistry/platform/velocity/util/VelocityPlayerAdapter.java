@@ -11,6 +11,9 @@ public class VelocityPlayerAdapter {
 
     private static ProxyServer proxy;
 
+    private VelocityPlayerAdapter() {
+    }
+
     /**
      * Sets the ProxyServer instance for Velocity.
      * This must be called during plugin initialization.

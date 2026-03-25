@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
 # Read the current version from pom.xml
 current_version=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)

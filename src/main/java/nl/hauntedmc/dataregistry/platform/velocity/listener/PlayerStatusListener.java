@@ -84,17 +84,19 @@ public class PlayerStatusListener {
                 }
                 return isa.getHostString();
             }
-        } catch (Exception ignored) {}
-        return "";
+        } catch (Exception ignored) {
+            return null;
+        }
+        return null;
     }
 
     private String extractVirtualHost(Player player) {
         try {
             return player.getVirtualHost()
                     .map(addr -> addr.getHostString() + ":" + addr.getPort())
-                    .orElse("");
+                    .orElse(null);
         } catch (Exception ignored) {
-            return "";
+            return null;
         }
     }
 }

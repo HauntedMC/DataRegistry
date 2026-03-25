@@ -1,7 +1,9 @@
 package nl.hauntedmc.dataregistry.api.repository;
 
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
+
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 public abstract class AbstractRepository<T, ID> implements Repository<T, ID> {
@@ -10,8 +12,8 @@ public abstract class AbstractRepository<T, ID> implements Repository<T, ID> {
     protected final Class<T> entityClass;
 
     public AbstractRepository(ORMContext ormContext, Class<T> entityClass) {
-        this.ormContext = ormContext;
-        this.entityClass = entityClass;
+        this.ormContext = Objects.requireNonNull(ormContext, "ormContext must not be null");
+        this.entityClass = Objects.requireNonNull(entityClass, "entityClass must not be null");
     }
 
     @Override
@@ -38,7 +40,8 @@ public abstract class AbstractRepository<T, ID> implements Repository<T, ID> {
     @Override
     public void delete(T entity) {
         ormContext.runInTransaction(session -> {
-            session.remove(entity);
+            T managed = session.contains(entity) ? entity : session.merge(entity);
+            session.remove(managed);
             return null;
         });
     }

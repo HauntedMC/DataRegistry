@@ -7,6 +7,9 @@ import java.util.UUID;
 
 public class BukkitPlayerAdapter {
 
+    private BukkitPlayerAdapter() {
+    }
+
     /**
      * Converts a live Bukkit Player into a temporary PlayerEntity.
      * This instance does not have a generated ID until merged via PlayerService.

@@ -1,7 +1,6 @@
 package nl.hauntedmc.dataregistry.platform.bukkit.listener;
 
 import nl.hauntedmc.dataregistry.platform.bukkit.BukkitDataRegistry;
-import nl.hauntedmc.dataregistry.platform.bukkit.util.BukkitPlayerAdapter;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.platform.common.service.PlayerService;
 import org.bukkit.Bukkit;
@@ -22,9 +21,14 @@ public class PlayerStatusListener implements Listener {
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
+        final String username = event.getPlayer().getName();
+        final String uuid = event.getPlayer().getUniqueId().toString();
+
         // Introduce delay to favor velocity db entry creation
         Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, () -> {
-            PlayerEntity temp = BukkitPlayerAdapter.fromPlatformPlayer(event.getPlayer());
+            PlayerEntity temp = new PlayerEntity();
+            temp.setUsername(username);
+            temp.setUuid(uuid);
             playerService.onPlayerJoin(temp);
         }, 4L); // 4 ticks = ~200ms
     }

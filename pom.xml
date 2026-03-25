@@ -6,38 +6,21 @@
 
     <groupId>nl.hauntedmc.dataregistry</groupId>
     <artifactId>dataregistry</artifactId>
-    <version>1.5.2</version>
+    <version>1.6.0</version>
     <packaging>jar</packaging>
     <name>DataRegistry</name>
-    <url>http://maven.apache.org</url>
+    <description>Keeps up-to-date player data records, game-state metadata, and related events.</description>
+    <url>https://github.com/HauntedMC/DataRegistry</url>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <java.version>21</java.version>
+        <maven.compiler.release>${java.version}</maven.compiler.release>
+        <checkstyle.version>10.21.3</checkstyle.version>
         <paper.version>1.21.11-R0.1-SNAPSHOT</paper.version>
         <velocity.version>3.5.0-SNAPSHOT</velocity.version>
     </properties>
 
-    <profiles>
-        <profile>
-            <id>github</id>
-            <repositories>
-                <repository>
-                    <id>central</id>
-                    <url>https://repo1.maven.org/maven2</url>
-                    <releases><enabled>true</enabled></releases>
-                    <snapshots><enabled>true</enabled></snapshots>
-                </repository>
-                <repository>
-                    <id>github</id>
-                    <name>Github Packages </name>
-                    <url>https://maven.pkg.github.com/HauntedMC/DataProvider</url>
-                    <snapshots><enabled>true</enabled></snapshots>
-                    <releases><enabled>true</enabled></releases>
-                </repository>
-            </repositories>
-        </profile>
-    </profiles>
-    
     <distributionManagement>
         <repository>
             <id>github</id>
@@ -49,20 +32,19 @@
     <build>
         <finalName>${project.name}</finalName>
         <plugins>
-            <!-- Compiler Plugin -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.14.0</version>
                 <configuration>
-                    <source>21</source>
-                    <target>21</target>
+                    <release>${maven.compiler.release}</release>
                 </configuration>
             </plugin>
-            <!-- Checkstyle Plugin -->
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
-                <version>3.1.1</version>
+                <version>3.6.0</version>
                 <configuration>
                     <configLocation>${basedir}/checkstyle.xml</configLocation>
                     <includeTestSourceDirectory>true</includeTestSourceDirectory>
@@ -74,10 +56,26 @@
                     <dependency>
                         <groupId>com.puppycrawl.tools</groupId>
                         <artifactId>checkstyle</artifactId>
-                        <version>8.38</version>
+                        <version>${checkstyle.version}</version>
                     </dependency>
                 </dependencies>
+                <executions>
+                    <execution>
+                        <id>checkstyle-verify</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.2</version>
+            </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
@@ -92,6 +90,7 @@
                 </executions>
             </plugin>
         </plugins>
+
         <resources>
             <resource>
                 <directory>src/main/resources</directory>
@@ -102,18 +101,12 @@
 
     <repositories>
         <repository>
-            <id>github</id>
-            <name>GitHub Packages - DataProvider</name>
-            <url>https://maven.pkg.github.com/HauntedMC/DataProvider</url>
-            <layout>default</layout>
-        </repository>
-        <repository>
             <id>papermc</id>
             <url>https://repo.papermc.io/repository/maven-public/</url>
         </repository>
     </repositories>
+
     <dependencies>
-        <!-- Jakarta Persistence API -->
         <dependency>
             <groupId>jakarta.persistence</groupId>
             <artifactId>jakarta.persistence-api</artifactId>
@@ -121,16 +114,13 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- DataProvider (provided) -->
         <dependency>
             <groupId>nl.hauntedmc.dataprovider</groupId>
             <artifactId>dataprovider</artifactId>
-            <version>1.19.0</version>
+            <version>2.0.0</version>
             <scope>provided</scope>
         </dependency>
 
-
-        <!-- Velocity API (provided) -->
         <dependency>
             <groupId>com.velocitypowered</groupId>
             <artifactId>velocity-api</artifactId>
@@ -138,7 +128,6 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- Paper API (provided) -->
         <dependency>
             <groupId>io.papermc.paper</groupId>
             <artifactId>paper-api</artifactId>
@@ -146,11 +135,10 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- JUnit -->
         <dependency>
-            <groupId>junit</groupId>
-            <artifactId>junit</artifactId>
-            <version>3.8.1</version>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.11.4</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

@@ -5,6 +5,7 @@ import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.platform.common.PlatformPlugin;
 
 import java.time.Instant;
+import java.util.Objects;
 
 public class PlayerConnectionInfoService {
 
@@ -14,7 +15,7 @@ public class PlayerConnectionInfoService {
     private final PlatformPlugin plugin;
 
     public PlayerConnectionInfoService(PlatformPlugin plugin) {
-        this.plugin = plugin;
+        this.plugin = Objects.requireNonNull(plugin, "plugin must not be null");
     }
 
     /**
@@ -24,8 +25,8 @@ public class PlayerConnectionInfoService {
      * - Updates IP address and virtual host when provided.
      */
     public void updateOnLogin(PlayerEntity playerEntity, String ipAddress, String virtualHost) {
-        if (playerEntity == null) {
-            plugin.getPlatformLogger().warn("updateOnLogin called with null PlayerEntity.");
+        if (playerEntity == null || playerEntity.getId() == null) {
+            plugin.getPlatformLogger().warn("updateOnLogin called with invalid PlayerEntity.");
             return;
         }
 
@@ -36,11 +37,6 @@ public class PlayerConnectionInfoService {
         try {
             plugin.getDataRegistry().getORM().runInTransaction(session -> {
                 final PlayerEntity managed = session.merge(playerEntity);
-                if (managed.getId() == null) {
-                    // Should not happen, but guard anyway
-                    plugin.getPlatformLogger().warn("PlayerEntity merge returned null ID for uuid=" + managed.getUuid());
-                    return null;
-                }
 
                 PlayerConnectionInfoEntity info = session.find(PlayerConnectionInfoEntity.class, managed.getId());
                 if (info == null) {
@@ -78,8 +74,8 @@ public class PlayerConnectionInfoService {
      * - Does not change firstConnectionAt once set.
      */
     public void updateOnDisconnect(PlayerEntity playerEntity) {
-        if (playerEntity == null) {
-            plugin.getPlatformLogger().warn("updateOnDisconnect called with null PlayerEntity.");
+        if (playerEntity == null || playerEntity.getId() == null) {
+            plugin.getPlatformLogger().warn("updateOnDisconnect called with invalid PlayerEntity.");
             return;
         }
 
@@ -88,10 +84,6 @@ public class PlayerConnectionInfoService {
         try {
             plugin.getDataRegistry().getORM().runInTransaction(session -> {
                 final PlayerEntity managed = session.merge(playerEntity);
-                if (managed.getId() == null) {
-                    plugin.getPlatformLogger().warn("PlayerEntity merge returned null ID on disconnect for uuid=" + managed.getUuid());
-                    return null;
-                }
 
                 PlayerConnectionInfoEntity info = session.find(PlayerConnectionInfoEntity.class, managed.getId());
                 if (info == null) {
@@ -117,8 +109,12 @@ public class PlayerConnectionInfoService {
     }
 
     private static String clampOrNull(String s, int maxLen) {
-        if (s == null) return null;
-        if (s.length() <= maxLen) return s;
+        if (s == null || s.isBlank()) {
+            return null;
+        }
+        if (s.length() <= maxLen) {
+            return s;
+        }
         return s.substring(0, maxLen);
     }
 }

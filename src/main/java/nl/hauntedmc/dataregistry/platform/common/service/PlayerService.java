@@ -3,6 +3,7 @@ package nl.hauntedmc.dataregistry.platform.common.service;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.platform.common.PlatformPlugin;
 
+import java.util.Objects;
 import java.util.Optional;
 
 public class PlayerService {
@@ -10,7 +11,7 @@ public class PlayerService {
     private final PlatformPlugin plugin;
 
     public PlayerService(PlatformPlugin plugin) {
-        this.plugin = plugin;
+        this.plugin = Objects.requireNonNull(plugin, "plugin must not be null");
     }
 
     /**
@@ -21,10 +22,13 @@ public class PlayerService {
      * @return the persistent PlayerEntity (with generated ID).
      */
     public PlayerEntity onPlayerJoin(PlayerEntity tempEntity) {
+        if (tempEntity == null) {
+            throw new IllegalArgumentException("tempEntity must not be null");
+        }
         String uuid = tempEntity.getUuid();
         String username = tempEntity.getUsername();
         PlayerEntity player = plugin.getDataRegistry().getPlayerRepository().getOrCreateActivePlayer(uuid, username);
-        plugin.getPlatformLogger().info("Added " + username + " ("+uuid+") to the local player repository.");
+        plugin.getPlatformLogger().info("Added " + username + " (" + uuid + ") to the local player repository.");
         return player;
     }
 
@@ -35,7 +39,7 @@ public class PlayerService {
      */
     public void onPlayerQuit(String username, String uuid) {
         plugin.getDataRegistry().getPlayerRepository().removeActivePlayer(uuid);
-        plugin.getPlatformLogger().info("Removed " + username + " ("+uuid+") from the local player repository.");
+        plugin.getPlatformLogger().info("Removed " + username + " (" + uuid + ") from the local player repository.");
     }
 
     /**

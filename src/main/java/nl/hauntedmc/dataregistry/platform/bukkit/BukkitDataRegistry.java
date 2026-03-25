@@ -3,7 +3,6 @@ package nl.hauntedmc.dataregistry.platform.bukkit;
 import nl.hauntedmc.dataprovider.api.DataProviderAPI;
 import nl.hauntedmc.dataprovider.platform.bukkit.BukkitDataProvider;
 import nl.hauntedmc.dataregistry.api.DataRegistry;
-import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.platform.bukkit.logger.BukkitLoggerAdapter;
 import nl.hauntedmc.dataregistry.platform.bukkit.listener.PlayerStatusListener;
 import nl.hauntedmc.dataregistry.platform.common.PlatformPlugin;
@@ -13,7 +12,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
 
-    private static DataRegistry dataRegistry;
+    private DataRegistry dataRegistry;
     private BukkitLoggerAdapter logInstance;
 
     @Override
@@ -52,9 +51,4 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
     public ILoggerAdapter getPlatformLogger() {
         return logInstance;
     }
-
-    public static PlayerRepository getPlayerRepository() {
-        return dataRegistry != null ? dataRegistry.getPlayerRepository() : null;
-    }
-
 }
