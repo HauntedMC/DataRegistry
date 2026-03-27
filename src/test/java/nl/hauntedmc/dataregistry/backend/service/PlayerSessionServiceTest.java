@@ -41,7 +41,7 @@ class PlayerSessionServiceTest {
         );
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new PlayerSessionService(registry, logger, true, true, 45, 255, 129)
+                () -> new PlayerSessionService(registry, logger, true, true, 45, 255, 65)
         );
     }
 

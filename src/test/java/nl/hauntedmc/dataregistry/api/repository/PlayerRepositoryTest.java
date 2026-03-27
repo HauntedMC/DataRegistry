@@ -33,7 +33,7 @@ class PlayerRepositoryTest {
     void constructorRejectsInvalidUsernameLength() {
         ORMContext ormContext = mock(ORMContext.class);
         assertThrows(IllegalArgumentException.class, () -> new PlayerRepository(ormContext, 0));
-        assertThrows(IllegalArgumentException.class, () -> new PlayerRepository(ormContext, 65));
+        assertThrows(IllegalArgumentException.class, () -> new PlayerRepository(ormContext, 33));
     }
 
     @Test

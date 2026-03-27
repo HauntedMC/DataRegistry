@@ -30,7 +30,7 @@ class PlayerStatusServiceTest {
         assertThrows(NullPointerException.class, () -> new PlayerStatusService(null, logger, 64));
         assertThrows(NullPointerException.class, () -> new PlayerStatusService(registry, null, 64));
         assertThrows(IllegalArgumentException.class, () -> new PlayerStatusService(registry, logger, 0));
-        assertThrows(IllegalArgumentException.class, () -> new PlayerStatusService(registry, logger, 129));
+        assertThrows(IllegalArgumentException.class, () -> new PlayerStatusService(registry, logger, 65));
     }
 
     @Test

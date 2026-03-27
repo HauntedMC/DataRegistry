@@ -41,8 +41,8 @@ public final class PlayerSessionService {
         if (virtualHostMaxLength < 1 || virtualHostMaxLength > 255) {
             throw new IllegalArgumentException("virtualHostMaxLength must be between 1 and 255.");
         }
-        if (serverNameMaxLength < 1 || serverNameMaxLength > 128) {
-            throw new IllegalArgumentException("serverNameMaxLength must be between 1 and 128.");
+        if (serverNameMaxLength < 1 || serverNameMaxLength > 64) {
+            throw new IllegalArgumentException("serverNameMaxLength must be between 1 and 64.");
         }
         this.ipAddressMaxLength = ipAddressMaxLength;
         this.virtualHostMaxLength = virtualHostMaxLength;

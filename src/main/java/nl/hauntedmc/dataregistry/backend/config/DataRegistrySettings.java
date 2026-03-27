@@ -48,13 +48,13 @@ public final class DataRegistrySettings {
                 builder.usernameMaxLength,
                 "usernameMaxLength",
                 1,
-                64
+                DEFAULT_USERNAME_MAX_LENGTH
         );
         this.serverNameMaxLength = validateRange(
                 builder.serverNameMaxLength,
                 "serverNameMaxLength",
                 1,
-                128
+                DEFAULT_SERVER_NAME_MAX_LENGTH
         );
         this.virtualHostMaxLength = validateRange(
                 builder.virtualHostMaxLength,

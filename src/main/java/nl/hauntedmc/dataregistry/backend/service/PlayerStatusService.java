@@ -19,8 +19,8 @@ public final class PlayerStatusService {
     public PlayerStatusService(DataRegistry dataRegistry, ILoggerAdapter logger, int serverNameMaxLength) {
         this.dataRegistry = Objects.requireNonNull(dataRegistry, "dataRegistry must not be null");
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
-        if (serverNameMaxLength < 1 || serverNameMaxLength > 128) {
-            throw new IllegalArgumentException("serverNameMaxLength must be between 1 and 128.");
+        if (serverNameMaxLength < 1 || serverNameMaxLength > 64) {
+            throw new IllegalArgumentException("serverNameMaxLength must be between 1 and 64.");
         }
         this.serverNameMaxLength = serverNameMaxLength;
     }

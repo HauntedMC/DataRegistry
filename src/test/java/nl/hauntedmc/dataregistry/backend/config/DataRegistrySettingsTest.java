@@ -67,7 +67,8 @@ class DataRegistrySettingsTest {
     void builderRejectsOutOfRangeValues() {
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().bukkitJoinDelayTicks(201).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().usernameMaxLength(0).build());
-        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serverNameMaxLength(129).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().usernameMaxLength(33).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serverNameMaxLength(65).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().virtualHostMaxLength(256).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().ipAddressMaxLength(6).build());
     }

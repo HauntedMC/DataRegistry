@@ -22,8 +22,8 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
 
     public PlayerRepository(ORMContext ormContext, int usernameMaxLength) {
         super(ormContext, PlayerEntity.class);
-        if (usernameMaxLength < 1 || usernameMaxLength > 64) {
-            throw new IllegalArgumentException("usernameMaxLength must be between 1 and 64.");
+        if (usernameMaxLength < 1 || usernameMaxLength > 32) {
+            throw new IllegalArgumentException("usernameMaxLength must be between 1 and 32.");
         }
         this.usernameMaxLength = usernameMaxLength;
     }
