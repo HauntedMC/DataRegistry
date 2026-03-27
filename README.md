@@ -10,6 +10,15 @@ It keeps player identity, online status, connection metadata, and session lifecy
 - Configurable limits and database wiring through `config.yml`.
 - Transaction-safe session/status updates with defensive validation.
 
+## Deployment Model
+
+DataRegistry is designed for a network topology where Velocity is present.
+
+- Velocity plugin: authoritative lifecycle writer (status, connection info, sessions).
+- Bukkit/Paper plugin: identity bridge/cache for backend plugin access.
+
+Running only Bukkit/Paper without Velocity is not a supported deployment mode.
+
 ## Requirements
 
 - Java 21

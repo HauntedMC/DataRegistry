@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.util.concurrent.Executor;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -54,22 +55,73 @@ class PlayerStatusListenerTest {
         PlayerStatusService statusService = new PlayerStatusService(registry, logger, 64);
         PlayerConnectionInfoService connectionService = new PlayerConnectionInfoService(registry, logger, true, true, 45, 255);
         PlayerSessionService sessionService = new PlayerSessionService(registry, logger, true, true, 45, 255, 64);
+        Executor directExecutor = Runnable::run;
 
         assertThrows(
                 NullPointerException.class,
-                () -> new PlayerStatusListener(null, statusService, connectionService, sessionService)
+                () -> new PlayerStatusListener(
+                        null,
+                        statusService,
+                        connectionService,
+                        sessionService,
+                        logger,
+                        directExecutor
+                )
         );
         assertThrows(
                 NullPointerException.class,
-                () -> new PlayerStatusListener(playerService, null, connectionService, sessionService)
+                () -> new PlayerStatusListener(
+                        playerService,
+                        null,
+                        connectionService,
+                        sessionService,
+                        logger,
+                        directExecutor
+                )
         );
         assertThrows(
                 NullPointerException.class,
-                () -> new PlayerStatusListener(playerService, statusService, null, sessionService)
+                () -> new PlayerStatusListener(
+                        playerService,
+                        statusService,
+                        null,
+                        sessionService,
+                        logger,
+                        directExecutor
+                )
         );
         assertThrows(
                 NullPointerException.class,
-                () -> new PlayerStatusListener(playerService, statusService, connectionService, null)
+                () -> new PlayerStatusListener(
+                        playerService,
+                        statusService,
+                        connectionService,
+                        null,
+                        logger,
+                        directExecutor
+                )
+        );
+        assertThrows(
+                NullPointerException.class,
+                () -> new PlayerStatusListener(
+                        playerService,
+                        statusService,
+                        connectionService,
+                        sessionService,
+                        null,
+                        directExecutor
+                )
+        );
+        assertThrows(
+                NullPointerException.class,
+                () -> new PlayerStatusListener(
+                        playerService,
+                        statusService,
+                        connectionService,
+                        sessionService,
+                        logger,
+                        null
+                )
         );
     }
 
@@ -105,6 +157,7 @@ class PlayerStatusListenerTest {
 
         Player player = mock(Player.class);
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
+        when(player.getUsername()).thenReturn("Alice");
         RegisteredServer server = mock(RegisteredServer.class);
         when(server.getServerInfo()).thenReturn(new ServerInfo("lobby-1", new InetSocketAddress("127.0.0.1", 25567)));
 
@@ -114,21 +167,25 @@ class PlayerStatusListenerTest {
     }
 
     @Test
-    void onServerSwitchSkipsStatusAndSessionWhenPlayerIsMissing() {
+    void onServerSwitchRestoresPlayerWhenActiveCacheMisses() {
         TestContext context = createContext();
         String uuid = UUID.randomUUID().toString();
+        PlayerEntity persistent = persistedPlayer(uuid, "Alice");
         when(context.repository.getActivePlayer(uuid)).thenReturn(Optional.empty());
+        when(context.repository.getOrCreateActivePlayer(uuid, "Alice")).thenReturn(persistent);
         reset(context.ormContext);
         executeTransactionsWithSession(context.ormContext, context.session);
 
         Player player = mock(Player.class);
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
+        when(player.getUsername()).thenReturn("Alice");
         RegisteredServer server = mock(RegisteredServer.class);
         when(server.getServerInfo()).thenReturn(new ServerInfo("lobby-1", new InetSocketAddress("127.0.0.1", 25567)));
 
         context.listener.onServerSwitch(new ServerConnectedEvent(player, server, null));
 
-        verify(context.ormContext, never()).runInTransaction(any());
+        verify(context.repository).getOrCreateActivePlayer(uuid, "Alice");
+        verify(context.ormContext, times(2)).runInTransaction(any());
     }
 
     @Test
@@ -151,7 +208,28 @@ class PlayerStatusListenerTest {
     }
 
     @Test
-    void onPlayerQuitStillRemovesCacheEntryWhenPlayerIsMissing() {
+    void onPlayerQuitRestoresPlayerAndRunsLifecycleWhenCacheMisses() {
+        TestContext context = createContext();
+        String uuid = UUID.randomUUID().toString();
+        PlayerEntity persistent = persistedPlayer(uuid, "Alice");
+        when(context.repository.getActivePlayer(uuid)).thenReturn(Optional.empty());
+        when(context.repository.getOrCreateActivePlayer(uuid, "Alice")).thenReturn(persistent);
+        reset(context.ormContext);
+        executeTransactionsWithSession(context.ormContext, context.session);
+
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
+        when(player.getUsername()).thenReturn("Alice");
+
+        context.listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN));
+
+        verify(context.repository).getOrCreateActivePlayer(uuid, "Alice");
+        verify(context.ormContext, times(3)).runInTransaction(any());
+        verify(context.repository).removeActivePlayer(uuid);
+    }
+
+    @Test
+    void onPlayerQuitSkipsLifecycleTransactionsWhenLoginFailed() {
         TestContext context = createContext();
         String uuid = UUID.randomUUID().toString();
         when(context.repository.getActivePlayer(uuid)).thenReturn(Optional.empty());
@@ -162,9 +240,10 @@ class PlayerStatusListenerTest {
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
         when(player.getUsername()).thenReturn("Alice");
 
-        context.listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN));
+        context.listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.CANCELLED_BY_PROXY));
 
         verify(context.ormContext, never()).runInTransaction(any());
+        verify(context.repository, never()).getOrCreateActivePlayer(anyString(), anyString());
         verify(context.repository).removeActivePlayer(uuid);
     }
 
@@ -217,7 +296,9 @@ class PlayerStatusListenerTest {
                 playerService,
                 statusService,
                 connectionService,
-                sessionService
+                sessionService,
+                logger,
+                Runnable::run
         );
         return new TestContext(listener, repository, ormContext, session);
     }

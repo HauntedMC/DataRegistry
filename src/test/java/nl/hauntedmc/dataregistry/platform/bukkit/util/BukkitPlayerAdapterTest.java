@@ -33,6 +33,17 @@ class BukkitPlayerAdapterTest {
     }
 
     @Test
+    void fromSnapshotMapsValuesAndRejectsNulls() {
+        assertThrows(NullPointerException.class, () -> BukkitPlayerAdapter.fromSnapshot(null, "Alice"));
+        assertThrows(NullPointerException.class, () -> BukkitPlayerAdapter.fromSnapshot(UUID.randomUUID().toString(), null));
+
+        UUID uuid = UUID.randomUUID();
+        PlayerEntity entity = BukkitPlayerAdapter.fromSnapshot(uuid.toString(), "Alice");
+        assertEquals(uuid.toString(), entity.getUuid());
+        assertEquals("Alice", entity.getUsername());
+    }
+
+    @Test
     void toPlatformPlayerReturnsNullForNullOrInvalidEntityState() {
         assertNull(BukkitPlayerAdapter.toPlatformPlayer(null));
 

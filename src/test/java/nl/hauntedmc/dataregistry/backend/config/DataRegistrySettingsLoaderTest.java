@@ -174,6 +174,20 @@ class DataRegistrySettingsLoaderTest {
     }
 
     @Test
+    void bundledConfigDisablesSensitivePersistenceByDefault() throws Exception {
+        DataRegistrySettingsLoader loader = new DataRegistrySettingsLoader();
+        RecordingLogger logger = new RecordingLogger();
+
+        DataRegistrySettings settings = loader.load(temporaryDirectory, getClass().getClassLoader(), logger);
+        String generatedContent = Files.readString(temporaryDirectory.resolve("config.yml"));
+
+        assertFalse(settings.persistIpAddress());
+        assertFalse(settings.persistVirtualHost());
+        assertTrue(generatedContent.contains("persist-ip-address: false"));
+        assertTrue(generatedContent.contains("persist-virtual-host: false"));
+    }
+
+    @Test
     void loadWarnsAndUsesDefaultsWhenYamlRootIsNotAMap() throws Exception {
         Path configFile = temporaryDirectory.resolve("config.yml");
         Files.writeString(configFile, "just-a-scalar-value");

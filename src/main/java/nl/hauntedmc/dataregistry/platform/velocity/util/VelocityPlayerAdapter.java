@@ -32,9 +32,20 @@ public class VelocityPlayerAdapter {
      * @return a new PlayerEntity populated with the player's data.
      */
     public static PlayerEntity fromPlatformPlayer(Player player) {
+        Objects.requireNonNull(player, "player must not be null");
+        return fromSnapshot(player.getUniqueId().toString(), player.getUsername());
+    }
+
+    /**
+     * Converts a captured Velocity player snapshot into a PlayerEntity.
+     * This can be used safely from async code because it does not access Velocity API objects.
+     */
+    public static PlayerEntity fromSnapshot(String uuid, String username) {
+        Objects.requireNonNull(uuid, "uuid must not be null");
+        Objects.requireNonNull(username, "username must not be null");
         PlayerEntity entity = new PlayerEntity();
-        entity.setUuid(player.getUniqueId().toString());
-        entity.setUsername(player.getUsername());
+        entity.setUuid(uuid);
+        entity.setUsername(username);
         return entity;
     }
 

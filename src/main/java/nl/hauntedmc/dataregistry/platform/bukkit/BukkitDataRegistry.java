@@ -50,6 +50,7 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
         }
 
         logInstance.info("DataRegistry enabled successfully.");
+        logInstance.info("Bukkit module runs in bridge mode; full player lifecycle persistence is handled on Velocity.");
     }
 
     @Override

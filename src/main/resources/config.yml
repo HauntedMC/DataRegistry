@@ -9,8 +9,8 @@ orm:
   schema-mode: validate
 
 privacy:
-  persist-ip-address: true
-  persist-virtual-host: true
+  persist-ip-address: false
+  persist-virtual-host: false
 
 platform:
   bukkit:

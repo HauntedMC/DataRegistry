@@ -28,6 +28,11 @@ import org.slf4j.Logger;
 
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Plugin(
         id = "dataregistry",
@@ -50,6 +55,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
 
     private SLF4JLoggerAdapter logInstance;
     private DataRegistrySettings settings = DataRegistrySettings.defaults();
+    private ExecutorService playerEventExecutor;
 
     @Inject
     public VelocityDataRegistry(ProxyServer proxyServer, Logger logger, @DataDirectory Path dataDirectory) {
@@ -78,6 +84,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
             );
             registerPlayerStatusListener();
         } catch (RuntimeException | Error startupFailure) {
+            shutdownPlayerEventExecutor();
             logger.error("DataRegistry startup failed on Velocity.", startupFailure);
             return;
         }
@@ -88,6 +95,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
     @Subscribe(priority = SHUTDOWN_EVENT_PRIORITY)
     public void onProxyShutdown(ProxyShutdownEvent event) {
         runtime.stop(getPlatformLogger());
+        shutdownPlayerEventExecutor();
         logger.info("DataRegistry disabled on Velocity.");
     }
 
@@ -139,6 +147,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
     }
 
     void registerPlayerStatusListener() {
+        ensurePlayerEventExecutor();
         DataRegistry registry = getDataRegistry();
         PlayerService playerService = new PlayerService(registry.getPlayerRepository(), getPlatformLogger());
         PlayerStatusService statusService = new PlayerStatusService(
@@ -166,13 +175,56 @@ public class VelocityDataRegistry implements PlatformPlugin {
 
         proxyServer.getEventManager().register(
                 this,
-                new PlayerStatusListener(playerService, statusService, connectionService, sessionService)
+                new PlayerStatusListener(
+                        playerService,
+                        statusService,
+                        connectionService,
+                        sessionService,
+                        getPlatformLogger(),
+                        playerEventExecutor
+                )
         );
     }
 
     private void initializeRuntime(DataRegistry registry) {
         if (!registry.initialize()) {
             throw new IllegalStateException("Database connection not established.");
+        }
+    }
+
+    private void ensurePlayerEventExecutor() {
+        if (playerEventExecutor != null && !playerEventExecutor.isShutdown()) {
+            return;
+        }
+        int workerCount = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
+        ThreadFactory threadFactory = new ThreadFactory() {
+            private final AtomicInteger workerIndex = new AtomicInteger();
+
+            @Override
+            public Thread newThread(Runnable runnable) {
+                Thread thread = new Thread(runnable);
+                thread.setName("DataRegistry-velocity-events-" + workerIndex.incrementAndGet());
+                thread.setDaemon(true);
+                return thread;
+            }
+        };
+        playerEventExecutor = Executors.newFixedThreadPool(workerCount, threadFactory);
+    }
+
+    private void shutdownPlayerEventExecutor() {
+        ExecutorService executor = playerEventExecutor;
+        playerEventExecutor = null;
+        if (executor == null) {
+            return;
+        }
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            executor.shutdownNow();
         }
     }
 }

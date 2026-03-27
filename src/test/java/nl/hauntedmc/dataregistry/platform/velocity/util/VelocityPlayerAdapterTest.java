@@ -30,6 +30,11 @@ class VelocityPlayerAdapterTest {
     }
 
     @Test
+    void fromPlatformPlayerRejectsNull() {
+        assertThrows(NullPointerException.class, () -> VelocityPlayerAdapter.fromPlatformPlayer(null));
+    }
+
+    @Test
     void fromPlatformPlayerMapsUuidAndUsername() {
         Player player = mock(Player.class);
         UUID uuid = UUID.randomUUID();
@@ -38,6 +43,17 @@ class VelocityPlayerAdapterTest {
 
         PlayerEntity entity = VelocityPlayerAdapter.fromPlatformPlayer(player);
 
+        assertEquals(uuid.toString(), entity.getUuid());
+        assertEquals("Alice", entity.getUsername());
+    }
+
+    @Test
+    void fromSnapshotMapsValuesAndRejectsNulls() {
+        assertThrows(NullPointerException.class, () -> VelocityPlayerAdapter.fromSnapshot(null, "Alice"));
+        assertThrows(NullPointerException.class, () -> VelocityPlayerAdapter.fromSnapshot(UUID.randomUUID().toString(), null));
+
+        UUID uuid = UUID.randomUUID();
+        PlayerEntity entity = VelocityPlayerAdapter.fromSnapshot(uuid.toString(), "Alice");
         assertEquals(uuid.toString(), entity.getUuid());
         assertEquals("Alice", entity.getUsername());
     }
