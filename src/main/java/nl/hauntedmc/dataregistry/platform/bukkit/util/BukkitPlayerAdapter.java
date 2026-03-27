@@ -4,6 +4,7 @@ import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import java.util.UUID;
+import java.util.Objects;
 
 public class BukkitPlayerAdapter {
 
@@ -15,6 +16,7 @@ public class BukkitPlayerAdapter {
      * This instance does not have a generated ID until merged via PlayerService.
      */
     public static PlayerEntity fromPlatformPlayer(Player player) {
+        Objects.requireNonNull(player, "player must not be null");
         PlayerEntity entity = new PlayerEntity();
         entity.setUuid(player.getUniqueId().toString());
         entity.setUsername(player.getName());
@@ -25,7 +27,14 @@ public class BukkitPlayerAdapter {
      * Retrieves a live Bukkit Player from a persistent PlayerEntity using its UUID.
      */
     public static Player toPlatformPlayer(PlayerEntity entity) {
-        UUID uuid = UUID.fromString(entity.getUuid());
-        return Bukkit.getPlayer(uuid);
+        if (entity == null || entity.getUuid() == null) {
+            return null;
+        }
+        try {
+            UUID uuid = UUID.fromString(entity.getUuid());
+            return Bukkit.getPlayer(uuid);
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
     }
 }

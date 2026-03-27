@@ -4,22 +4,30 @@ import com.google.inject.Inject;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.event.Subscribe;
+import com.velocitypowered.api.plugin.PluginContainer;
 import com.velocitypowered.api.plugin.Dependency;
 import com.velocitypowered.api.plugin.Plugin;
+import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
 import nl.hauntedmc.dataprovider.api.DataProviderAPI;
+import nl.hauntedmc.dataprovider.api.DataProviderApiSupplier;
 import nl.hauntedmc.dataregistry.api.DataRegistry;
-import nl.hauntedmc.dataprovider.platform.velocity.VelocityDataProvider;
+import nl.hauntedmc.dataregistry.backend.service.PlayerConnectionInfoService;
+import nl.hauntedmc.dataregistry.backend.service.PlayerService;
+import nl.hauntedmc.dataregistry.backend.service.PlayerSessionService;
+import nl.hauntedmc.dataregistry.backend.service.PlayerStatusService;
+import nl.hauntedmc.dataregistry.backend.config.DataRegistrySettings;
+import nl.hauntedmc.dataregistry.backend.config.DataRegistrySettingsLoader;
 import nl.hauntedmc.dataregistry.platform.common.PlatformPlugin;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
-import nl.hauntedmc.dataregistry.platform.common.service.PlayerConnectionInfoService;
-import nl.hauntedmc.dataregistry.platform.common.service.PlayerService;
-import nl.hauntedmc.dataregistry.platform.common.service.PlayerSessionService;
-import nl.hauntedmc.dataregistry.platform.common.service.PlayerStatusService;
+import nl.hauntedmc.dataregistry.platform.internal.lifecycle.PlatformDataRegistryRuntime;
 import nl.hauntedmc.dataregistry.platform.velocity.listener.PlayerStatusListener;
 import nl.hauntedmc.dataregistry.platform.velocity.logger.SLF4JLoggerAdapter;
 import nl.hauntedmc.dataregistry.platform.velocity.util.VelocityPlayerAdapter;
 import org.slf4j.Logger;
+
+import java.nio.file.Path;
+import java.util.Optional;
 
 @Plugin(
         id = "dataregistry",
@@ -31,56 +39,140 @@ import org.slf4j.Logger;
 )
 public class VelocityDataRegistry implements PlatformPlugin {
 
+    static final int INITIALIZE_EVENT_PRIORITY = 1000;
+    static final int SHUTDOWN_EVENT_PRIORITY = -1000;
+
     private final ProxyServer proxyServer;
     private final Logger logger;
-    private DataRegistry dataRegistry;
+    private final Path dataDirectory;
+    private final PlatformDataRegistryRuntime runtime = new PlatformDataRegistryRuntime();
+    private final DataRegistrySettingsLoader settingsLoader = new DataRegistrySettingsLoader();
+
     private SLF4JLoggerAdapter logInstance;
+    private DataRegistrySettings settings = DataRegistrySettings.defaults();
 
     @Inject
-    public VelocityDataRegistry(ProxyServer proxyServer, Logger logger) {
+    public VelocityDataRegistry(ProxyServer proxyServer, Logger logger, @DataDirectory Path dataDirectory) {
         this.proxyServer = proxyServer;
         this.logger = logger;
+        this.dataDirectory = dataDirectory;
     }
 
-    @Subscribe
+    @Subscribe(priority = INITIALIZE_EVENT_PRIORITY)
     public void onProxyInitialize(ProxyInitializeEvent event) {
-        VelocityPlayerAdapter.setProxy(proxyServer);
-
-        DataProviderAPI dataProviderAPI = VelocityDataProvider.getDataProviderAPI();
         logInstance = new SLF4JLoggerAdapter(logger);
+        VelocityPlayerAdapter.setProxy(proxyServer);
+        settings = settingsLoader.load(dataDirectory, getClass().getClassLoader(), logInstance);
 
-        dataRegistry = new DataRegistry(logInstance, "DataRegistry", dataProviderAPI);
-        if (!dataRegistry.initialize()) {
-            logger.error("Database connection not established, disabling plugin.");
+        DataProviderAPI dataProviderAPI = resolveDataProviderApi();
+        if (dataProviderAPI == null) {
+            logger.error("DataProvider API not available; DataRegistry startup aborted.");
             return;
         }
 
-        PlayerService playerService = new PlayerService(this);
-        PlayerStatusService statusService = new PlayerStatusService(this);
-        PlayerConnectionInfoService connectionInfoService = new PlayerConnectionInfoService(this);
-        PlayerSessionService sessionService = new PlayerSessionService(this);
-
-        proxyServer.getEventManager().register(this,
-                new PlayerStatusListener(playerService, statusService, connectionInfoService, sessionService));
+        try {
+            runtime.start(
+                    () -> createDataRegistry(dataProviderAPI),
+                    this::initializeRuntime,
+                    getPlatformLogger()
+            );
+            registerPlayerStatusListener();
+        } catch (RuntimeException | Error startupFailure) {
+            logger.error("DataRegistry startup failed on Velocity.", startupFailure);
+            return;
+        }
 
         logger.info("DataRegistry enabled successfully on Velocity.");
     }
 
-    @Subscribe
+    @Subscribe(priority = SHUTDOWN_EVENT_PRIORITY)
     public void onProxyShutdown(ProxyShutdownEvent event) {
-        if (dataRegistry != null) {
-            dataRegistry.shutdown();
-        }
+        runtime.stop(getPlatformLogger());
         logger.info("DataRegistry disabled on Velocity.");
     }
 
     @Override
     public DataRegistry getDataRegistry() {
-        return dataRegistry;
+        return runtime.getDataRegistry();
     }
 
     @Override
     public ILoggerAdapter getPlatformLogger() {
+        if (logInstance == null) {
+            logInstance = new SLF4JLoggerAdapter(logger);
+        }
         return logInstance;
+    }
+
+    static String resolvePluginVersion(ProxyServer proxyServer, Object pluginInstance) {
+        return proxyServer.getPluginManager()
+                .fromInstance(pluginInstance)
+                .map(PluginContainer::getDescription)
+                .flatMap(description -> description.getVersion())
+                .orElse("unknown");
+    }
+
+    DataProviderAPI resolveDataProviderApi() {
+        Optional<DataProviderApiSupplier> supplier = proxyServer.getPluginManager()
+                .getPlugin("dataprovider")
+                .flatMap(container -> container.getInstance()
+                        .filter(instance -> instance instanceof DataProviderApiSupplier)
+                        .map(instance -> (DataProviderApiSupplier) instance));
+
+        if (supplier.isEmpty()) {
+            logger.error("Failed to resolve DataProvider API supplier from plugin container.");
+            return null;
+        }
+
+        try {
+            return supplier.get().dataProviderApi();
+        } catch (RuntimeException exception) {
+            logger.error("Failed to resolve DataProvider API from supplier.", exception);
+            return null;
+        }
+    }
+
+    DataRegistry createDataRegistry(DataProviderAPI dataProviderAPI) {
+        String pluginVersion = resolvePluginVersion(proxyServer, this);
+        logger.info("Booting DataRegistry version {}.", pluginVersion);
+        return new DataRegistry(getPlatformLogger(), "DataRegistry", dataProviderAPI, settings);
+    }
+
+    void registerPlayerStatusListener() {
+        DataRegistry registry = getDataRegistry();
+        PlayerService playerService = new PlayerService(registry.getPlayerRepository(), getPlatformLogger());
+        PlayerStatusService statusService = new PlayerStatusService(
+                registry,
+                getPlatformLogger(),
+                settings.serverNameMaxLength()
+        );
+        PlayerConnectionInfoService connectionService = new PlayerConnectionInfoService(
+                registry,
+                getPlatformLogger(),
+                settings.persistIpAddress(),
+                settings.persistVirtualHost(),
+                settings.ipAddressMaxLength(),
+                settings.virtualHostMaxLength()
+        );
+        PlayerSessionService sessionService = new PlayerSessionService(
+                registry,
+                getPlatformLogger(),
+                settings.persistIpAddress(),
+                settings.persistVirtualHost(),
+                settings.ipAddressMaxLength(),
+                settings.virtualHostMaxLength(),
+                settings.serverNameMaxLength()
+        );
+
+        proxyServer.getEventManager().register(
+                this,
+                new PlayerStatusListener(playerService, statusService, connectionService, sessionService)
+        );
+    }
+
+    private void initializeRuntime(DataRegistry registry) {
+        if (!registry.initialize()) {
+            throw new IllegalStateException("Database connection not established.");
+        }
     }
 }

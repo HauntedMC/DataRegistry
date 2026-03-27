@@ -6,14 +6,15 @@ import com.velocitypowered.api.event.connection.PostLoginEvent;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.proxy.Player;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
-import nl.hauntedmc.dataregistry.platform.common.service.PlayerConnectionInfoService;
-import nl.hauntedmc.dataregistry.platform.common.service.PlayerService;
-import nl.hauntedmc.dataregistry.platform.common.service.PlayerSessionService;
-import nl.hauntedmc.dataregistry.platform.common.service.PlayerStatusService;
+import nl.hauntedmc.dataregistry.backend.service.PlayerConnectionInfoService;
+import nl.hauntedmc.dataregistry.backend.service.PlayerService;
+import nl.hauntedmc.dataregistry.backend.service.PlayerSessionService;
+import nl.hauntedmc.dataregistry.backend.service.PlayerStatusService;
 import nl.hauntedmc.dataregistry.platform.velocity.util.VelocityPlayerAdapter;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.util.Objects;
 import java.util.Optional;
 
 public class PlayerStatusListener {
@@ -27,10 +28,10 @@ public class PlayerStatusListener {
                                 PlayerStatusService statusService,
                                 PlayerConnectionInfoService connectionService,
                                 PlayerSessionService sessionService) {
-        this.playerService = playerService;
-        this.statusService = statusService;
-        this.connectionService = connectionService;
-        this.sessionService = sessionService;
+        this.playerService = Objects.requireNonNull(playerService, "playerService must not be null");
+        this.statusService = Objects.requireNonNull(statusService, "statusService must not be null");
+        this.connectionService = Objects.requireNonNull(connectionService, "connectionService must not be null");
+        this.sessionService = Objects.requireNonNull(sessionService, "sessionService must not be null");
     }
 
     @Subscribe(priority = 10, async = true)

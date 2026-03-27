@@ -7,18 +7,25 @@ import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
 
-    private static final int UUID_LEN = 36;
-    private static final int USERNAME_MAX_LEN = 32;
-
     // Cache active players keyed by their UUID.
     private final Map<String, PlayerEntity> activePlayers = new ConcurrentHashMap<>();
+    private final int usernameMaxLength;
 
     public PlayerRepository(ORMContext ormContext) {
+        this(ormContext, 32);
+    }
+
+    public PlayerRepository(ORMContext ormContext, int usernameMaxLength) {
         super(ormContext, PlayerEntity.class);
+        if (usernameMaxLength < 1 || usernameMaxLength > 64) {
+            throw new IllegalArgumentException("usernameMaxLength must be between 1 and 64.");
+        }
+        this.usernameMaxLength = usernameMaxLength;
     }
 
     public Optional<PlayerEntity> findByUUID(String uuid) {
@@ -118,13 +125,17 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
             return null;
         }
         String value = uuid.trim();
-        if (value.isEmpty() || value.length() > UUID_LEN) {
+        if (value.isEmpty()) {
             return null;
         }
-        return value;
+        try {
+            return UUID.fromString(value).toString();
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
     }
 
-    private static String normalizeUsername(String username) {
+    private String normalizeUsername(String username) {
         if (username == null) {
             return null;
         }
@@ -132,6 +143,6 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
         if (value.isEmpty()) {
             return null;
         }
-        return value.length() <= USERNAME_MAX_LEN ? value : value.substring(0, USERNAME_MAX_LEN);
+        return value.length() <= usernameMaxLength ? value : value.substring(0, usernameMaxLength);
     }
 }

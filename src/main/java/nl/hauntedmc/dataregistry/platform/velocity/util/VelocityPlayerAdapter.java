@@ -6,10 +6,11 @@ import com.velocitypowered.api.proxy.ProxyServer;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Objects;
 
 public class VelocityPlayerAdapter {
 
-    private static ProxyServer proxy;
+    private static volatile ProxyServer proxy;
 
     private VelocityPlayerAdapter() {
     }
@@ -21,7 +22,7 @@ public class VelocityPlayerAdapter {
      * @param proxyServer the Velocity ProxyServer instance.
      */
     public static void setProxy(ProxyServer proxyServer) {
-        proxy = proxyServer;
+        proxy = Objects.requireNonNull(proxyServer, "proxyServer must not be null");
     }
 
     /**
@@ -44,11 +45,20 @@ public class VelocityPlayerAdapter {
      * @return the Velocity Player instance if online, or null otherwise.
      */
     public static Player toPlatformPlayer(PlayerEntity entity) {
-        if (proxy == null) {
-            throw new IllegalStateException("ProxyServer not set in VelocityPlayerAdapter. Call setProxy() during initialization.");
+        if (entity == null || entity.getUuid() == null) {
+            return null;
         }
-        UUID uuid = UUID.fromString(entity.getUuid());
-        Optional<Player> player = proxy.getPlayer(uuid);
-        return player.orElse(null);
+        if (proxy == null) {
+            throw new IllegalStateException(
+                    "ProxyServer not set in VelocityPlayerAdapter. Call setProxy() during initialization."
+            );
+        }
+        try {
+            UUID uuid = UUID.fromString(entity.getUuid());
+            Optional<Player> player = proxy.getPlayer(uuid);
+            return player.orElse(null);
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
     }
 }

@@ -1,17 +1,23 @@
-package nl.hauntedmc.dataregistry.platform.common.service;
+package nl.hauntedmc.dataregistry.backend.service;
 
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
-import nl.hauntedmc.dataregistry.platform.common.PlatformPlugin;
+import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
+import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 
 import java.util.Objects;
 import java.util.Optional;
 
-public class PlayerService {
+/**
+ * Backend service for player identity lifecycle and active cache access.
+ */
+public final class PlayerService {
 
-    private final PlatformPlugin plugin;
+    private final PlayerRepository playerRepository;
+    private final ILoggerAdapter logger;
 
-    public PlayerService(PlatformPlugin plugin) {
-        this.plugin = Objects.requireNonNull(plugin, "plugin must not be null");
+    public PlayerService(PlayerRepository playerRepository, ILoggerAdapter logger) {
+        this.playerRepository = Objects.requireNonNull(playerRepository, "playerRepository must not be null");
+        this.logger = Objects.requireNonNull(logger, "logger must not be null");
     }
 
     /**
@@ -27,8 +33,9 @@ public class PlayerService {
         }
         String uuid = tempEntity.getUuid();
         String username = tempEntity.getUsername();
-        PlayerEntity player = plugin.getDataRegistry().getPlayerRepository().getOrCreateActivePlayer(uuid, username);
-        plugin.getPlatformLogger().info("Added " + username + " (" + uuid + ") to the local player repository.");
+        PlayerEntity player = playerRepository.getOrCreateActivePlayer(uuid, username);
+        logger.info("Added " + Sanitization.safeForLog(username) + " (" +
+                Sanitization.safeForLog(uuid) + ") to the local player repository.");
         return player;
     }
 
@@ -38,8 +45,9 @@ public class PlayerService {
      * @param uuid the player's UUID.
      */
     public void onPlayerQuit(String username, String uuid) {
-        plugin.getDataRegistry().getPlayerRepository().removeActivePlayer(uuid);
-        plugin.getPlatformLogger().info("Removed " + username + " (" + uuid + ") from the local player repository.");
+        playerRepository.removeActivePlayer(uuid);
+        logger.info("Removed " + Sanitization.safeForLog(username) + " (" +
+                Sanitization.safeForLog(uuid) + ") from the local player repository.");
     }
 
     /**
@@ -49,6 +57,6 @@ public class PlayerService {
      * @return an Optional containing the PlayerEntity.
      */
     public Optional<PlayerEntity> getActivePlayer(String uuid) {
-        return plugin.getDataRegistry().getPlayerRepository().getActivePlayer(uuid);
+        return playerRepository.getActivePlayer(uuid);
     }
 }

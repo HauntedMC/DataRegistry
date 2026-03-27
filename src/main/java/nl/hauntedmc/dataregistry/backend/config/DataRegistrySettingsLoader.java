@@ -1,0 +1,287 @@
+package nl.hauntedmc.dataregistry.backend.config;
+
+import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
+import nl.hauntedmc.dataprovider.database.DatabaseType;
+import org.yaml.snakeyaml.LoaderOptions;
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.SafeConstructor;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.Reader;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+
+/**
+ * Loads DataRegistry settings from {@code config.yml}.
+ */
+public final class DataRegistrySettingsLoader {
+
+    static final String FILE_NAME = "config.yml";
+    private static final String DEFAULT_CONFIG = """
+            # DataRegistry runtime settings
+            # Do not store raw personal connection metadata unless explicitly needed.
+
+            database:
+              type: MYSQL
+              connection-id: player_data_rw
+
+            orm:
+              schema-mode: validate
+
+            privacy:
+              persist-ip-address: false
+              persist-virtual-host: false
+
+            platform:
+              bukkit:
+                join-delay-ticks: 4
+
+            validation:
+              username:
+                max-length: 32
+              server:
+                max-length: 64
+              virtual-host:
+                max-length: 255
+              ip:
+                max-length: 45
+            """;
+
+    private static final String DATABASE_TYPE_KEY = "database.type";
+    private static final String DATABASE_CONNECTION_ID_KEY = "database.connection-id";
+    private static final String ORM_SCHEMA_MODE_KEY = "orm.schema-mode";
+    private static final String PRIVACY_PERSIST_IP_KEY = "privacy.persist-ip-address";
+    private static final String PRIVACY_PERSIST_VHOST_KEY = "privacy.persist-virtual-host";
+    private static final String BUKKIT_JOIN_DELAY_TICKS_KEY = "platform.bukkit.join-delay-ticks";
+    private static final String USERNAME_MAX_LENGTH_KEY = "validation.username.max-length";
+    private static final String SERVER_NAME_MAX_LENGTH_KEY = "validation.server.max-length";
+    private static final String VIRTUAL_HOST_MAX_LENGTH_KEY = "validation.virtual-host.max-length";
+    private static final String IP_ADDRESS_MAX_LENGTH_KEY = "validation.ip.max-length";
+
+    /**
+     * Loads runtime settings from {@code config.yml}, generating it from classpath resources on first run.
+     */
+    public DataRegistrySettings load(Path dataDirectory, ClassLoader resourceLoader, ILoggerAdapter logger) {
+        Objects.requireNonNull(dataDirectory, "dataDirectory must not be null");
+        Objects.requireNonNull(resourceLoader, "resourceLoader must not be null");
+        Objects.requireNonNull(logger, "logger must not be null");
+
+        Path configPath = dataDirectory.resolve(FILE_NAME);
+        try {
+            Files.createDirectories(dataDirectory);
+            if (Files.notExists(configPath)) {
+                writeDefaultConfig(configPath, resourceLoader);
+                logger.info("Generated default DataRegistry config at " + configPath);
+            }
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to create DataRegistry config file at " + configPath, exception);
+        }
+
+        Map<?, ?> configRoot = readConfig(configPath, logger);
+        return parse(configRoot, logger);
+    }
+
+    DataRegistrySettings parse(Map<?, ?> configRoot, ILoggerAdapter logger) {
+        Objects.requireNonNull(configRoot, "configRoot must not be null");
+        Objects.requireNonNull(logger, "logger must not be null");
+
+        DataRegistrySettings defaults = DataRegistrySettings.defaults();
+        DataRegistrySettings.Builder builder = DataRegistrySettings.builder();
+
+        builder.databaseType(parseEnum(
+                configRoot,
+                DATABASE_TYPE_KEY,
+                DatabaseType.class,
+                defaults.databaseType(),
+                logger
+        ));
+        builder.databaseConnectionId(parseString(
+                configRoot,
+                DATABASE_CONNECTION_ID_KEY,
+                defaults.databaseConnectionId(),
+                logger
+        ));
+        builder.ormSchemaMode(parseString(
+                configRoot,
+                ORM_SCHEMA_MODE_KEY,
+                defaults.ormSchemaMode(),
+                logger
+        ));
+        builder.persistIpAddress(parseBoolean(
+                configRoot,
+                PRIVACY_PERSIST_IP_KEY,
+                defaults.persistIpAddress(),
+                logger
+        ));
+        builder.persistVirtualHost(parseBoolean(
+                configRoot,
+                PRIVACY_PERSIST_VHOST_KEY,
+                defaults.persistVirtualHost(),
+                logger
+        ));
+        builder.bukkitJoinDelayTicks(parseInteger(
+                configRoot,
+                BUKKIT_JOIN_DELAY_TICKS_KEY,
+                defaults.bukkitJoinDelayTicks(),
+                logger
+        ));
+        builder.usernameMaxLength(parseInteger(
+                configRoot,
+                USERNAME_MAX_LENGTH_KEY,
+                defaults.usernameMaxLength(),
+                logger
+        ));
+        builder.serverNameMaxLength(parseInteger(
+                configRoot,
+                SERVER_NAME_MAX_LENGTH_KEY,
+                defaults.serverNameMaxLength(),
+                logger
+        ));
+        builder.virtualHostMaxLength(parseInteger(
+                configRoot,
+                VIRTUAL_HOST_MAX_LENGTH_KEY,
+                defaults.virtualHostMaxLength(),
+                logger
+        ));
+        builder.ipAddressMaxLength(parseInteger(
+                configRoot,
+                IP_ADDRESS_MAX_LENGTH_KEY,
+                defaults.ipAddressMaxLength(),
+                logger
+        ));
+
+        try {
+            return builder.build();
+        } catch (IllegalArgumentException exception) {
+            logger.warn("Invalid DataRegistry settings found; falling back to defaults.", exception);
+            return defaults;
+        }
+    }
+
+    private static int parseInteger(Map<?, ?> configRoot, String key, int defaultValue, ILoggerAdapter logger) {
+        Object value = getValue(configRoot, key);
+        if (value == null) {
+            return defaultValue;
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(value.toString().trim());
+        } catch (NumberFormatException exception) {
+            logger.warn("Invalid integer for key '" + key + "': '" + value + "'. Using default " + defaultValue);
+            return defaultValue;
+        }
+    }
+
+    private static boolean parseBoolean(Map<?, ?> configRoot, String key, boolean defaultValue, ILoggerAdapter logger) {
+        Object value = getValue(configRoot, key);
+        if (value == null) {
+            return defaultValue;
+        }
+        if (value instanceof Boolean booleanValue) {
+            return booleanValue;
+        }
+        String normalized = value.toString().trim().toLowerCase(Locale.ROOT);
+        if ("true".equals(normalized)) {
+            return true;
+        }
+        if ("false".equals(normalized)) {
+            return false;
+        }
+        logger.warn("Invalid boolean for key '" + key + "': '" + value + "'. Using default " + defaultValue);
+        return defaultValue;
+    }
+
+    private static <E extends Enum<E>> E parseEnum(
+            Map<?, ?> configRoot,
+            String key,
+            Class<E> enumType,
+            E defaultValue,
+            ILoggerAdapter logger
+    ) {
+        Object value = getValue(configRoot, key);
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Enum.valueOf(enumType, value.toString().trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            logger.warn("Invalid enum value for key '" + key + "': '" + value + "'. Using default " + defaultValue);
+            return defaultValue;
+        }
+    }
+
+    private static String parseString(Map<?, ?> configRoot, String key, String defaultValue, ILoggerAdapter logger) {
+        Object value = getValue(configRoot, key);
+        if (value == null) {
+            return defaultValue;
+        }
+        if (!(value instanceof String result)) {
+            logger.warn("Invalid string for key '" + key + "': '" + value + "'. Using default '" + defaultValue + "'.");
+            return defaultValue;
+        }
+        if (result.isBlank()) {
+            logger.warn("Blank value for key '" + key + "'. Using default '" + defaultValue + "'.");
+            return defaultValue;
+        }
+        return result;
+    }
+
+    private static Object getValue(Map<?, ?> configRoot, String dottedKey) {
+        Object current = configRoot;
+        String[] segments = dottedKey.split("\\.");
+        for (String segment : segments) {
+            if (!(current instanceof Map<?, ?> map)) {
+                return null;
+            }
+            current = map.get(segment);
+            if (current == null) {
+                return null;
+            }
+        }
+        return current;
+    }
+
+    private static Map<?, ?> readConfig(Path configPath, ILoggerAdapter logger) {
+        try (Reader reader = Files.newBufferedReader(configPath, StandardCharsets.UTF_8)) {
+            Object loaded = createSafeYaml().load(reader);
+            if (loaded == null) {
+                return Map.of();
+            }
+            if (loaded instanceof Map<?, ?> loadedMap) {
+                return loadedMap;
+            }
+            logger.warn("Invalid root YAML node in " + FILE_NAME + ". Expected a map; using defaults.");
+            return Map.of();
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to load DataRegistry config file at " + configPath, exception);
+        }
+    }
+
+    private static Yaml createSafeYaml() {
+        LoaderOptions options = new LoaderOptions();
+        options.setAllowDuplicateKeys(false);
+        options.setMaxAliasesForCollections(20);
+        return new Yaml(new SafeConstructor(options));
+    }
+
+    private static void writeDefaultConfig(Path configPath, ClassLoader resourceLoader) throws IOException {
+        try (InputStream input = resourceLoader.getResourceAsStream(FILE_NAME)) {
+            if (input != null) {
+                Files.copy(input, configPath, StandardCopyOption.REPLACE_EXISTING);
+                return;
+            }
+        }
+        try (Writer writer = Files.newBufferedWriter(configPath, StandardCharsets.UTF_8)) {
+            writer.write(DEFAULT_CONFIG);
+        }
+    }
+}
