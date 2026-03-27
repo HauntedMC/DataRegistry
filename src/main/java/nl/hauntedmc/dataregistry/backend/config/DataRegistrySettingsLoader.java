@@ -17,6 +17,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.BiConsumer;
 
 /**
  * Loads DataRegistry settings from {@code config.yml}.
@@ -95,24 +96,42 @@ public final class DataRegistrySettingsLoader {
         DataRegistrySettings defaults = DataRegistrySettings.defaults();
         DataRegistrySettings.Builder builder = DataRegistrySettings.builder();
 
-        builder.databaseType(parseEnum(
-                configRoot,
+        builder.databaseType(validateWithBuilder(
                 DATABASE_TYPE_KEY,
-                DatabaseType.class,
+                parseEnum(
+                        configRoot,
+                        DATABASE_TYPE_KEY,
+                        DatabaseType.class,
+                        defaults.databaseType(),
+                        logger
+                ),
                 defaults.databaseType(),
-                logger
+                logger,
+                DataRegistrySettings.Builder::databaseType
         ));
-        builder.databaseConnectionId(parseString(
-                configRoot,
+        builder.databaseConnectionId(validateWithBuilder(
                 DATABASE_CONNECTION_ID_KEY,
+                parseString(
+                        configRoot,
+                        DATABASE_CONNECTION_ID_KEY,
+                        defaults.databaseConnectionId(),
+                        logger
+                ),
                 defaults.databaseConnectionId(),
-                logger
+                logger,
+                DataRegistrySettings.Builder::databaseConnectionId
         ));
-        builder.ormSchemaMode(parseString(
-                configRoot,
+        builder.ormSchemaMode(validateWithBuilder(
                 ORM_SCHEMA_MODE_KEY,
+                parseString(
+                        configRoot,
+                        ORM_SCHEMA_MODE_KEY,
+                        defaults.ormSchemaMode(),
+                        logger
+                ),
                 defaults.ormSchemaMode(),
-                logger
+                logger,
+                DataRegistrySettings.Builder::ormSchemaMode
         ));
         builder.persistIpAddress(parseBoolean(
                 configRoot,
@@ -126,42 +145,92 @@ public final class DataRegistrySettingsLoader {
                 defaults.persistVirtualHost(),
                 logger
         ));
-        builder.bukkitJoinDelayTicks(parseInteger(
-                configRoot,
+        builder.bukkitJoinDelayTicks(validateWithBuilder(
                 BUKKIT_JOIN_DELAY_TICKS_KEY,
+                parseInteger(
+                        configRoot,
+                        BUKKIT_JOIN_DELAY_TICKS_KEY,
+                        defaults.bukkitJoinDelayTicks(),
+                        logger
+                ),
                 defaults.bukkitJoinDelayTicks(),
-                logger
+                logger,
+                DataRegistrySettings.Builder::bukkitJoinDelayTicks
         ));
-        builder.usernameMaxLength(parseInteger(
-                configRoot,
+        builder.usernameMaxLength(validateWithBuilder(
                 USERNAME_MAX_LENGTH_KEY,
+                parseInteger(
+                        configRoot,
+                        USERNAME_MAX_LENGTH_KEY,
+                        defaults.usernameMaxLength(),
+                        logger
+                ),
                 defaults.usernameMaxLength(),
-                logger
+                logger,
+                DataRegistrySettings.Builder::usernameMaxLength
         ));
-        builder.serverNameMaxLength(parseInteger(
-                configRoot,
+        builder.serverNameMaxLength(validateWithBuilder(
                 SERVER_NAME_MAX_LENGTH_KEY,
+                parseInteger(
+                        configRoot,
+                        SERVER_NAME_MAX_LENGTH_KEY,
+                        defaults.serverNameMaxLength(),
+                        logger
+                ),
                 defaults.serverNameMaxLength(),
-                logger
+                logger,
+                DataRegistrySettings.Builder::serverNameMaxLength
         ));
-        builder.virtualHostMaxLength(parseInteger(
-                configRoot,
+        builder.virtualHostMaxLength(validateWithBuilder(
                 VIRTUAL_HOST_MAX_LENGTH_KEY,
+                parseInteger(
+                        configRoot,
+                        VIRTUAL_HOST_MAX_LENGTH_KEY,
+                        defaults.virtualHostMaxLength(),
+                        logger
+                ),
                 defaults.virtualHostMaxLength(),
-                logger
+                logger,
+                DataRegistrySettings.Builder::virtualHostMaxLength
         ));
-        builder.ipAddressMaxLength(parseInteger(
-                configRoot,
+        builder.ipAddressMaxLength(validateWithBuilder(
                 IP_ADDRESS_MAX_LENGTH_KEY,
+                parseInteger(
+                        configRoot,
+                        IP_ADDRESS_MAX_LENGTH_KEY,
+                        defaults.ipAddressMaxLength(),
+                        logger
+                ),
                 defaults.ipAddressMaxLength(),
-                logger
+                logger,
+                DataRegistrySettings.Builder::ipAddressMaxLength
         ));
 
         try {
             return builder.build();
         } catch (IllegalArgumentException exception) {
-            logger.warn("Invalid DataRegistry settings found; falling back to defaults.", exception);
+            logger.warn("Unexpected DataRegistry settings validation failure; falling back to defaults.", exception);
             return defaults;
+        }
+    }
+
+    private static <T> T validateWithBuilder(
+            String key,
+            T candidateValue,
+            T defaultValue,
+            ILoggerAdapter logger,
+            BiConsumer<DataRegistrySettings.Builder, T> settingApplier
+    ) {
+        try {
+            DataRegistrySettings.Builder validationBuilder = DataRegistrySettings.builder();
+            settingApplier.accept(validationBuilder, candidateValue);
+            validationBuilder.build();
+            return candidateValue;
+        } catch (IllegalArgumentException exception) {
+            logger.warn(
+                    "Invalid value for key '" + key + "': '" + candidateValue + "'. Using default '" + defaultValue + "'."
+            );
+            return defaultValue;
         }
     }
 

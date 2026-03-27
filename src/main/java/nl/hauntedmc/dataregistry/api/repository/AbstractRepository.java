@@ -48,10 +48,7 @@ public abstract class AbstractRepository<T, ID> implements Repository<T, ID> {
 
     @Override
     public void deleteById(ID id) {
-        Optional<T> entity = findById(id);
-        if (entity != null) {
-            entity.ifPresent(this::delete);
-        }
+        findById(id).ifPresent(this::delete);
     }
 
     @Override

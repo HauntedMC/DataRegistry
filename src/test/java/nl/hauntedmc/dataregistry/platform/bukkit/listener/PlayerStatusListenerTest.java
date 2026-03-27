@@ -53,6 +53,7 @@ class PlayerStatusListenerTest {
         listener.onPlayerQuit(new PlayerQuitEvent(player, "quit"));
 
         verify(repository).removeActivePlayer(uuid.toString());
+        verify(scheduler).runTaskLater(eq(plugin), any(Runnable.class), eq(5L));
     }
 
     @Test

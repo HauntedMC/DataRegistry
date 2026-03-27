@@ -70,22 +70,19 @@ public class DataRegistry {
                     RelationalDatabaseProvider.class
             );
             if (providerOptional.isEmpty()) {
-                logger.error("Failed to register relational database provider '" +
+                return failInitialization("Failed to register relational database provider '" +
                         settings.databaseConnectionId() + "'.");
-                return false;
             }
 
             DatabaseProvider provider = providerOptional.get();
             if (!provider.isConnected()) {
-                logger.error("Database provider '" + settings.databaseConnectionId() + "' is not connected.");
-                return false;
+                return failInitialization("Database provider '" + settings.databaseConnectionId() + "' is not connected.");
             }
 
             Optional<DataSource> dataSource = provider.getDataSourceOptional();
             if (dataSource.isEmpty()) {
-                logger.error("Relational database provider '" + settings.databaseConnectionId() +
+                return failInitialization("Relational database provider '" + settings.databaseConnectionId() +
                         "' returned no DataSource.");
-                return false;
             }
 
             ormContext = newOrmContext(
@@ -99,9 +96,7 @@ public class DataRegistry {
             this.playerRepository = newPlayerRepository(ormContext);
             return true;
         } catch (Exception ex) {
-            logger.error("Failed to initialize DataRegistry.", ex);
-            shutdown();
-            return false;
+            return failInitialization("Failed to initialize DataRegistry.", ex);
         }
     }
 
@@ -109,14 +104,15 @@ public class DataRegistry {
      * Shuts down ORM resources and unregisters plugin-scoped database registrations.
      */
     public synchronized void shutdown() {
-        if (ormContext != null) {
+        ORMContext currentOrmContext = ormContext;
+        ormContext = null;
+        playerRepository = null;
+
+        if (currentOrmContext != null) {
             try {
-                ormContext.shutdown();
+                currentOrmContext.shutdown();
             } catch (Exception ex) {
                 logger.warn("Failed to cleanly shut down ORM context.", ex);
-            } finally {
-                ormContext = null;
-                playerRepository = null;
             }
         }
         try {
@@ -124,6 +120,18 @@ public class DataRegistry {
         } catch (Exception ex) {
             logger.warn("Failed to unregister DataProvider plugin-scoped databases.", ex);
         }
+    }
+
+    private boolean failInitialization(String message) {
+        logger.error(message);
+        shutdown();
+        return false;
+    }
+
+    private boolean failInitialization(String message, Exception exception) {
+        logger.error(message, exception);
+        shutdown();
+        return false;
     }
 
     /**

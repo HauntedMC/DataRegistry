@@ -5,10 +5,16 @@ import org.junit.jupiter.api.Test;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 class BukkitLoggerAdapterTest {
+
+    @Test
+    void constructorRejectsNullLogger() {
+        assertThrows(NullPointerException.class, () -> new BukkitLoggerAdapter(null));
+    }
 
     @Test
     void delegatesAllLoggingMethodsWithExpectedLevels() {

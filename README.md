@@ -19,6 +19,31 @@ DataRegistry is designed for a network topology where Velocity is present.
 
 Running only Bukkit/Paper without Velocity is not a supported deployment mode.
 
+## Architecture
+
+DataRegistry is intentionally layered so platform code stays thin:
+
+- `api/`: ORM entities, repository contracts, and `DataRegistry` runtime bootstrap.
+- `backend/config/`: immutable validated settings and safe YAML loading.
+- `backend/service/`: business lifecycle services (identity, status, connection info, sessions).
+- `platform/*/`: Bukkit/Velocity adapters, listeners, and logger bridges.
+- `platform/internal/lifecycle/`: shared runtime holder for safe start/stop transitions.
+
+Service classes only depend on `DataRegistry` + logger abstractions and are unit-testable in isolation.
+Platform listeners are responsible for extracting live platform data and invoking services.
+
+## Extending DataRegistry
+
+When adding new data domains, follow this order:
+
+1. Add a JPA entity in `api/entities`.
+2. Add a repository in `api/repository`.
+3. Add a focused service in `backend/service` (validation + transactional behavior).
+4. Wire it in platform startup only where needed (`VelocityDataRegistry` and/or `BukkitDataRegistry`).
+5. Add unit tests for repository + service behavior, then listener integration tests.
+
+Keep persistence decisions (privacy, limits, schema behavior) configurable via `DataRegistrySettings` so platform code remains configuration-agnostic.
+
 ## Requirements
 
 - Java 21

@@ -69,32 +69,41 @@ class DataRegistrySettingsLoaderTest {
     }
 
     @Test
-    void parseFallsBackToDefaultsWhenValidationFails() {
+    void parseFallsBackPerSettingWhenValidationFails() {
         DataRegistrySettingsLoader loader = new DataRegistrySettingsLoader();
         RecordingLogger logger = new RecordingLogger();
         Map<String, Object> config = Map.of(
                 "database", Map.of(
+                        "type", "mysql",
                         "connection-id", "invalid id with spaces"
                 ),
+                "orm", Map.of(
+                        "schema-mode", "update"
+                ),
+                "privacy", Map.of(
+                        "persist-ip-address", true
+                ),
                 "validation", Map.of(
-                        "username", Map.of("max-length", 999)
+                        "username", Map.of("max-length", 999),
+                        "server", Map.of("max-length", 48)
                 )
         );
 
         DataRegistrySettings settings = loader.parse(config, logger);
         DataRegistrySettings defaults = DataRegistrySettings.defaults();
 
-        assertEquals(defaults.databaseType(), settings.databaseType());
+        assertEquals(DatabaseType.MYSQL, settings.databaseType());
         assertEquals(defaults.databaseConnectionId(), settings.databaseConnectionId());
-        assertEquals(defaults.ormSchemaMode(), settings.ormSchemaMode());
-        assertEquals(defaults.persistIpAddress(), settings.persistIpAddress());
+        assertEquals("update", settings.ormSchemaMode());
+        assertTrue(settings.persistIpAddress());
         assertEquals(defaults.persistVirtualHost(), settings.persistVirtualHost());
         assertEquals(defaults.bukkitJoinDelayTicks(), settings.bukkitJoinDelayTicks());
         assertEquals(defaults.usernameMaxLength(), settings.usernameMaxLength());
-        assertEquals(defaults.serverNameMaxLength(), settings.serverNameMaxLength());
+        assertEquals(48, settings.serverNameMaxLength());
         assertEquals(defaults.virtualHostMaxLength(), settings.virtualHostMaxLength());
         assertEquals(defaults.ipAddressMaxLength(), settings.ipAddressMaxLength());
-        assertTrue(logger.warnedWithThrowable);
+        assertTrue(logger.warnMessages.size() >= 2);
+        assertFalse(logger.warnedWithThrowable);
     }
 
     @Test

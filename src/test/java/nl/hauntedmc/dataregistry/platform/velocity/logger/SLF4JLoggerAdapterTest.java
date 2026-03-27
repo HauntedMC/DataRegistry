@@ -3,10 +3,16 @@ package nl.hauntedmc.dataregistry.platform.velocity.logger;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 class SLF4JLoggerAdapterTest {
+
+    @Test
+    void constructorRejectsNullLogger() {
+        assertThrows(NullPointerException.class, () -> new SLF4JLoggerAdapter(null));
+    }
 
     @Test
     void delegatesAllLoggingMethodsToSlf4jLogger() {

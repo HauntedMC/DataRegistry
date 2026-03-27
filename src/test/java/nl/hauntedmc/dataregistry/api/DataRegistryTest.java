@@ -75,6 +75,7 @@ class DataRegistryTest {
         DataRegistry registry = new DataRegistry(logger, "DataRegistry", api);
         assertFalse(registry.initialize());
         assertFalse(registry.isInitialized());
+        verify(api).unregisterAllDatabasesForPlugin();
     }
 
     @Test
@@ -90,6 +91,7 @@ class DataRegistryTest {
 
         assertFalse(registry.initialize());
         verify(logger).error("Database provider 'player_data_rw' is not connected.");
+        verify(api).unregisterAllDatabasesForPlugin();
     }
 
     @Test
@@ -105,6 +107,7 @@ class DataRegistryTest {
         DataRegistry registry = new DataRegistry(logger, "DataRegistry", api);
 
         assertFalse(registry.initialize());
+        verify(api).unregisterAllDatabasesForPlugin();
     }
 
     @Test
@@ -238,6 +241,21 @@ class DataRegistryTest {
         verify(ormContext).shutdown();
         verify(api).unregisterAllDatabasesForPlugin();
         assertFalse(registry.isInitialized());
+    }
+
+    @Test
+    void shutdownClearsStaleRepositoryReferenceWhenOrmContextIsMissing() throws Exception {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+        DataRegistry registry = new DataRegistry(logger, "DataRegistry", api);
+        setField(registry, "playerRepository", mock(PlayerRepository.class));
+        setField(registry, "ormContext", null);
+
+        registry.shutdown();
+
+        assertThrows(IllegalStateException.class, registry::getPlayerRepository);
+        assertFalse(registry.isInitialized());
+        verify(api).unregisterAllDatabasesForPlugin();
     }
 
     @Test

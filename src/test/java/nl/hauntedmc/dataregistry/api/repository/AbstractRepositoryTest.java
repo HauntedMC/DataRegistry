@@ -108,6 +108,7 @@ class AbstractRepositoryTest {
         TestRepository repository = spy(new TestRepository(mock(ORMContext.class)));
         TestEntity entity = new TestEntity(6L);
         doReturn(Optional.of(entity)).when(repository).findById(6L);
+        doReturn(Optional.empty()).when(repository).findById(999L);
         doNothing().when(repository).delete(entity);
 
         repository.deleteById(6L);

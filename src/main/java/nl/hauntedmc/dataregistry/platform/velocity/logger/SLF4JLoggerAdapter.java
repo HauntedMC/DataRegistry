@@ -3,11 +3,13 @@ package nl.hauntedmc.dataregistry.platform.velocity.logger;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import org.slf4j.Logger;
 
+import java.util.Objects;
+
 public class SLF4JLoggerAdapter implements ILoggerAdapter {
     private final Logger logger;
 
     public SLF4JLoggerAdapter(Logger logger) {
-        this.logger = logger;
+        this.logger = Objects.requireNonNull(logger, "logger must not be null");
     }
 
     @Override

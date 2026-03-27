@@ -60,10 +60,12 @@ public class PlayerStatusListener implements Listener {
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        markQuitGeneration(event.getPlayer().getUniqueId().toString());
+        String uuid = event.getPlayer().getUniqueId().toString();
+        long expectedQuitGeneration = markQuitGeneration(uuid);
+        scheduleLifecycleGenerationCleanup(uuid, expectedQuitGeneration);
         playerService.onPlayerQuit(
                 event.getPlayer().getName(),
-                event.getPlayer().getUniqueId().toString()
+                uuid
         );
     }
 
@@ -114,6 +116,25 @@ public class PlayerStatusListener implements Listener {
             }
             return currentGeneration % 2L == 1L ? currentGeneration + 1L : currentGeneration + 2L;
         });
+    }
+
+    private void scheduleLifecycleGenerationCleanup(String uuid, long expectedGeneration) {
+        long cleanupDelay = Math.max(1L, joinDelayTicks + 1L);
+        schedulerSupplier.get().runTaskLater(
+                plugin,
+                () -> playerLifecycleGenerations.compute(
+                        uuid,
+                        (key, currentGeneration) ->
+                                shouldDropLifecycleGeneration(currentGeneration, expectedGeneration) ? null : currentGeneration
+                ),
+                cleanupDelay
+        );
+    }
+
+    private static boolean shouldDropLifecycleGeneration(Long currentGeneration, long expectedGeneration) {
+        return currentGeneration != null
+                && currentGeneration == expectedGeneration
+                && currentGeneration % 2L == 0L;
     }
 
     private boolean isGenerationCurrent(String uuid, long expectedGeneration) {
