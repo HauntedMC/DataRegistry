@@ -26,11 +26,14 @@ import org.junit.jupiter.api.Test;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.Optional;
 import java.util.UUID;
 
 import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.executeTransactionsWithSession;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -247,7 +250,44 @@ class PlayerStatusListenerTest {
         verify(context.repository).removeActivePlayer(uuid);
     }
 
+    @Test
+    void beginShutdownStopsAcceptingNewEvents() {
+        TestContext context = createContext();
+        String uuid = UUID.randomUUID().toString();
+        context.listener.beginShutdown();
+
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
+        when(player.getUsername()).thenReturn("Alice");
+
+        context.listener.onPlayerJoin(new PostLoginEvent(player));
+
+        verify(context.repository, never()).getOrCreateActivePlayer(anyString(), anyString());
+        verify(context.ormContext, never()).runInTransaction(any());
+        assertTrue(context.listener.awaitPipelineDrain(1L, TimeUnit.MILLISECONDS));
+    }
+
+    @Test
+    void awaitPipelineDrainTimesOutWhenExecutorDoesNotRunQueuedTasks() {
+        TestContext context = createContext(runnable -> {
+        });
+        String uuid = UUID.randomUUID().toString();
+
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
+        when(player.getUsername()).thenReturn("Alice");
+
+        context.listener.onPlayerJoin(new PostLoginEvent(player));
+        context.listener.beginShutdown();
+
+        assertFalse(context.listener.awaitPipelineDrain(1L, TimeUnit.MILLISECONDS));
+    }
+
     private static TestContext createContext() {
+        return createContext(Runnable::run);
+    }
+
+    private static TestContext createContext(Executor eventExecutor) {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
         DataRegistry registry = mock(DataRegistry.class);
@@ -298,7 +338,7 @@ class PlayerStatusListenerTest {
                 connectionService,
                 sessionService,
                 logger,
-                Runnable::run
+                eventExecutor
         );
         return new TestContext(listener, repository, ormContext, session);
     }

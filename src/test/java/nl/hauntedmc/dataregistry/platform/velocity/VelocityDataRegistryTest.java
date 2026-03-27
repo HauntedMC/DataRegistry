@@ -246,6 +246,7 @@ class VelocityDataRegistryTest {
 
         plugin.onProxyShutdown(null);
 
+        assertTrue(plugin.playerEventsDrained);
         verify(registry).shutdown();
         assertThrows(IllegalStateException.class, plugin::getDataRegistry);
     }
@@ -255,6 +256,7 @@ class VelocityDataRegistryTest {
         private final DataRegistry registry;
         private boolean listenerRegistered;
         private DataProviderAPI createdWithApi;
+        private boolean playerEventsDrained;
 
         private TestVelocityDataRegistry(
                 ProxyServer proxyServer,
@@ -281,6 +283,11 @@ class VelocityDataRegistryTest {
         @Override
         void registerPlayerStatusListener() {
             this.listenerRegistered = true;
+        }
+
+        @Override
+        void stopAcceptingAndDrainPlayerEvents() {
+            this.playerEventsDrained = true;
         }
     }
 

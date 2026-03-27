@@ -18,9 +18,13 @@ import java.net.SocketAddress;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class PlayerStatusListener {
 
@@ -31,6 +35,7 @@ public class PlayerStatusListener {
     private final ILoggerAdapter logger;
     private final Executor eventExecutor;
     private final ConcurrentMap<String, CompletableFuture<Void>> playerEventPipelines = new ConcurrentHashMap<>();
+    private final AtomicBoolean acceptingEvents = new AtomicBoolean(true);
 
     public PlayerStatusListener(PlayerService playerService,
                                 PlayerStatusService statusService,
@@ -104,6 +109,9 @@ public class PlayerStatusListener {
 
     private void enqueuePlayerEvent(String uuid, Runnable task) {
         playerEventPipelines.compute(uuid, (key, currentPipeline) -> {
+            if (!acceptingEvents.get()) {
+                return currentPipeline;
+            }
             CompletableFuture<Void> base = currentPipeline == null
                     ? CompletableFuture.completedFuture(null)
                     : currentPipeline.exceptionally(throwable -> null);
@@ -119,6 +127,40 @@ public class PlayerStatusListener {
             });
             return next;
         });
+    }
+
+    public void beginShutdown() {
+        acceptingEvents.set(false);
+    }
+
+    public boolean awaitPipelineDrain(long timeout, TimeUnit unit) {
+        Objects.requireNonNull(unit, "unit must not be null");
+        if (timeout < 0L) {
+            throw new IllegalArgumentException("timeout must be non-negative");
+        }
+        long deadlineNanos = System.nanoTime() + unit.toNanos(timeout);
+        while (true) {
+            CompletableFuture<?>[] pendingPipelines = playerEventPipelines.values().toArray(CompletableFuture[]::new);
+            if (pendingPipelines.length == 0) {
+                return true;
+            }
+
+            long remainingNanos = deadlineNanos - System.nanoTime();
+            if (remainingNanos <= 0L) {
+                return false;
+            }
+
+            try {
+                CompletableFuture.allOf(pendingPipelines).get(remainingNanos, TimeUnit.NANOSECONDS);
+            } catch (ExecutionException ignored) {
+                // Individual pipeline failures are logged by enqueuePlayerEvent and still count as completed work.
+            } catch (TimeoutException timeoutException) {
+                return false;
+            } catch (InterruptedException interruptedException) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
     }
 
     private static String safeForLog(String value) {

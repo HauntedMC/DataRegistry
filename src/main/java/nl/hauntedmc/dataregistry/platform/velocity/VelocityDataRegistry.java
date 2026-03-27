@@ -46,6 +46,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
 
     static final int INITIALIZE_EVENT_PRIORITY = 1000;
     static final int SHUTDOWN_EVENT_PRIORITY = -1000;
+    static final long EVENT_PIPELINE_DRAIN_TIMEOUT_SECONDS = 5L;
 
     private final ProxyServer proxyServer;
     private final Logger logger;
@@ -56,6 +57,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
     private SLF4JLoggerAdapter logInstance;
     private DataRegistrySettings settings = DataRegistrySettings.defaults();
     private ExecutorService playerEventExecutor;
+    private PlayerStatusListener playerStatusListener;
 
     @Inject
     public VelocityDataRegistry(ProxyServer proxyServer, Logger logger, @DataDirectory Path dataDirectory) {
@@ -94,6 +96,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
 
     @Subscribe(priority = SHUTDOWN_EVENT_PRIORITY)
     public void onProxyShutdown(ProxyShutdownEvent event) {
+        stopAcceptingAndDrainPlayerEvents();
         runtime.stop(getPlatformLogger());
         shutdownPlayerEventExecutor();
         logger.info("DataRegistry disabled on Velocity.");
@@ -173,17 +176,29 @@ public class VelocityDataRegistry implements PlatformPlugin {
                 settings.serverNameMaxLength()
         );
 
-        proxyServer.getEventManager().register(
-                this,
-                new PlayerStatusListener(
-                        playerService,
-                        statusService,
-                        connectionService,
-                        sessionService,
-                        getPlatformLogger(),
-                        playerEventExecutor
-                )
+        PlayerStatusListener listener = new PlayerStatusListener(
+                playerService,
+                statusService,
+                connectionService,
+                sessionService,
+                getPlatformLogger(),
+                playerEventExecutor
         );
+        proxyServer.getEventManager().register(this, listener);
+        playerStatusListener = listener;
+    }
+
+    void stopAcceptingAndDrainPlayerEvents() {
+        PlayerStatusListener listener = playerStatusListener;
+        playerStatusListener = null;
+        if (listener == null) {
+            return;
+        }
+        listener.beginShutdown();
+        boolean drained = listener.awaitPipelineDrain(EVENT_PIPELINE_DRAIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        if (!drained) {
+            logger.warn("Timed out waiting for queued player lifecycle events to drain before shutdown.");
+        }
     }
 
     private void initializeRuntime(DataRegistry registry) {
