@@ -49,9 +49,6 @@ public class ServiceInstanceEntity {
     @Column(name = "port")
     private Integer port;
 
-    @Column(name = "version", length = 96)
-    private String version;
-
     @Column(name = "started_at", nullable = false, columnDefinition = "TIMESTAMP", updatable = false)
     private Instant startedAt;
 
@@ -110,14 +107,6 @@ public class ServiceInstanceEntity {
 
     public void setPort(Integer port) {
         this.port = port;
-    }
-
-    public String getVersion() {
-        return version;
-    }
-
-    public void setVersion(String version) {
-        this.version = version;
     }
 
     public Instant getStartedAt() {

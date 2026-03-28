@@ -246,7 +246,6 @@ public class VelocityDataRegistry implements PlatformPlugin {
 
         String instanceId = java.util.UUID.randomUUID().toString();
         localServiceInstanceId.set(instanceId);
-        String version = resolvePluginVersion(proxyServer, this);
         InetSocketAddress address = proxyServer.getBoundAddress();
         String host = address == null ? null : address.getHostString();
         Integer port = address == null ? null : address.getPort();
@@ -259,8 +258,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
                 "VELOCITY",
                 instanceId,
                 host,
-                port,
-                version
+                port
         );
         serviceRegistryHeartbeatExecutor.scheduleAtFixedRate(
                 () -> registryService.refreshRunningInstance(
@@ -269,8 +267,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
                         "VELOCITY",
                         instanceId,
                         host,
-                        port,
-                        version
+                        port
                 ),
                 heartbeatIntervalSeconds,
                 heartbeatIntervalSeconds,

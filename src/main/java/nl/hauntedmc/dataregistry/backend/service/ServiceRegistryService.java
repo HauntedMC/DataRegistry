@@ -23,7 +23,6 @@ public final class ServiceRegistryService {
     private static final int SERVICE_NAME_MAX_LENGTH = 96;
     private static final int PLATFORM_MAX_LENGTH = 32;
     private static final int HOST_MAX_LENGTH = 255;
-    private static final int VERSION_MAX_LENGTH = 96;
 
     private final DataRegistry dataRegistry;
     private final ILoggerAdapter logger;
@@ -51,8 +50,7 @@ public final class ServiceRegistryService {
             String platform,
             String instanceId,
             String host,
-            Integer port,
-            String version
+            Integer port
     ) {
         if (!featureEnabled) {
             return;
@@ -70,7 +68,6 @@ public final class ServiceRegistryService {
             return;
         }
         String normalizedHost = Sanitization.trimToLengthOrNull(host, HOST_MAX_LENGTH);
-        String normalizedVersion = Sanitization.trimToLengthOrNull(version, VERSION_MAX_LENGTH);
 
         try {
             dataRegistry.getServiceORM().runInTransaction(session -> {
@@ -116,7 +113,6 @@ public final class ServiceRegistryService {
                     instance.setLastSeenAt(now);
                     instance.setHost(normalizedHost);
                     instance.setPort(normalizePort(port));
-                    instance.setVersion(normalizedVersion);
                     session.persist(instance);
                     return null;
                 }
@@ -126,7 +122,6 @@ public final class ServiceRegistryService {
                 instance.setStoppedAt(null);
                 instance.setHost(normalizedHost);
                 instance.setPort(normalizePort(port));
-                instance.setVersion(normalizedVersion);
                 return null;
             });
         } catch (RuntimeException exception) {
@@ -511,7 +506,6 @@ public final class ServiceRegistryService {
                 entity.getStatus(),
                 entity.getHost(),
                 entity.getPort(),
-                entity.getVersion(),
                 entity.getStartedAt(),
                 entity.getLastSeenAt(),
                 entity.getStoppedAt()
@@ -569,7 +563,6 @@ public final class ServiceRegistryService {
             ServiceInstanceStatus status,
             String host,
             Integer port,
-            String version,
             Instant startedAt,
             Instant lastSeenAt,
             Instant stoppedAt

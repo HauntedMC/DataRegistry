@@ -55,6 +55,9 @@ Keep persistence decisions (privacy, limits, schema behavior) configurable via `
 ## Configuration
 
 On first start, DataRegistry writes a `config.yml` to the plugin data directory.
+On every load, it also reconciles the file to the expected schema:
+- Missing supported keys are added with effective/default values.
+- Unknown or outdated keys are removed.
 
 Key sections:
 - `database` (`type`, `profiles.players.connection-id`, `profiles.services.connection-id`)
@@ -91,6 +94,34 @@ service-registry:
 ```
 
 Invalid values are rejected and safe defaults are used.
+
+### ORM Schema Modes (`orm.schema-mode`)
+
+- `validate`: validates mappings against existing schema only. Use for production.
+- `update`: attempts additive schema updates. Use for development/staging.
+- `create`: drops/recreates schema on startup. Use only for ephemeral local environments.
+- `create-drop`: creates schema on startup and drops it on shutdown. Use only for tests/local.
+- `none`: disables ORM schema management entirely. Use when external migrations manage schema.
+
+### Setting Reference
+
+- `database.type` (default `MYSQL`): DataProvider relational database type to register.
+- `database.profiles.players.connection-id` (default `player_data_rw`): DataProvider connection profile for player-domain tables; must match `[A-Za-z0-9._-]{1,64}`.
+- `database.profiles.services.connection-id` (default `player_data_rw`): DataProvider connection profile for service-registry tables; must match `[A-Za-z0-9._-]{1,64}`.
+- `orm.schema-mode` (default `validate`): ORM schema management mode (`validate`, `update`, `create`, `create-drop`, `none`).
+- `privacy.persist-ip-address` (default `false`): when `true`, stores IP addresses in `player_connection_info`.
+- `privacy.persist-virtual-host` (default `false`): when `true`, stores virtual host values in `player_connection_info`.
+- `features.online-status` (default `true`): enables `player_online_status` domain.
+- `features.connection-info` (default `true`): enables `player_connection_info` domain.
+- `features.sessions` (default `true`): enables `player_sessions` domain.
+- `features.name-history` (default `true`): enables `player_name_history` domain.
+- `features.service-registry` (default `true`): enables `network_service` and `service_instance` domains.
+- `service-registry.heartbeat-interval-seconds` (default `30`, range `5..300`): cadence for service instance heartbeat writes.
+- `platform.bukkit.join-delay-ticks` (default `4`, range `0..200`): delay after Bukkit join before status snapshot/writes.
+- `validation.username.max-length` (default `32`, range `1..32`): max persisted username length.
+- `validation.server.max-length` (default `64`, range `1..64`): max persisted server name length.
+- `validation.virtual-host.max-length` (default `255`, range `1..255`): max persisted virtual host length.
+- `validation.ip.max-length` (default `45`, range `7..45`): max persisted IP textual length.
 
 ## Feature Toggles
 

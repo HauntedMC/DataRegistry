@@ -2,18 +2,31 @@
 # Do not store raw personal connection metadata unless explicitly needed.
 
 database:
+  # DataProvider database type (for example MYSQL).
   type: MYSQL
   profiles:
+    # Connection profile for player-domain tables.
+    # Must match [A-Za-z0-9._-]{1,64}.
     players:
       connection-id: player_data_rw
+    # Connection profile for service-registry tables.
+    # Must match [A-Za-z0-9._-]{1,64}.
     services:
       connection-id: player_data_rw
 
 orm:
+  # Schema mode controls ORM DDL behavior:
+  # validate: verify schema only (recommended for production)
+  # update: auto-apply additive changes (development/staging)
+  # create: drop and recreate schema at startup (ephemeral/local only)
+  # create-drop: create at startup, drop at shutdown (tests/local only)
+  # none: disable ORM schema management (use external migrations)
   schema-mode: validate
 
 privacy:
+  # Persist player IP addresses in connection info.
   persist-ip-address: false
+  # Persist player virtual host values in connection info.
   persist-virtual-host: false
 
 features:
@@ -26,18 +39,24 @@ features:
   service-registry: true
 
 service-registry:
+  # Heartbeat write interval for service instances (seconds, 5-300).
   heartbeat-interval-seconds: 30
 
 platform:
   bukkit:
+    # Delay after join event before snapshotting status (ticks, 0-200).
     join-delay-ticks: 4
 
 validation:
   username:
+    # Max persisted username length (1-32).
     max-length: 32
   server:
+    # Max persisted server name length (1-64).
     max-length: 64
   virtual-host:
+    # Max persisted virtual host length (1-255).
     max-length: 255
   ip:
+    # Max persisted IP text length (7-45).
     max-length: 45

@@ -78,8 +78,7 @@ class ServiceRegistryServiceTest {
                 "PAPER",
                 "e4a9f6d6-2b90-4f9f-9807-99eb62a4a350",
                 "127.0.0.1",
-                25565,
-                "1.21.11"
+                25565
         );
 
         ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
@@ -145,8 +144,7 @@ class ServiceRegistryServiceTest {
                 "VELOCITY",
                 "e4a9f6d6-2b90-4f9f-9807-99eb62a4a350",
                 "10.0.0.5",
-                25577,
-                "3.4.0"
+                25577
         );
 
         verify(session, never()).persist(any());
@@ -155,7 +153,6 @@ class ServiceRegistryServiceTest {
         assertEquals(ServiceInstanceStatus.RUNNING, existingInstance.getStatus());
         assertEquals("10.0.0.5", existingInstance.getHost());
         assertEquals(25577, existingInstance.getPort());
-        assertEquals("3.4.0", existingInstance.getVersion());
         assertNull(existingInstance.getStoppedAt());
     }
 
@@ -192,7 +189,7 @@ class ServiceRegistryServiceTest {
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
         ServiceRegistryService service = new ServiceRegistryService(registry, logger, false);
 
-        service.refreshRunningInstance(ServiceKind.BACKEND, "paper", "PAPER", "id", null, null, null);
+        service.refreshRunningInstance(ServiceKind.BACKEND, "paper", "PAPER", "id", null, null);
         service.markStopped("id");
 
         verify(registry, never()).getServiceORM();
@@ -221,7 +218,6 @@ class ServiceRegistryServiceTest {
         running.setStatus(ServiceInstanceStatus.RUNNING);
         running.setHost("10.0.0.5");
         running.setPort(25565);
-        running.setVersion("1.21.11");
         running.setStartedAt(now.minusSeconds(90));
         running.setLastSeenAt(now.minusSeconds(3));
 
@@ -231,7 +227,6 @@ class ServiceRegistryServiceTest {
         stopped.setStatus(ServiceInstanceStatus.STOPPED);
         stopped.setHost("10.0.0.6");
         stopped.setPort(25566);
-        stopped.setVersion("1.21.11");
         stopped.setStartedAt(now.minusSeconds(200));
         stopped.setLastSeenAt(now.minusSeconds(70));
         stopped.setStoppedAt(now.minusSeconds(60));
@@ -309,8 +304,8 @@ class ServiceRegistryServiceTest {
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
         ServiceRegistryService service = new ServiceRegistryService(registry, logger, true);
 
-        service.refreshRunningInstance(null, "paper", "PAPER", "id", null, null, null);
-        service.refreshRunningInstance(ServiceKind.BACKEND, " ", "PAPER", "id", null, null, null);
+        service.refreshRunningInstance(null, "paper", "PAPER", "id", null, null);
+        service.refreshRunningInstance(ServiceKind.BACKEND, " ", "PAPER", "id", null, null);
         verify(logger).warn("refreshRunningInstance called with null serviceKind.");
         verify(logger).warn("refreshRunningInstance called with invalid required service metadata.");
 
@@ -322,7 +317,6 @@ class ServiceRegistryServiceTest {
                 "paper",
                 "PAPER",
                 "id\nvalue",
-                null,
                 null,
                 null
         );

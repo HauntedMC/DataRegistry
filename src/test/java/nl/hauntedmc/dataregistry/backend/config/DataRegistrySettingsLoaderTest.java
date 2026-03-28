@@ -268,6 +268,8 @@ class DataRegistrySettingsLoaderTest {
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
         assertTrue(generatedContent.contains("persist-ip-address: false"));
         assertTrue(generatedContent.contains("persist-virtual-host: false"));
+        assertTrue(generatedContent.contains("validate: verify schema only"));
+        assertTrue(generatedContent.contains("none: disable ORM schema management"));
         assertTrue(generatedContent.contains("online-status: true"));
         assertTrue(generatedContent.contains("connection-info: true"));
         assertTrue(generatedContent.contains("sessions: true"));
@@ -287,6 +289,40 @@ class DataRegistrySettingsLoaderTest {
 
         assertEquals(DataRegistrySettings.defaults().playerDatabaseConnectionId(), settings.playerDatabaseConnectionId());
         assertTrue(logger.warnMessages.stream().anyMatch(msg -> msg.contains("Invalid root YAML node")));
+    }
+
+    @Test
+    void loadReconcilesConfigByAddingMissingKeysAndRemovingUnknownOnes() throws Exception {
+        Path configFile = temporaryDirectory.resolve("config.yml");
+        Files.writeString(configFile, """
+                database:
+                  type: MYSQL
+                  profiles:
+                    players:
+                      connection-id: players-main
+                orm:
+                  schema-mode: update
+                old-section:
+                  should-be-removed: true
+                features:
+                  sessions: false
+                """);
+
+        DataRegistrySettingsLoader loader = new DataRegistrySettingsLoader();
+        RecordingLogger logger = new RecordingLogger();
+
+        DataRegistrySettings settings = loader.load(temporaryDirectory, getClass().getClassLoader(), logger);
+        String reconciledConfig = Files.readString(configFile);
+
+        assertEquals("players-main", settings.playerDatabaseConnectionId());
+        assertEquals(DataRegistrySettings.defaults().serviceDatabaseConnectionId(), settings.serviceDatabaseConnectionId());
+        assertFalse(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
+        assertTrue(reconciledConfig.contains("services:"));
+        assertTrue(reconciledConfig.contains("connection-id: player_data_rw"));
+        assertTrue(reconciledConfig.contains("privacy:"));
+        assertTrue(reconciledConfig.contains("validation:"));
+        assertFalse(reconciledConfig.contains("old-section:"));
+        assertTrue(logger.infoMessages.stream().anyMatch(msg -> msg.contains("Reconciled DataRegistry config schema")));
     }
 
     private static final class SingleResourceClassLoader extends ClassLoader {

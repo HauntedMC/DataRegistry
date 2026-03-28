@@ -114,7 +114,6 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
         String host = normalizeHost(getServer().getIp());
         Integer port = normalizePort(getServer().getPort());
         String serviceName = resolveBackendServiceName(host, port);
-        String version = getServer().getVersion();
 
         registryService.refreshRunningInstance(
                 ServiceKind.BACKEND,
@@ -122,8 +121,7 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
                 "PAPER",
                 instanceId,
                 host,
-                port,
-                version
+                port
         );
 
         long intervalTicks = Math.max(20L, settings.serviceHeartbeatIntervalSeconds() * 20L);
@@ -135,8 +133,7 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
                         "PAPER",
                         instanceId,
                         host,
-                        port,
-                        version
+                        port
                 ),
                 intervalTicks,
                 intervalTicks

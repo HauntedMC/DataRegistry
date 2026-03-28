@@ -145,7 +145,6 @@ class EntityAccessorsTest {
         instance.setStatus(ServiceInstanceStatus.STOPPED);
         instance.setHost("127.0.0.1");
         instance.setPort(25565);
-        instance.setVersion("1.0.0");
         instance.setStartedAt(started);
         instance.setLastSeenAt(lastSeen);
         instance.setStoppedAt(stopped);
@@ -163,7 +162,6 @@ class EntityAccessorsTest {
         assertEquals(ServiceInstanceStatus.STOPPED, instance.getStatus());
         assertEquals("127.0.0.1", instance.getHost());
         assertEquals(25565, instance.getPort());
-        assertEquals("1.0.0", instance.getVersion());
         assertEquals(started, instance.getStartedAt());
         assertEquals(lastSeen, instance.getLastSeenAt());
         assertEquals(stopped, instance.getStoppedAt());
