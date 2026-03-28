@@ -41,11 +41,20 @@ features:
 service-registry:
   # Heartbeat write interval for service instances (seconds, 5-300).
   heartbeat-interval-seconds: 30
+  # Velocity backend-probe interval (seconds, 5-300).
+  probe-interval-seconds: 15
+  # Velocity backend-probe timeout (milliseconds, 200-10000).
+  probe-timeout-millis: 1500
 
 platform:
   bukkit:
     # Delay after join event before snapshotting status (ticks, 0-200).
     join-delay-ticks: 4
+    # Backend logical service name; set to 'auto' to derive from host:port.
+    service-name: auto
+  velocity:
+    # Proxy logical service name; set to 'auto' to derive from host:port.
+    service-name: auto
 
 validation:
   username:

@@ -5,6 +5,8 @@ import nl.hauntedmc.dataregistry.api.entities.NetworkServiceEntity;
 import nl.hauntedmc.dataregistry.api.entities.ServiceInstanceEntity;
 import nl.hauntedmc.dataregistry.api.entities.ServiceInstanceStatus;
 import nl.hauntedmc.dataregistry.api.entities.ServiceKind;
+import nl.hauntedmc.dataregistry.api.entities.ServiceProbeEntity;
+import nl.hauntedmc.dataregistry.api.entities.ServiceProbeStatus;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 
 import java.time.Duration;
@@ -23,6 +25,9 @@ public final class ServiceRegistryService {
     private static final int SERVICE_NAME_MAX_LENGTH = 96;
     private static final int PLATFORM_MAX_LENGTH = 32;
     private static final int HOST_MAX_LENGTH = 255;
+    private static final int INSTANCE_ID_MAX_LENGTH = 36;
+    private static final int PROBE_ERROR_CODE_MAX_LENGTH = 64;
+    private static final int PROBE_ERROR_DETAIL_MAX_LENGTH = 255;
 
     private final DataRegistry dataRegistry;
     private final ILoggerAdapter logger;
@@ -62,7 +67,7 @@ public final class ServiceRegistryService {
 
         String normalizedServiceName = Sanitization.trimToLengthOrNull(serviceName, SERVICE_NAME_MAX_LENGTH);
         String normalizedPlatform = Sanitization.trimToLengthOrNull(platform, PLATFORM_MAX_LENGTH);
-        String normalizedInstanceId = Sanitization.trimToLengthOrNull(instanceId, 36);
+        String normalizedInstanceId = Sanitization.trimToLengthOrNull(instanceId, INSTANCE_ID_MAX_LENGTH);
         if (normalizedServiceName == null || normalizedPlatform == null || normalizedInstanceId == null) {
             logger.warn("refreshRunningInstance called with invalid required service metadata.");
             return;
@@ -139,7 +144,7 @@ public final class ServiceRegistryService {
         if (!featureEnabled) {
             return;
         }
-        String normalizedInstanceId = Sanitization.trimToLengthOrNull(instanceId, 36);
+        String normalizedInstanceId = Sanitization.trimToLengthOrNull(instanceId, INSTANCE_ID_MAX_LENGTH);
         if (normalizedInstanceId == null) {
             return;
         }
@@ -164,6 +169,94 @@ public final class ServiceRegistryService {
         } catch (RuntimeException exception) {
             logger.error(
                     "Failed to mark service instance '" + Sanitization.safeForLog(normalizedInstanceId) + "' as stopped.",
+                    exception
+            );
+        }
+    }
+
+    /**
+     * Appends a proxy-side health probe result for one logical service.
+     */
+    public void recordProbe(
+            ServiceKind serviceKind,
+            String serviceName,
+            String platform,
+            String observerInstanceId,
+            ServiceProbeStatus status,
+            String targetHost,
+            Integer targetPort,
+            String targetInstanceId,
+            Long latencyMillis,
+            String errorCode,
+            String errorDetail
+    ) {
+        if (!featureEnabled) {
+            return;
+        }
+        if (serviceKind == null || status == null) {
+            logger.warn("recordProbe called with null serviceKind or status.");
+            return;
+        }
+
+        String normalizedServiceName = Sanitization.trimToLengthOrNull(serviceName, SERVICE_NAME_MAX_LENGTH);
+        String normalizedPlatform = Sanitization.trimToLengthOrNull(platform, PLATFORM_MAX_LENGTH);
+        String normalizedObserverInstanceId = Sanitization.trimToLengthOrNull(observerInstanceId, INSTANCE_ID_MAX_LENGTH);
+        if (normalizedServiceName == null || normalizedPlatform == null || normalizedObserverInstanceId == null) {
+            logger.warn("recordProbe called with invalid required service metadata.");
+            return;
+        }
+        String normalizedTargetHost = Sanitization.trimToLengthOrNull(targetHost, HOST_MAX_LENGTH);
+        String normalizedTargetInstanceId = Sanitization.trimToLengthOrNull(targetInstanceId, INSTANCE_ID_MAX_LENGTH);
+        String normalizedErrorCode = Sanitization.trimToLengthOrNull(errorCode, PROBE_ERROR_CODE_MAX_LENGTH);
+        String normalizedErrorDetail = Sanitization.trimToLengthOrNull(errorDetail, PROBE_ERROR_DETAIL_MAX_LENGTH);
+        Integer normalizedPort = normalizePort(targetPort);
+        Long normalizedLatencyMillis = normalizeLatencyMillis(latencyMillis);
+
+        try {
+            dataRegistry.getServiceORM().runInTransaction(session -> {
+                Instant now = Instant.now();
+
+                NetworkServiceEntity service = session.createQuery(
+                                "SELECT s FROM NetworkServiceEntity s " +
+                                        "WHERE s.serviceKind = :kind AND s.serviceName = :name",
+                                NetworkServiceEntity.class
+                        )
+                        .setParameter("kind", serviceKind)
+                        .setParameter("name", normalizedServiceName)
+                        .setMaxResults(1)
+                        .uniqueResult();
+
+                if (service == null) {
+                    service = new NetworkServiceEntity();
+                    service.setServiceKind(serviceKind);
+                    service.setServiceName(normalizedServiceName);
+                    service.setPlatform(normalizedPlatform);
+                    service.setFirstSeenAt(now);
+                    service.setLastSeenAt(now);
+                    session.persist(service);
+                } else {
+                    service.setPlatform(normalizedPlatform);
+                    service.setLastSeenAt(now);
+                }
+
+                ServiceProbeEntity probe = new ServiceProbeEntity();
+                probe.setService(service);
+                probe.setObserverInstanceId(normalizedObserverInstanceId);
+                probe.setStatus(status);
+                probe.setTargetHost(normalizedTargetHost);
+                probe.setTargetPort(normalizedPort);
+                probe.setTargetInstanceId(normalizedTargetInstanceId);
+                probe.setLatencyMillis(normalizedLatencyMillis);
+                probe.setErrorCode(normalizedErrorCode);
+                probe.setErrorDetail(normalizedErrorDetail);
+                probe.setCheckedAt(now);
+                session.persist(probe);
+                return null;
+            });
+        } catch (RuntimeException exception) {
+            logger.error(
+                    "Failed to record service probe for '" +
+                            Sanitization.safeForLog(serviceKind.name() + ":" + normalizedServiceName) + "'.",
                     exception
             );
         }
@@ -304,7 +397,7 @@ public final class ServiceRegistryService {
         if (!featureEnabled) {
             return Optional.empty();
         }
-        String normalizedInstanceId = Sanitization.trimToLengthOrNull(instanceId, 36);
+        String normalizedInstanceId = Sanitization.trimToLengthOrNull(instanceId, INSTANCE_ID_MAX_LENGTH);
         if (normalizedInstanceId == null) {
             return Optional.empty();
         }
@@ -398,6 +491,111 @@ public final class ServiceRegistryService {
     }
 
     /**
+     * Returns the most recent probe for one logical service.
+     */
+    public Optional<ServiceProbeView> findMostRecentProbe(ServiceKind serviceKind, String serviceName) {
+        if (!featureEnabled || serviceKind == null) {
+            return Optional.empty();
+        }
+        String normalizedServiceName = Sanitization.trimToLengthOrNull(serviceName, SERVICE_NAME_MAX_LENGTH);
+        if (normalizedServiceName == null) {
+            return Optional.empty();
+        }
+        try {
+            return dataRegistry.getServiceProbeRepository()
+                    .findMostRecentByService(serviceKind, normalizedServiceName)
+                    .map(ServiceRegistryService::toProbeView);
+        } catch (RuntimeException exception) {
+            logger.error(
+                    "Failed to find most recent probe for '" +
+                            Sanitization.safeForLog(serviceKind.name() + ":" + normalizedServiceName) + "'.",
+                    exception
+            );
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Returns recent probes for one logical service, newest first.
+     */
+    public List<ServiceProbeView> listRecentProbes(ServiceKind serviceKind, String serviceName, int limit) {
+        if (!featureEnabled || serviceKind == null) {
+            return List.of();
+        }
+        String normalizedServiceName = Sanitization.trimToLengthOrNull(serviceName, SERVICE_NAME_MAX_LENGTH);
+        if (normalizedServiceName == null) {
+            return List.of();
+        }
+        try {
+            return dataRegistry.getServiceProbeRepository()
+                    .findRecentByService(serviceKind, normalizedServiceName, Math.max(1, limit))
+                    .stream()
+                    .map(ServiceRegistryService::toProbeView)
+                    .toList();
+        } catch (RuntimeException exception) {
+            logger.error(
+                    "Failed to list probes for '" +
+                            Sanitization.safeForLog(serviceKind.name() + ":" + normalizedServiceName) + "'.",
+                    exception
+            );
+            return List.of();
+        }
+    }
+
+    /**
+     * Returns recent probes emitted by one observer instance.
+     */
+    public List<ServiceProbeView> listRecentProbesByObserver(String observerInstanceId, int limit) {
+        if (!featureEnabled) {
+            return List.of();
+        }
+        String normalizedObserverInstanceId =
+                Sanitization.trimToLengthOrNull(observerInstanceId, INSTANCE_ID_MAX_LENGTH);
+        if (normalizedObserverInstanceId == null) {
+            return List.of();
+        }
+        try {
+            return dataRegistry.getServiceProbeRepository()
+                    .findByObserverInstanceId(normalizedObserverInstanceId, Math.max(1, limit))
+                    .stream()
+                    .map(ServiceRegistryService::toProbeView)
+                    .toList();
+        } catch (RuntimeException exception) {
+            logger.error(
+                    "Failed to list probes by observer instance '" +
+                            Sanitization.safeForLog(normalizedObserverInstanceId) + "'.",
+                    exception
+            );
+            return List.of();
+        }
+    }
+
+    /**
+     * Returns counts of probe rows grouped by status.
+     */
+    public Map<ServiceProbeStatus, Long> countProbesByStatus() {
+        EnumMap<ServiceProbeStatus, Long> counts = new EnumMap<>(ServiceProbeStatus.class);
+        for (ServiceProbeStatus probeStatus : ServiceProbeStatus.values()) {
+            counts.put(probeStatus, 0L);
+        }
+        if (!featureEnabled) {
+            return Map.copyOf(counts);
+        }
+        for (ServiceProbeStatus probeStatus : ServiceProbeStatus.values()) {
+            try {
+                counts.put(probeStatus, dataRegistry.getServiceProbeRepository().countByStatus(probeStatus));
+            } catch (RuntimeException exception) {
+                logger.error(
+                        "Failed to count probes for status '" + Sanitization.safeForLog(probeStatus.name()) + "'.",
+                        exception
+                );
+                counts.put(probeStatus, 0L);
+            }
+        }
+        return Map.copyOf(counts);
+    }
+
+    /**
      * Returns count of running instances grouped by service kind.
      */
     public Map<ServiceKind, Long> countRunningInstancesByKind() {
@@ -476,11 +674,94 @@ public final class ServiceRegistryService {
         return result;
     }
 
+    /**
+     * Returns effective health per service by combining heartbeat freshness and probe freshness.
+     */
+    public List<ServiceEffectiveHealthView> listServiceEffectiveHealth(
+            Duration heartbeatFreshnessWindow,
+            Duration probeFreshnessWindow
+    ) {
+        Objects.requireNonNull(heartbeatFreshnessWindow, "heartbeatFreshnessWindow must not be null");
+        Objects.requireNonNull(probeFreshnessWindow, "probeFreshnessWindow must not be null");
+        if (heartbeatFreshnessWindow.isNegative()) {
+            throw new IllegalArgumentException("heartbeatFreshnessWindow must not be negative.");
+        }
+        if (probeFreshnessWindow.isNegative()) {
+            throw new IllegalArgumentException("probeFreshnessWindow must not be negative.");
+        }
+        if (!featureEnabled) {
+            return List.of();
+        }
+
+        Instant now = Instant.now();
+        Instant heartbeatCutoff = now.minus(heartbeatFreshnessWindow);
+        Instant probeCutoff = now.minus(probeFreshnessWindow);
+        List<ServiceHealthView> baseHealth = listServiceHealth();
+        List<ServiceEffectiveHealthView> result = new ArrayList<>(baseHealth.size());
+
+        for (ServiceHealthView healthView : baseHealth) {
+            Optional<ServiceProbeView> latestProbe =
+                    findMostRecentProbe(healthView.serviceKind(), healthView.serviceName());
+            result.add(toEffectiveHealthView(healthView, latestProbe.orElse(null), heartbeatCutoff, probeCutoff));
+        }
+
+        result.sort(Comparator
+                .comparing((ServiceEffectiveHealthView healthView) -> healthView.serviceKind().name())
+                .thenComparing(ServiceEffectiveHealthView::serviceName));
+        return result;
+    }
+
+    /**
+     * Returns effective health for one logical service by combining heartbeats and probes.
+     */
+    public Optional<ServiceEffectiveHealthView> findServiceEffectiveHealth(
+            ServiceKind serviceKind,
+            String serviceName,
+            Duration heartbeatFreshnessWindow,
+            Duration probeFreshnessWindow
+    ) {
+        Objects.requireNonNull(heartbeatFreshnessWindow, "heartbeatFreshnessWindow must not be null");
+        Objects.requireNonNull(probeFreshnessWindow, "probeFreshnessWindow must not be null");
+        if (heartbeatFreshnessWindow.isNegative()) {
+            throw new IllegalArgumentException("heartbeatFreshnessWindow must not be negative.");
+        }
+        if (probeFreshnessWindow.isNegative()) {
+            throw new IllegalArgumentException("probeFreshnessWindow must not be negative.");
+        }
+        if (!featureEnabled || serviceKind == null) {
+            return Optional.empty();
+        }
+        String normalizedServiceName = Sanitization.trimToLengthOrNull(serviceName, SERVICE_NAME_MAX_LENGTH);
+        if (normalizedServiceName == null) {
+            return Optional.empty();
+        }
+
+        Instant now = Instant.now();
+        Instant heartbeatCutoff = now.minus(heartbeatFreshnessWindow);
+        Instant probeCutoff = now.minus(probeFreshnessWindow);
+        return listServiceHealth().stream()
+                .filter(view -> view.serviceKind() == serviceKind && normalizedServiceName.equals(view.serviceName()))
+                .findFirst()
+                .map(healthView -> toEffectiveHealthView(
+                        healthView,
+                        findMostRecentProbe(serviceKind, normalizedServiceName).orElse(null),
+                        heartbeatCutoff,
+                        probeCutoff
+                ));
+    }
+
     private static Integer normalizePort(Integer port) {
         if (port == null) {
             return null;
         }
         return port >= 0 && port <= 65535 ? port : null;
+    }
+
+    private static Long normalizeLatencyMillis(Long latencyMillis) {
+        if (latencyMillis == null || latencyMillis < 0L) {
+            return null;
+        }
+        return latencyMillis;
     }
 
     private static ServiceView toServiceView(NetworkServiceEntity entity) {
@@ -510,6 +791,80 @@ public final class ServiceRegistryService {
                 entity.getLastSeenAt(),
                 entity.getStoppedAt()
         );
+    }
+
+    private static ServiceProbeView toProbeView(ServiceProbeEntity entity) {
+        NetworkServiceEntity serviceEntity = entity.getService();
+        ServiceKind serviceKind = serviceEntity == null ? null : serviceEntity.getServiceKind();
+        String serviceName = serviceEntity == null ? null : serviceEntity.getServiceName();
+        String platform = serviceEntity == null ? null : serviceEntity.getPlatform();
+        return new ServiceProbeView(
+                serviceKind,
+                serviceName,
+                platform,
+                entity.getObserverInstanceId(),
+                entity.getStatus(),
+                entity.getTargetHost(),
+                entity.getTargetPort(),
+                entity.getTargetInstanceId(),
+                entity.getLatencyMillis(),
+                entity.getErrorCode(),
+                entity.getErrorDetail(),
+                entity.getCheckedAt()
+        );
+    }
+
+    private static ServiceEffectiveHealthView toEffectiveHealthView(
+            ServiceHealthView healthView,
+            ServiceProbeView latestProbe,
+            Instant heartbeatCutoff,
+            Instant probeCutoff
+    ) {
+        boolean heartbeatFresh = healthView.latestRunningSeenAt() != null
+                && !healthView.latestRunningSeenAt().isBefore(heartbeatCutoff);
+        boolean probeFresh = latestProbe != null
+                && latestProbe.checkedAt() != null
+                && !latestProbe.checkedAt().isBefore(probeCutoff);
+        ServiceProbeStatus probeStatus = probeFresh ? latestProbe.status() : null;
+        EffectiveServiceHealthStatus effectiveStatus = resolveEffectiveStatus(heartbeatFresh, probeFresh, probeStatus);
+
+        return new ServiceEffectiveHealthView(
+                healthView.serviceKind(),
+                healthView.serviceName(),
+                healthView.platform(),
+                healthView.firstSeenAt(),
+                healthView.lastSeenAt(),
+                healthView.latestRunningSeenAt(),
+                healthView.totalInstanceCount(),
+                healthView.runningInstanceCount(),
+                heartbeatFresh,
+                probeFresh,
+                probeStatus,
+                latestProbe == null ? null : latestProbe.checkedAt(),
+                latestProbe == null ? null : latestProbe.latencyMillis(),
+                latestProbe == null ? null : latestProbe.errorCode(),
+                latestProbe == null ? null : latestProbe.errorDetail(),
+                effectiveStatus
+        );
+    }
+
+    private static EffectiveServiceHealthStatus resolveEffectiveStatus(
+            boolean heartbeatFresh,
+            boolean probeFresh,
+            ServiceProbeStatus probeStatus
+    ) {
+        boolean probeUp = probeFresh && probeStatus == ServiceProbeStatus.UP;
+        boolean probeFailing = probeFresh && probeStatus != ServiceProbeStatus.UP;
+        if (heartbeatFresh && probeUp) {
+            return EffectiveServiceHealthStatus.HEALTHY;
+        }
+        if (!heartbeatFresh && probeFailing) {
+            return EffectiveServiceHealthStatus.UNREACHABLE;
+        }
+        if (!heartbeatFresh && !probeFresh) {
+            return EffectiveServiceHealthStatus.UNKNOWN;
+        }
+        return EffectiveServiceHealthStatus.DEGRADED;
     }
 
     private static boolean isAfter(Instant candidate, Instant baseline) {
@@ -576,6 +931,25 @@ public final class ServiceRegistryService {
     }
 
     /**
+     * Immutable probe projection used by API consumers.
+     */
+    public record ServiceProbeView(
+            ServiceKind serviceKind,
+            String serviceName,
+            String platform,
+            String observerInstanceId,
+            ServiceProbeStatus status,
+            String targetHost,
+            Integer targetPort,
+            String targetInstanceId,
+            Long latencyMillis,
+            String errorCode,
+            String errorDetail,
+            Instant checkedAt
+    ) {
+    }
+
+    /**
      * Immutable aggregate projection for quick service health checks.
      */
     public record ServiceHealthView(
@@ -587,6 +961,39 @@ public final class ServiceRegistryService {
             Instant latestRunningSeenAt,
             long totalInstanceCount,
             long runningInstanceCount
+    ) {
+    }
+
+    /**
+     * Effective service health classification from heartbeat + probe signals.
+     */
+    public enum EffectiveServiceHealthStatus {
+        HEALTHY,
+        DEGRADED,
+        UNREACHABLE,
+        UNKNOWN
+    }
+
+    /**
+     * Immutable projection combining service heartbeat and probe freshness.
+     */
+    public record ServiceEffectiveHealthView(
+            ServiceKind serviceKind,
+            String serviceName,
+            String platform,
+            Instant firstSeenAt,
+            Instant lastSeenAt,
+            Instant latestRunningSeenAt,
+            long totalInstanceCount,
+            long runningInstanceCount,
+            boolean heartbeatFresh,
+            boolean probeFresh,
+            ServiceProbeStatus latestProbeStatus,
+            Instant latestProbeCheckedAt,
+            Long latestProbeLatencyMillis,
+            String latestProbeErrorCode,
+            String latestProbeErrorDetail,
+            EffectiveServiceHealthStatus effectiveStatus
     ) {
     }
 }

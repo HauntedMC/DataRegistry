@@ -9,11 +9,14 @@ import com.velocitypowered.api.plugin.Dependency;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
+import com.velocitypowered.api.proxy.server.RegisteredServer;
+import com.velocitypowered.api.proxy.server.ServerInfo;
 import nl.hauntedmc.dataprovider.api.DataProviderAPI;
 import nl.hauntedmc.dataprovider.api.DataProviderApiSupplier;
 import nl.hauntedmc.dataregistry.api.DataRegistry;
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.api.entities.ServiceKind;
+import nl.hauntedmc.dataregistry.api.entities.ServiceProbeStatus;
 import nl.hauntedmc.dataregistry.backend.service.PlayerConnectionInfoService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerNameHistoryService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerService;
@@ -37,6 +40,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -55,6 +59,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
     static final int SHUTDOWN_EVENT_PRIORITY = -1000;
     static final long EVENT_PIPELINE_DRAIN_TIMEOUT_SECONDS = 5L;
     static final long SERVICE_REGISTRY_SHUTDOWN_TIMEOUT_SECONDS = 2L;
+    static final long SERVICE_PROBE_SHUTDOWN_TIMEOUT_SECONDS = 2L;
 
     private final ProxyServer proxyServer;
     private final Logger logger;
@@ -66,6 +71,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
     private DataRegistrySettings settings = DataRegistrySettings.defaults();
     private ExecutorService playerEventExecutor;
     private ScheduledExecutorService serviceRegistryHeartbeatExecutor;
+    private ScheduledExecutorService serviceRegistryProbeExecutor;
     private PlayerStatusListener playerStatusListener;
     private ServiceRegistryService serviceRegistryService;
     private final AtomicReference<String> localServiceInstanceId = new AtomicReference<>();
@@ -100,6 +106,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
         } catch (RuntimeException | Error startupFailure) {
             shutdownPlayerEventExecutor();
             shutdownServiceRegistryHeartbeatExecutor();
+            shutdownServiceRegistryProbeExecutor();
             logger.error("DataRegistry startup failed on Velocity.", startupFailure);
             return;
         }
@@ -115,6 +122,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
         runtime.stop(getPlatformLogger());
         shutdownPlayerEventExecutor();
         shutdownServiceRegistryHeartbeatExecutor();
+        shutdownServiceRegistryProbeExecutor();
         logger.info("DataRegistry disabled on Velocity.");
     }
 
@@ -240,6 +248,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
             return;
         }
         ensureServiceRegistryHeartbeatExecutor();
+        ensureServiceRegistryProbeExecutor();
         DataRegistry registry = getDataRegistry();
         ServiceRegistryService registryService = registry.newServiceRegistryService();
         serviceRegistryService = registryService;
@@ -249,8 +258,16 @@ public class VelocityDataRegistry implements PlatformPlugin {
         InetSocketAddress address = proxyServer.getBoundAddress();
         String host = address == null ? null : address.getHostString();
         Integer port = address == null ? null : address.getPort();
-        String serviceName = resolveProxyServiceName(host, port);
+        String serviceName = resolveProxyServiceName(settings.velocityServiceName(), host, port);
+        if (settings.isVelocityServiceNameAuto()) {
+            logger.warn(
+                    "platform.velocity.service-name is set to 'auto'; using host:port fallback '" + serviceName +
+                            "'. Set platform.velocity.service-name explicitly for stable identity."
+            );
+        }
         int heartbeatIntervalSeconds = settings.serviceHeartbeatIntervalSeconds();
+        int probeIntervalSeconds = settings.serviceProbeIntervalSeconds();
+        int probeTimeoutMillis = settings.serviceProbeTimeoutMillis();
 
         registryService.refreshRunningInstance(
                 ServiceKind.PROXY,
@@ -273,12 +290,93 @@ public class VelocityDataRegistry implements PlatformPlugin {
                 heartbeatIntervalSeconds,
                 TimeUnit.SECONDS
         );
+        serviceRegistryProbeExecutor.scheduleAtFixedRate(
+                () -> runBackendProbePass(registryService, instanceId, probeTimeoutMillis),
+                probeIntervalSeconds,
+                probeIntervalSeconds,
+                TimeUnit.SECONDS
+        );
     }
 
-    private static String resolveProxyServiceName(String host, Integer port) {
+    private static String resolveProxyServiceName(String configuredServiceName, String host, Integer port) {
+        if (configuredServiceName != null && !"auto".equalsIgnoreCase(configuredServiceName.trim())) {
+            return configuredServiceName.trim();
+        }
         String hostPart = host == null || host.isBlank() ? "unknown-host" : host;
         String portPart = port == null ? "unknown-port" : Integer.toString(port);
         return "velocity-" + hostPart + ":" + portPart;
+    }
+
+    private void runBackendProbePass(ServiceRegistryService registryService, String observerInstanceId, int timeoutMillis) {
+        try {
+            Iterable<RegisteredServer> servers = proxyServer.getAllServers();
+            if (servers == null) {
+                logger.warn("Velocity returned null backend server list during probe pass.");
+                return;
+            }
+            for (RegisteredServer registeredServer : servers) {
+                probeBackendServer(registryService, observerInstanceId, registeredServer, timeoutMillis);
+            }
+        } catch (RuntimeException exception) {
+            logger.error("Service registry backend probe pass failed.", exception);
+        }
+    }
+
+    private static void probeBackendServer(
+            ServiceRegistryService registryService,
+            String observerInstanceId,
+            RegisteredServer registeredServer,
+            int timeoutMillis
+    ) {
+        ServerInfo serverInfo = registeredServer.getServerInfo();
+        String serviceName = serverInfo == null ? null : serverInfo.getName();
+        InetSocketAddress address = serverInfo == null ? null : serverInfo.getAddress();
+        String host = address == null ? null : address.getHostString();
+        Integer port = address == null ? null : address.getPort();
+
+        long startedAtNanos = System.nanoTime();
+        ServiceProbeStatus status = ServiceProbeStatus.UP;
+        Long latencyMillis = null;
+        String errorCode = null;
+        String errorDetail = null;
+        try {
+            registeredServer.ping()
+                    .orTimeout(Math.max(1L, timeoutMillis), TimeUnit.MILLISECONDS)
+                    .join();
+            latencyMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos);
+        } catch (RuntimeException probeFailure) {
+            Throwable cause = unwrapProbeFailure(probeFailure);
+            if (cause instanceof TimeoutException) {
+                status = ServiceProbeStatus.TIMEOUT;
+                errorCode = "timeout";
+            } else {
+                status = ServiceProbeStatus.DOWN;
+                errorCode = "probe-failed";
+            }
+            errorDetail = cause == null ? probeFailure.getMessage() : cause.getMessage();
+        }
+
+        registryService.recordProbe(
+                ServiceKind.BACKEND,
+                serviceName,
+                "PAPER",
+                observerInstanceId,
+                status,
+                host,
+                port,
+                null,
+                latencyMillis,
+                errorCode,
+                errorDetail
+        );
+    }
+
+    private static Throwable unwrapProbeFailure(Throwable failure) {
+        Throwable current = failure;
+        while (current.getCause() != null && current != current.getCause()) {
+            current = current.getCause();
+        }
+        return current;
     }
 
     private void stopServiceRegistryLifecycle() {
@@ -323,6 +421,19 @@ public class VelocityDataRegistry implements PlatformPlugin {
         serviceRegistryHeartbeatExecutor = Executors.newSingleThreadScheduledExecutor(threadFactory);
     }
 
+    private void ensureServiceRegistryProbeExecutor() {
+        if (serviceRegistryProbeExecutor != null && !serviceRegistryProbeExecutor.isShutdown()) {
+            return;
+        }
+        ThreadFactory threadFactory = runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("DataRegistry-velocity-service-probe");
+            thread.setDaemon(true);
+            return thread;
+        };
+        serviceRegistryProbeExecutor = Executors.newSingleThreadScheduledExecutor(threadFactory);
+    }
+
     private void shutdownPlayerEventExecutor() {
         ExecutorService executor = playerEventExecutor;
         playerEventExecutor = null;
@@ -349,6 +460,23 @@ public class VelocityDataRegistry implements PlatformPlugin {
         executor.shutdown();
         try {
             if (!executor.awaitTermination(SERVICE_REGISTRY_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            executor.shutdownNow();
+        }
+    }
+
+    private void shutdownServiceRegistryProbeExecutor() {
+        ScheduledExecutorService executor = serviceRegistryProbeExecutor;
+        serviceRegistryProbeExecutor = null;
+        if (executor == null) {
+            return;
+        }
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(SERVICE_PROBE_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 executor.shutdownNow();
             }
         } catch (InterruptedException interruptedException) {

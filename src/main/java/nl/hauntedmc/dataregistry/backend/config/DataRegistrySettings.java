@@ -17,8 +17,12 @@ public final class DataRegistrySettings {
     private static final String DEFAULT_PLAYER_CONNECTION_ID = "player_data_rw";
     private static final String DEFAULT_SERVICE_CONNECTION_ID = "player_data_rw";
     private static final int DEFAULT_SERVICE_HEARTBEAT_INTERVAL_SECONDS = 30;
+    private static final int DEFAULT_SERVICE_PROBE_INTERVAL_SECONDS = 15;
+    private static final int DEFAULT_SERVICE_PROBE_TIMEOUT_MILLIS = 1500;
     private static final String DEFAULT_ORM_SCHEMA_MODE = "validate";
     private static final int DEFAULT_BUKKIT_JOIN_DELAY_TICKS = 4;
+    private static final String DEFAULT_BUKKIT_SERVICE_NAME = "auto";
+    private static final String DEFAULT_VELOCITY_SERVICE_NAME = "auto";
     private static final int DEFAULT_USERNAME_MAX_LENGTH = 32;
     private static final int DEFAULT_SERVER_NAME_MAX_LENGTH = 64;
     private static final int DEFAULT_VIRTUAL_HOST_MAX_LENGTH = 255;
@@ -33,11 +37,15 @@ public final class DataRegistrySettings {
     private final boolean persistIpAddress;
     private final boolean persistVirtualHost;
     private final int bukkitJoinDelayTicks;
+    private final String bukkitServiceName;
+    private final String velocityServiceName;
     private final int usernameMaxLength;
     private final int serverNameMaxLength;
     private final int virtualHostMaxLength;
     private final int ipAddressMaxLength;
     private final int serviceHeartbeatIntervalSeconds;
+    private final int serviceProbeIntervalSeconds;
+    private final int serviceProbeTimeoutMillis;
     private final Set<DataRegistryFeature> enabledFeatures;
 
     private DataRegistrySettings(Builder builder) {
@@ -58,6 +66,14 @@ public final class DataRegistrySettings {
                 "bukkitJoinDelayTicks",
                 0,
                 200
+        );
+        this.bukkitServiceName = normalizeServiceName(
+                builder.bukkitServiceName,
+                "bukkitServiceName"
+        );
+        this.velocityServiceName = normalizeServiceName(
+                builder.velocityServiceName,
+                "velocityServiceName"
         );
         this.usernameMaxLength = validateRange(
                 builder.usernameMaxLength,
@@ -88,6 +104,18 @@ public final class DataRegistrySettings {
                 "serviceHeartbeatIntervalSeconds",
                 5,
                 300
+        );
+        this.serviceProbeIntervalSeconds = validateRange(
+                builder.serviceProbeIntervalSeconds,
+                "serviceProbeIntervalSeconds",
+                5,
+                300
+        );
+        this.serviceProbeTimeoutMillis = validateRange(
+                builder.serviceProbeTimeoutMillis,
+                "serviceProbeTimeoutMillis",
+                200,
+                10000
         );
         this.enabledFeatures = Collections.unmodifiableSet(EnumSet.copyOf(builder.enabledFeatures));
     }
@@ -128,6 +156,22 @@ public final class DataRegistrySettings {
         return bukkitJoinDelayTicks;
     }
 
+    public String bukkitServiceName() {
+        return bukkitServiceName;
+    }
+
+    public boolean isBukkitServiceNameAuto() {
+        return "auto".equalsIgnoreCase(bukkitServiceName);
+    }
+
+    public String velocityServiceName() {
+        return velocityServiceName;
+    }
+
+    public boolean isVelocityServiceNameAuto() {
+        return "auto".equalsIgnoreCase(velocityServiceName);
+    }
+
     public int usernameMaxLength() {
         return usernameMaxLength;
     }
@@ -146,6 +190,14 @@ public final class DataRegistrySettings {
 
     public int serviceHeartbeatIntervalSeconds() {
         return serviceHeartbeatIntervalSeconds;
+    }
+
+    public int serviceProbeIntervalSeconds() {
+        return serviceProbeIntervalSeconds;
+    }
+
+    public int serviceProbeTimeoutMillis() {
+        return serviceProbeTimeoutMillis;
     }
 
     public Set<DataRegistryFeature> enabledFeatures() {
@@ -194,6 +246,22 @@ public final class DataRegistrySettings {
         return normalized;
     }
 
+    private static String normalizeServiceName(String value, String fieldName) {
+        if (value == null) {
+            throw new IllegalArgumentException(fieldName + " must not be null");
+        }
+        String normalized = value.trim();
+        if (normalized.isEmpty()) {
+            throw new IllegalArgumentException(fieldName + " must not be blank");
+        }
+        if (!"auto".equalsIgnoreCase(normalized) && normalized.length() > DEFAULT_SERVER_NAME_MAX_LENGTH) {
+            throw new IllegalArgumentException(
+                    fieldName + " must be 'auto' or at most " + DEFAULT_SERVER_NAME_MAX_LENGTH + " characters."
+            );
+        }
+        return normalized;
+    }
+
     public static final class Builder {
         private DatabaseType databaseType = DatabaseType.MYSQL;
         private String playerDatabaseConnectionId = DEFAULT_PLAYER_CONNECTION_ID;
@@ -202,11 +270,15 @@ public final class DataRegistrySettings {
         private boolean persistIpAddress;
         private boolean persistVirtualHost;
         private int bukkitJoinDelayTicks = DEFAULT_BUKKIT_JOIN_DELAY_TICKS;
+        private String bukkitServiceName = DEFAULT_BUKKIT_SERVICE_NAME;
+        private String velocityServiceName = DEFAULT_VELOCITY_SERVICE_NAME;
         private int usernameMaxLength = DEFAULT_USERNAME_MAX_LENGTH;
         private int serverNameMaxLength = DEFAULT_SERVER_NAME_MAX_LENGTH;
         private int virtualHostMaxLength = DEFAULT_VIRTUAL_HOST_MAX_LENGTH;
         private int ipAddressMaxLength = DEFAULT_IP_ADDRESS_MAX_LENGTH;
         private int serviceHeartbeatIntervalSeconds = DEFAULT_SERVICE_HEARTBEAT_INTERVAL_SECONDS;
+        private int serviceProbeIntervalSeconds = DEFAULT_SERVICE_PROBE_INTERVAL_SECONDS;
+        private int serviceProbeTimeoutMillis = DEFAULT_SERVICE_PROBE_TIMEOUT_MILLIS;
         private EnumSet<DataRegistryFeature> enabledFeatures = EnumSet.allOf(DataRegistryFeature.class);
 
         private Builder() {
@@ -248,6 +320,16 @@ public final class DataRegistrySettings {
             return this;
         }
 
+        public Builder bukkitServiceName(String value) {
+            this.bukkitServiceName = Objects.requireNonNull(value, "bukkitServiceName must not be null");
+            return this;
+        }
+
+        public Builder velocityServiceName(String value) {
+            this.velocityServiceName = Objects.requireNonNull(value, "velocityServiceName must not be null");
+            return this;
+        }
+
         public Builder usernameMaxLength(int value) {
             this.usernameMaxLength = value;
             return this;
@@ -270,6 +352,16 @@ public final class DataRegistrySettings {
 
         public Builder serviceHeartbeatIntervalSeconds(int value) {
             this.serviceHeartbeatIntervalSeconds = value;
+            return this;
+        }
+
+        public Builder serviceProbeIntervalSeconds(int value) {
+            this.serviceProbeIntervalSeconds = value;
+            return this;
+        }
+
+        public Builder serviceProbeTimeoutMillis(int value) {
+            this.serviceProbeTimeoutMillis = value;
             return this;
         }
 

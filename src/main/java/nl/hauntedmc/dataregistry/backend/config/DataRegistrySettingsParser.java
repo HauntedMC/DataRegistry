@@ -27,7 +27,11 @@ final class DataRegistrySettingsParser {
     private static final String FEATURE_NAME_HISTORY_KEY = "features.name-history";
     private static final String FEATURE_SERVICE_REGISTRY_KEY = "features.service-registry";
     private static final String SERVICE_HEARTBEAT_INTERVAL_SECONDS_KEY = "service-registry.heartbeat-interval-seconds";
+    private static final String SERVICE_PROBE_INTERVAL_SECONDS_KEY = "service-registry.probe-interval-seconds";
+    private static final String SERVICE_PROBE_TIMEOUT_MILLIS_KEY = "service-registry.probe-timeout-millis";
     private static final String BUKKIT_JOIN_DELAY_TICKS_KEY = "platform.bukkit.join-delay-ticks";
+    private static final String BUKKIT_SERVICE_NAME_KEY = "platform.bukkit.service-name";
+    private static final String VELOCITY_SERVICE_NAME_KEY = "platform.velocity.service-name";
     private static final String USERNAME_MAX_LENGTH_KEY = "validation.username.max-length";
     private static final String SERVER_NAME_MAX_LENGTH_KEY = "validation.server.max-length";
     private static final String VIRTUAL_HOST_MAX_LENGTH_KEY = "validation.virtual-host.max-length";
@@ -114,6 +118,30 @@ final class DataRegistrySettingsParser {
                 logger,
                 DataRegistrySettings.Builder::serviceHeartbeatIntervalSeconds
         ));
+        builder.serviceProbeIntervalSeconds(validateWithBuilder(
+                SERVICE_PROBE_INTERVAL_SECONDS_KEY,
+                parseInteger(
+                        configRoot,
+                        SERVICE_PROBE_INTERVAL_SECONDS_KEY,
+                        defaults.serviceProbeIntervalSeconds(),
+                        logger
+                ),
+                defaults.serviceProbeIntervalSeconds(),
+                logger,
+                DataRegistrySettings.Builder::serviceProbeIntervalSeconds
+        ));
+        builder.serviceProbeTimeoutMillis(validateWithBuilder(
+                SERVICE_PROBE_TIMEOUT_MILLIS_KEY,
+                parseInteger(
+                        configRoot,
+                        SERVICE_PROBE_TIMEOUT_MILLIS_KEY,
+                        defaults.serviceProbeTimeoutMillis(),
+                        logger
+                ),
+                defaults.serviceProbeTimeoutMillis(),
+                logger,
+                DataRegistrySettings.Builder::serviceProbeTimeoutMillis
+        ));
         builder.bukkitJoinDelayTicks(validateWithBuilder(
                 BUKKIT_JOIN_DELAY_TICKS_KEY,
                 parseInteger(
@@ -125,6 +153,30 @@ final class DataRegistrySettingsParser {
                 defaults.bukkitJoinDelayTicks(),
                 logger,
                 DataRegistrySettings.Builder::bukkitJoinDelayTicks
+        ));
+        builder.bukkitServiceName(validateWithBuilder(
+                BUKKIT_SERVICE_NAME_KEY,
+                parseString(
+                        configRoot,
+                        BUKKIT_SERVICE_NAME_KEY,
+                        defaults.bukkitServiceName(),
+                        logger
+                ),
+                defaults.bukkitServiceName(),
+                logger,
+                DataRegistrySettings.Builder::bukkitServiceName
+        ));
+        builder.velocityServiceName(validateWithBuilder(
+                VELOCITY_SERVICE_NAME_KEY,
+                parseString(
+                        configRoot,
+                        VELOCITY_SERVICE_NAME_KEY,
+                        defaults.velocityServiceName(),
+                        logger
+                ),
+                defaults.velocityServiceName(),
+                logger,
+                DataRegistrySettings.Builder::velocityServiceName
         ));
         builder.usernameMaxLength(validateWithBuilder(
                 USERNAME_MAX_LENGTH_KEY,

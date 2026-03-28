@@ -50,12 +50,18 @@ final class DataRegistryConfigSchema {
 
         Map<String, Object> serviceRegistry = new LinkedHashMap<>();
         serviceRegistry.put("heartbeat-interval-seconds", defaults.serviceHeartbeatIntervalSeconds());
+        serviceRegistry.put("probe-interval-seconds", defaults.serviceProbeIntervalSeconds());
+        serviceRegistry.put("probe-timeout-millis", defaults.serviceProbeTimeoutMillis());
         root.put("service-registry", serviceRegistry);
 
         Map<String, Object> platform = new LinkedHashMap<>();
         Map<String, Object> bukkit = new LinkedHashMap<>();
         bukkit.put("join-delay-ticks", defaults.bukkitJoinDelayTicks());
+        bukkit.put("service-name", defaults.bukkitServiceName());
+        Map<String, Object> velocity = new LinkedHashMap<>();
+        velocity.put("service-name", defaults.velocityServiceName());
         platform.put("bukkit", bukkit);
+        platform.put("velocity", velocity);
         root.put("platform", platform);
 
         Map<String, Object> validation = new LinkedHashMap<>();
@@ -125,11 +131,20 @@ final class DataRegistryConfigSchema {
         builder.append("service-registry:\n");
         builder.append("  # Heartbeat write interval for service instances (seconds, 5-300).\n");
         builder.append("  heartbeat-interval-seconds: ").append(settings.serviceHeartbeatIntervalSeconds()).append('\n');
+        builder.append("  # Velocity backend-probe interval (seconds, 5-300).\n");
+        builder.append("  probe-interval-seconds: ").append(settings.serviceProbeIntervalSeconds()).append('\n');
+        builder.append("  # Velocity backend-probe timeout (milliseconds, 200-10000).\n");
+        builder.append("  probe-timeout-millis: ").append(settings.serviceProbeTimeoutMillis()).append('\n');
         builder.append('\n');
         builder.append("platform:\n");
         builder.append("  bukkit:\n");
         builder.append("    # Delay after join event before snapshotting status (ticks, 0-200).\n");
         builder.append("    join-delay-ticks: ").append(settings.bukkitJoinDelayTicks()).append('\n');
+        builder.append("    # Backend logical service name; set to 'auto' to derive from host:port.\n");
+        builder.append("    service-name: ").append(settings.bukkitServiceName()).append('\n');
+        builder.append("  velocity:\n");
+        builder.append("    # Proxy logical service name; set to 'auto' to derive from host:port.\n");
+        builder.append("    service-name: ").append(settings.velocityServiceName()).append('\n');
         builder.append('\n');
         builder.append("validation:\n");
         builder.append("  username:\n");

@@ -10,6 +10,7 @@ It keeps player identity, online status, connection metadata, and session lifecy
 - Feature-gated built-in domains (`online-status`, `connection-info`, `sessions`, `name-history`, `service-registry`).
 - Name-history timeline preserves repeated names (`A -> B -> C -> A`) in a single history table.
 - Domain-level database profile split (`database.profiles.players` and `database.profiles.services`).
+- Velocity-driven backend probe tracking (`service_probe`) with effective health classification helpers.
 - Configurable limits and database wiring through `config.yml`.
 - Transaction-safe session/status updates with defensive validation.
 
@@ -66,7 +67,9 @@ Key sections:
 - `privacy` (`persist-ip-address`, `persist-virtual-host`)
 - `features` (`online-status`, `connection-info`, `sessions`, `name-history`, `service-registry`)
 - `service-registry` (`heartbeat-interval-seconds`)
+- `service-registry` (`probe-interval-seconds`, `probe-timeout-millis`)
 - `platform.bukkit` (`join-delay-ticks`)
+- `platform.bukkit` / `platform.velocity` (`service-name`)
 - `validation` (`username/server/virtual-host/ip` max lengths)
 
 Example:
@@ -92,6 +95,13 @@ features:
   service-registry: true
 service-registry:
   heartbeat-interval-seconds: 30
+  probe-interval-seconds: 15
+  probe-timeout-millis: 1500
+platform:
+  bukkit:
+    service-name: auto
+  velocity:
+    service-name: auto
 ```
 
 Invalid values are rejected and safe defaults are used.
@@ -120,7 +130,11 @@ When upgrading to this version with `validate` or `none`, ensure your schema for
 - `features.name-history` (default `true`): enables `player_name_history` (historical former-name timeline).
 - `features.service-registry` (default `true`): enables `network_service` and `service_instance` domains.
 - `service-registry.heartbeat-interval-seconds` (default `30`, range `5..300`): cadence for service instance heartbeat writes.
+- `service-registry.probe-interval-seconds` (default `15`, range `5..300`): Velocity backend-probe cadence.
+- `service-registry.probe-timeout-millis` (default `1500`, range `200..10000`): timeout per backend probe.
 - `platform.bukkit.join-delay-ticks` (default `4`, range `0..200`): delay after Bukkit join before status snapshot/writes.
+- `platform.bukkit.service-name` (default `auto`): backend logical service identity; set explicitly to match Velocity server name.
+- `platform.velocity.service-name` (default `auto`): proxy logical service identity.
 - `validation.username.max-length` (default `32`, range `1..32`): max persisted username length.
 - `validation.server.max-length` (default `64`, range `1..64`): max persisted server name length.
 - `validation.virtual-host.max-length` (default `255`, range `1..255`): max persisted virtual host length.
@@ -135,6 +149,7 @@ Built-in domains can be enabled/disabled without code changes:
 - `features.sessions`: controls `player_sessions` writes.
 - `features.name-history`: controls `player_name_history` writes.
 - `features.service-registry`: controls `network_service` / `service_instance` writes and heartbeat updates.
+- `service_probe` writes and effective health helpers are also gated by `features.service-registry`.
 
 `player_entity` is always enabled because all other domains depend on identity records.
 
@@ -146,7 +161,7 @@ Name history model:
 
 Connection routing:
 - `database.profiles.players.connection-id` is used for player tables.
-- `database.profiles.services.connection-id` is used for service registry tables.
+- `database.profiles.services.connection-id` is used for `network_service`, `service_instance`, and `service_probe`.
 - When both IDs match, DataRegistry reuses a single registered DataProvider connection.
 
 ## Service Registry Helper API
@@ -159,6 +174,9 @@ Other feature modules can use the built-in helper facade instead of writing cust
 - `findMostRecentRunningInstance(...)`, `resolveEndpoint(...)`
 - `isInstanceActiveWithin(...)`, `listStaleRunningInstances(...)`
 - `countRunningInstancesByKind()`, `listServiceHealth()`
+- `recordProbe(...)`, `findMostRecentProbe(...)`, `listRecentProbes(...)`
+- `listRecentProbesByObserver(...)`, `countProbesByStatus()`
+- `listServiceEffectiveHealth(...)`, `findServiceEffectiveHealth(...)`
 
 The helper returns immutable read views for safe cross-feature consumption.
 
@@ -171,6 +189,7 @@ Built-in repositories also expose read helpers so features do not need to duplic
 - `PlayerNameHistoryRepository`: former-name timeline lookups (latest, recent, and chronological by player).
 - `NetworkServiceRepository`: kind/name existence checks, service-name lookups, recency filters, kind counts.
 - `ServiceInstanceRepository`: running/by-service lookups, stale/fresh recency filters, status and per-service counters.
+- `ServiceProbeRepository`: per-service latest/recent probe lookups, observer lookups, status counters.
 - All repositories (via `AbstractRepository`) now include `findAll(limit)`, `existsById(...)`, and `count()`.
 
 Contributor/maintainer guidance:

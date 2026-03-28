@@ -52,11 +52,17 @@ class DataRegistrySettingsLoaderTest {
                         "service-registry", true
                 ),
                 "service-registry", Map.of(
-                        "heartbeat-interval-seconds", 45
+                        "heartbeat-interval-seconds", 45,
+                        "probe-interval-seconds", 18,
+                        "probe-timeout-millis", 2200
                 ),
                 "platform", Map.of(
                         "bukkit", Map.of(
-                                "join-delay-ticks", 12
+                                "join-delay-ticks", 12,
+                                "service-name", "lobby-01"
+                        ),
+                        "velocity", Map.of(
+                                "service-name", "proxy-eu"
                         )
                 ),
                 "validation", Map.of(
@@ -81,7 +87,11 @@ class DataRegistrySettingsLoaderTest {
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
         assertEquals(45, settings.serviceHeartbeatIntervalSeconds());
+        assertEquals(18, settings.serviceProbeIntervalSeconds());
+        assertEquals(2200, settings.serviceProbeTimeoutMillis());
         assertEquals(12, settings.bukkitJoinDelayTicks());
+        assertEquals("lobby-01", settings.bukkitServiceName());
+        assertEquals("proxy-eu", settings.velocityServiceName());
         assertEquals(24, settings.usernameMaxLength());
         assertEquals(48, settings.serverNameMaxLength());
         assertEquals(180, settings.virtualHostMaxLength());
@@ -133,9 +143,13 @@ class DataRegistrySettingsLoaderTest {
                 settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)
         );
         assertEquals(defaults.serviceHeartbeatIntervalSeconds(), settings.serviceHeartbeatIntervalSeconds());
+        assertEquals(defaults.serviceProbeIntervalSeconds(), settings.serviceProbeIntervalSeconds());
+        assertEquals(defaults.serviceProbeTimeoutMillis(), settings.serviceProbeTimeoutMillis());
         assertEquals(defaults.playerDatabaseConnectionId(), settings.playerDatabaseConnectionId());
         assertEquals("services-rw", settings.serviceDatabaseConnectionId());
         assertEquals(defaults.bukkitJoinDelayTicks(), settings.bukkitJoinDelayTicks());
+        assertEquals(defaults.bukkitServiceName(), settings.bukkitServiceName());
+        assertEquals(defaults.velocityServiceName(), settings.velocityServiceName());
         assertEquals(defaults.usernameMaxLength(), settings.usernameMaxLength());
         assertEquals(48, settings.serverNameMaxLength());
         assertEquals(defaults.virtualHostMaxLength(), settings.virtualHostMaxLength());
@@ -166,11 +180,17 @@ class DataRegistrySettingsLoaderTest {
                         "service-registry", "on"
                 ),
                 "service-registry", Map.of(
-                        "heartbeat-interval-seconds", "x"
+                        "heartbeat-interval-seconds", "x",
+                        "probe-interval-seconds", "x",
+                        "probe-timeout-millis", "x"
                 ),
                 "platform", Map.of(
                         "bukkit", Map.of(
-                                "join-delay-ticks", "x"
+                                "join-delay-ticks", "x",
+                                "service-name", 123
+                        ),
+                        "velocity", Map.of(
+                                "service-name", 456
                         )
                 )
         );
@@ -192,8 +212,12 @@ class DataRegistrySettingsLoaderTest {
                 settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY)
         );
         assertEquals(defaults.serviceHeartbeatIntervalSeconds(), settings.serviceHeartbeatIntervalSeconds());
+        assertEquals(defaults.serviceProbeIntervalSeconds(), settings.serviceProbeIntervalSeconds());
+        assertEquals(defaults.serviceProbeTimeoutMillis(), settings.serviceProbeTimeoutMillis());
         assertEquals(defaults.serviceDatabaseConnectionId(), settings.serviceDatabaseConnectionId());
         assertEquals(defaults.bukkitJoinDelayTicks(), settings.bukkitJoinDelayTicks());
+        assertEquals(defaults.bukkitServiceName(), settings.bukkitServiceName());
+        assertEquals(defaults.velocityServiceName(), settings.velocityServiceName());
         assertTrue(logger.warnMessages.size() >= 4);
     }
 
@@ -213,6 +237,13 @@ class DataRegistrySettingsLoaderTest {
                   sessions: false
                 service-registry:
                   heartbeat-interval-seconds: 40
+                  probe-interval-seconds: 20
+                  probe-timeout-millis: 1800
+                platform:
+                  bukkit:
+                    service-name: lobby-01
+                  velocity:
+                    service-name: proxy-01
                 validation:
                   username:
                     max-length: 24
@@ -232,6 +263,10 @@ class DataRegistrySettingsLoaderTest {
         assertEquals("update", settings.ormSchemaMode());
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
         assertEquals(40, settings.serviceHeartbeatIntervalSeconds());
+        assertEquals(20, settings.serviceProbeIntervalSeconds());
+        assertEquals(1800, settings.serviceProbeTimeoutMillis());
+        assertEquals("lobby-01", settings.bukkitServiceName());
+        assertEquals("proxy-01", settings.velocityServiceName());
         assertEquals(24, settings.usernameMaxLength());
         assertTrue(logger.infoMessages.stream().anyMatch(msg -> msg.contains("Generated default DataRegistry config")));
     }
@@ -275,6 +310,9 @@ class DataRegistrySettingsLoaderTest {
         assertTrue(generatedContent.contains("sessions: true"));
         assertTrue(generatedContent.contains("name-history: true"));
         assertTrue(generatedContent.contains("service-registry: true"));
+        assertTrue(generatedContent.contains("probe-interval-seconds: 15"));
+        assertTrue(generatedContent.contains("probe-timeout-millis: 1500"));
+        assertTrue(generatedContent.contains("service-name: auto"));
     }
 
     @Test

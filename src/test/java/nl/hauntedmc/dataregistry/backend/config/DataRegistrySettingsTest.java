@@ -22,11 +22,15 @@ class DataRegistrySettingsTest {
         assertEquals("player_data_rw", settings.serviceDatabaseConnectionId());
         assertEquals("validate", settings.ormSchemaMode());
         assertEquals(4, settings.bukkitJoinDelayTicks());
+        assertEquals("auto", settings.bukkitServiceName());
+        assertEquals("auto", settings.velocityServiceName());
         assertEquals(32, settings.usernameMaxLength());
         assertEquals(64, settings.serverNameMaxLength());
         assertEquals(255, settings.virtualHostMaxLength());
         assertEquals(45, settings.ipAddressMaxLength());
         assertEquals(30, settings.serviceHeartbeatIntervalSeconds());
+        assertEquals(15, settings.serviceProbeIntervalSeconds());
+        assertEquals(1500, settings.serviceProbeTimeoutMillis());
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
@@ -43,6 +47,8 @@ class DataRegistrySettingsTest {
                 .ormSchemaMode("  CREATE-DROP ")
                 .persistIpAddress(true)
                 .persistVirtualHost(true)
+                .bukkitServiceName(" lobby-01 ")
+                .velocityServiceName(" proxy-edge ")
                 .build();
 
         assertEquals("main.players_1", settings.playerDatabaseConnectionId());
@@ -50,6 +56,8 @@ class DataRegistrySettingsTest {
         assertEquals("create-drop", settings.ormSchemaMode());
         assertTrue(settings.persistIpAddress());
         assertTrue(settings.persistVirtualHost());
+        assertEquals("lobby-01", settings.bukkitServiceName());
+        assertEquals("proxy-edge", settings.velocityServiceName());
     }
 
     @Test
@@ -95,6 +103,12 @@ class DataRegistrySettingsTest {
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().ipAddressMaxLength(6).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceHeartbeatIntervalSeconds(4).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceHeartbeatIntervalSeconds(301).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbeIntervalSeconds(4).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbeIntervalSeconds(301).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbeTimeoutMillis(199).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbeTimeoutMillis(10001).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().bukkitServiceName(" ").build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().velocityServiceName(" ").build());
     }
 
     @Test

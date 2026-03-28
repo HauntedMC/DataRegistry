@@ -47,6 +47,9 @@ class DataRegistryConfigSchemaTest {
         assertTrue(rendered.contains("create-drop: create at startup, drop at shutdown (tests/local only)"));
         assertTrue(rendered.contains("none: disable ORM schema management (use external migrations)"));
         assertTrue(rendered.contains("heartbeat-interval-seconds: 30"));
+        assertTrue(rendered.contains("probe-interval-seconds: 15"));
+        assertTrue(rendered.contains("probe-timeout-millis: 1500"));
+        assertTrue(rendered.contains("service-name: auto"));
         assertTrue(rendered.contains("max-length: 32"));
         assertTrue(rendered.contains("max-length: 64"));
         assertTrue(rendered.contains("max-length: 255"));

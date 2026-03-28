@@ -10,10 +10,12 @@ import nl.hauntedmc.dataregistry.api.entities.PlayerOnlineStatusEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.api.entities.NetworkServiceEntity;
 import nl.hauntedmc.dataregistry.api.entities.ServiceInstanceEntity;
+import nl.hauntedmc.dataregistry.api.entities.ServiceProbeEntity;
 import nl.hauntedmc.dataregistry.api.repository.NetworkServiceRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerNameHistoryRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceInstanceRepository;
+import nl.hauntedmc.dataregistry.api.repository.ServiceProbeRepository;
 import nl.hauntedmc.dataregistry.backend.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.backend.service.ServiceRegistryService;
 import nl.hauntedmc.dataprovider.logging.LogLevel;
@@ -42,6 +44,7 @@ public class DataRegistry {
     private PlayerNameHistoryRepository playerNameHistoryRepository;
     private NetworkServiceRepository networkServiceRepository;
     private ServiceInstanceRepository serviceInstanceRepository;
+    private ServiceProbeRepository serviceProbeRepository;
     private ORMContext ormContext;
     private ORMContext serviceOrmContext;
 
@@ -89,12 +92,14 @@ public class DataRegistry {
                     : null;
             this.networkServiceRepository = null;
             this.serviceInstanceRepository = null;
+            this.serviceProbeRepository = null;
 
             if (settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY)) {
                 DataSource serviceDataSource = resolveDataSource(dataSources, settings.serviceDatabaseConnectionId());
                 serviceOrmContext = newServiceOrmContext(serviceDataSource, resolveServiceOrmEntityClasses());
                 this.networkServiceRepository = newNetworkServiceRepository(serviceOrmContext);
                 this.serviceInstanceRepository = newServiceInstanceRepository(serviceOrmContext);
+                this.serviceProbeRepository = newServiceProbeRepository(serviceOrmContext);
             }
             return true;
         } catch (Exception ex) {
@@ -114,6 +119,7 @@ public class DataRegistry {
         playerNameHistoryRepository = null;
         networkServiceRepository = null;
         serviceInstanceRepository = null;
+        serviceProbeRepository = null;
 
         if (currentServiceOrmContext != null) {
             try {
@@ -200,6 +206,13 @@ public class DataRegistry {
         return serviceInstanceRepository;
     }
 
+    public synchronized ServiceProbeRepository getServiceProbeRepository() {
+        if (serviceProbeRepository == null) {
+            throw new IllegalStateException("Service probe repository is unavailable.");
+        }
+        return serviceProbeRepository;
+    }
+
     /**
      * Creates a helper facade for service-registry writes and read-side discovery helpers.
      */
@@ -261,6 +274,10 @@ public class DataRegistry {
         return new ServiceInstanceRepository(context);
     }
 
+    ServiceProbeRepository newServiceProbeRepository(ORMContext context) {
+        return new ServiceProbeRepository(context);
+    }
+
     ORMContext newServiceOrmContext(DataSource dataSource, Class<?>... entityClasses) {
         return new ORMContext(
                 pluginName + "-service",
@@ -292,7 +309,8 @@ public class DataRegistry {
     private Class<?>[] resolveServiceOrmEntityClasses() {
         return new Class<?>[]{
                 NetworkServiceEntity.class,
-                ServiceInstanceEntity.class
+                ServiceInstanceEntity.class,
+                ServiceProbeEntity.class
         };
     }
 
@@ -332,7 +350,8 @@ public class DataRegistry {
                 || playerRepository != null
                 || playerNameHistoryRepository != null
                 || networkServiceRepository != null
-                || serviceInstanceRepository != null;
+                || serviceInstanceRepository != null
+                || serviceProbeRepository != null;
     }
 
     private boolean isRuntimeFullyInitialized() {
@@ -343,7 +362,10 @@ public class DataRegistry {
             return false;
         }
         if (settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY)) {
-            return serviceOrmContext != null && networkServiceRepository != null && serviceInstanceRepository != null;
+            return serviceOrmContext != null
+                    && networkServiceRepository != null
+                    && serviceInstanceRepository != null
+                    && serviceProbeRepository != null;
         }
         return true;
     }

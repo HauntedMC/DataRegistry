@@ -162,5 +162,31 @@ class EntityAccessorsTest {
         assertEquals(started, instance.getStartedAt());
         assertEquals(lastSeen, instance.getLastSeenAt());
         assertEquals(stopped, instance.getStoppedAt());
+
+        ServiceProbeEntity probe = new ServiceProbeEntity();
+        Instant checkedAt = Instant.now();
+        probe.setId(23L);
+        probe.setService(service);
+        probe.setTargetInstanceId("0db84b47-b99f-4f9a-af87-ba05695c2d9a");
+        probe.setObserverInstanceId("57fb029c-ec83-44cd-b167-aa74f26042d7");
+        probe.setStatus(ServiceProbeStatus.TIMEOUT);
+        probe.setTargetHost("127.0.0.1");
+        probe.setTargetPort(25565);
+        probe.setLatencyMillis(1200L);
+        probe.setErrorCode("timeout");
+        probe.setErrorDetail("ping timed out");
+        probe.setCheckedAt(checkedAt);
+
+        assertEquals(23L, probe.getId());
+        assertSame(service, probe.getService());
+        assertEquals("0db84b47-b99f-4f9a-af87-ba05695c2d9a", probe.getTargetInstanceId());
+        assertEquals("57fb029c-ec83-44cd-b167-aa74f26042d7", probe.getObserverInstanceId());
+        assertEquals(ServiceProbeStatus.TIMEOUT, probe.getStatus());
+        assertEquals("127.0.0.1", probe.getTargetHost());
+        assertEquals(25565, probe.getTargetPort());
+        assertEquals(1200L, probe.getLatencyMillis());
+        assertEquals("timeout", probe.getErrorCode());
+        assertEquals("ping timed out", probe.getErrorDetail());
+        assertEquals(checkedAt, probe.getCheckedAt());
     }
 }

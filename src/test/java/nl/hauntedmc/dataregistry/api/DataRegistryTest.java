@@ -12,6 +12,7 @@ import nl.hauntedmc.dataregistry.api.repository.NetworkServiceRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerNameHistoryRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceInstanceRepository;
+import nl.hauntedmc.dataregistry.api.repository.ServiceProbeRepository;
 import nl.hauntedmc.dataregistry.backend.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.backend.service.ServiceRegistryService;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
@@ -76,6 +77,7 @@ class DataRegistryTest {
         assertSame(registry.testServiceOrmContext(), registry.getServiceORM());
         assertSame(registry.testNetworkServiceRepository(), registry.getNetworkServiceRepository());
         assertSame(registry.testServiceInstanceRepository(), registry.getServiceInstanceRepository());
+        assertSame(registry.testServiceProbeRepository(), registry.getServiceProbeRepository());
         assertTrue(registry.isInitialized());
     }
 
@@ -268,6 +270,7 @@ class DataRegistryTest {
         assertThrows(IllegalStateException.class, registry::getORM);
         assertThrows(IllegalStateException.class, registry::getPlayerRepository);
         assertThrows(IllegalStateException.class, registry::getPlayerNameHistoryRepository);
+        assertThrows(IllegalStateException.class, registry::getServiceProbeRepository);
         assertFalse(registry.isInitialized());
     }
 
@@ -390,6 +393,7 @@ class DataRegistryTest {
         private final PlayerNameHistoryRepository playerNameHistoryRepository;
         private final NetworkServiceRepository networkServiceRepository;
         private final ServiceInstanceRepository serviceInstanceRepository;
+        private final ServiceProbeRepository serviceProbeRepository;
         private DataSource lastPlayerDataSource;
         private DataSource lastServiceDataSource;
         private Class<?>[] lastPlayerEntityClasses = new Class<?>[0];
@@ -409,6 +413,7 @@ class DataRegistryTest {
             this.playerNameHistoryRepository = mock(PlayerNameHistoryRepository.class);
             this.networkServiceRepository = mock(NetworkServiceRepository.class);
             this.serviceInstanceRepository = mock(ServiceInstanceRepository.class);
+            this.serviceProbeRepository = mock(ServiceProbeRepository.class);
         }
 
         private TestableDataRegistry(
@@ -426,6 +431,7 @@ class DataRegistryTest {
             this.playerNameHistoryRepository = mock(PlayerNameHistoryRepository.class);
             this.networkServiceRepository = mock(NetworkServiceRepository.class);
             this.serviceInstanceRepository = mock(ServiceInstanceRepository.class);
+            this.serviceProbeRepository = mock(ServiceProbeRepository.class);
         }
 
         @Override
@@ -462,6 +468,11 @@ class DataRegistryTest {
             return serviceInstanceRepository;
         }
 
+        @Override
+        ServiceProbeRepository newServiceProbeRepository(ORMContext context) {
+            return serviceProbeRepository;
+        }
+
         private ORMContext testServiceOrmContext() {
             return serviceOrmContext;
         }
@@ -476,6 +487,10 @@ class DataRegistryTest {
 
         private ServiceInstanceRepository testServiceInstanceRepository() {
             return serviceInstanceRepository;
+        }
+
+        private ServiceProbeRepository testServiceProbeRepository() {
+            return serviceProbeRepository;
         }
     }
 

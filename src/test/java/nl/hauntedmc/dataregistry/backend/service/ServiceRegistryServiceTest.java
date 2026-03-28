@@ -5,8 +5,11 @@ import nl.hauntedmc.dataregistry.api.entities.NetworkServiceEntity;
 import nl.hauntedmc.dataregistry.api.entities.ServiceInstanceEntity;
 import nl.hauntedmc.dataregistry.api.entities.ServiceInstanceStatus;
 import nl.hauntedmc.dataregistry.api.entities.ServiceKind;
+import nl.hauntedmc.dataregistry.api.entities.ServiceProbeEntity;
+import nl.hauntedmc.dataregistry.api.entities.ServiceProbeStatus;
 import nl.hauntedmc.dataregistry.api.repository.NetworkServiceRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceInstanceRepository;
+import nl.hauntedmc.dataregistry.api.repository.ServiceProbeRepository;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import org.hibernate.Session;
@@ -184,6 +187,220 @@ class ServiceRegistryServiceTest {
     }
 
     @Test
+    void recordProbeCreatesServiceWhenMissingAndPersistsProbeRow() {
+        DataRegistry registry = mock(DataRegistry.class);
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        ServiceRegistryService service = new ServiceRegistryService(registry, logger, true);
+        @SuppressWarnings("unchecked")
+        Query<NetworkServiceEntity> serviceQuery = mock(Query.class);
+
+        when(registry.getServiceORM()).thenReturn(ormContext);
+        executeTransactionsWithSession(ormContext, session);
+        when(session.createQuery(contains("FROM NetworkServiceEntity"), org.mockito.ArgumentMatchers.eq(NetworkServiceEntity.class)))
+                .thenReturn(serviceQuery);
+        when(serviceQuery.setParameter(anyString(), any())).thenReturn(serviceQuery);
+        when(serviceQuery.setMaxResults(anyInt())).thenReturn(serviceQuery);
+        when(serviceQuery.uniqueResult()).thenReturn(null);
+
+        service.recordProbe(
+                ServiceKind.BACKEND,
+                "paper-lobby-1",
+                "PAPER",
+                "observer-instance-1",
+                ServiceProbeStatus.UP,
+                "127.0.0.1",
+                25565,
+                null,
+                22L,
+                null,
+                null
+        );
+
+        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+        verify(session, times(2)).persist(captor.capture());
+        NetworkServiceEntity persistedService = null;
+        ServiceProbeEntity persistedProbe = null;
+        for (Object value : captor.getAllValues()) {
+            if (value instanceof NetworkServiceEntity networkServiceEntity) {
+                persistedService = networkServiceEntity;
+            }
+            if (value instanceof ServiceProbeEntity serviceProbeEntity) {
+                persistedProbe = serviceProbeEntity;
+            }
+        }
+
+        assertNotNull(persistedService);
+        assertNotNull(persistedProbe);
+        assertEquals(ServiceKind.BACKEND, persistedService.getServiceKind());
+        assertEquals("paper-lobby-1", persistedService.getServiceName());
+        assertEquals("PAPER", persistedService.getPlatform());
+        assertEquals(persistedService, persistedProbe.getService());
+        assertEquals("observer-instance-1", persistedProbe.getObserverInstanceId());
+        assertEquals(ServiceProbeStatus.UP, persistedProbe.getStatus());
+        assertEquals("127.0.0.1", persistedProbe.getTargetHost());
+        assertEquals(25565, persistedProbe.getTargetPort());
+        assertEquals(22L, persistedProbe.getLatencyMillis());
+        assertNotNull(persistedProbe.getCheckedAt());
+    }
+
+    @Test
+    void probeHelpersAndEffectiveHealthProvideExpectedViews() {
+        DataRegistry registry = mock(DataRegistry.class);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        NetworkServiceRepository serviceRepository = mock(NetworkServiceRepository.class);
+        ServiceInstanceRepository instanceRepository = mock(ServiceInstanceRepository.class);
+        ServiceProbeRepository probeRepository = mock(ServiceProbeRepository.class);
+        ServiceRegistryService service = new ServiceRegistryService(registry, logger, true);
+        Instant now = Instant.now();
+
+        NetworkServiceEntity backendA = new NetworkServiceEntity();
+        backendA.setServiceKind(ServiceKind.BACKEND);
+        backendA.setServiceName("backend-a");
+        backendA.setPlatform("PAPER");
+        backendA.setFirstSeenAt(now.minusSeconds(300));
+        backendA.setLastSeenAt(now);
+
+        NetworkServiceEntity backendB = new NetworkServiceEntity();
+        backendB.setServiceKind(ServiceKind.BACKEND);
+        backendB.setServiceName("backend-b");
+        backendB.setPlatform("PAPER");
+        backendB.setFirstSeenAt(now.minusSeconds(300));
+        backendB.setLastSeenAt(now.minusSeconds(10));
+
+        NetworkServiceEntity backendC = new NetworkServiceEntity();
+        backendC.setServiceKind(ServiceKind.BACKEND);
+        backendC.setServiceName("backend-c");
+        backendC.setPlatform("PAPER");
+        backendC.setFirstSeenAt(now.minusSeconds(300));
+        backendC.setLastSeenAt(now);
+
+        ServiceInstanceEntity runningA = new ServiceInstanceEntity();
+        runningA.setService(backendA);
+        runningA.setStatus(ServiceInstanceStatus.RUNNING);
+        runningA.setLastSeenAt(now.minusSeconds(2));
+
+        ServiceInstanceEntity runningC = new ServiceInstanceEntity();
+        runningC.setService(backendC);
+        runningC.setStatus(ServiceInstanceStatus.RUNNING);
+        runningC.setLastSeenAt(now.minusSeconds(2));
+
+        ServiceProbeEntity probeA = new ServiceProbeEntity();
+        probeA.setService(backendA);
+        probeA.setObserverInstanceId("observer-1");
+        probeA.setStatus(ServiceProbeStatus.UP);
+        probeA.setCheckedAt(now.minusSeconds(1));
+
+        ServiceProbeEntity probeB = new ServiceProbeEntity();
+        probeB.setService(backendB);
+        probeB.setObserverInstanceId("observer-1");
+        probeB.setStatus(ServiceProbeStatus.TIMEOUT);
+        probeB.setCheckedAt(now.minusSeconds(1));
+
+        when(registry.getNetworkServiceRepository()).thenReturn(serviceRepository);
+        when(registry.getServiceInstanceRepository()).thenReturn(instanceRepository);
+        when(registry.getServiceProbeRepository()).thenReturn(probeRepository);
+        when(serviceRepository.findAllOrdered()).thenReturn(List.of(backendA, backendB, backendC));
+        when(instanceRepository.findAllOrdered()).thenReturn(List.of(runningA, runningC));
+        when(probeRepository.findMostRecentByService(ServiceKind.BACKEND, "backend-a")).thenReturn(Optional.of(probeA));
+        when(probeRepository.findMostRecentByService(ServiceKind.BACKEND, "backend-b")).thenReturn(Optional.of(probeB));
+        when(probeRepository.findMostRecentByService(ServiceKind.BACKEND, "backend-c")).thenReturn(Optional.empty());
+        when(probeRepository.findRecentByService(ServiceKind.BACKEND, "backend-a", 1)).thenReturn(List.of(probeA));
+        when(probeRepository.findByObserverInstanceId("observer-1", 1)).thenReturn(List.of(probeA, probeB));
+        when(probeRepository.countByStatus(any())).thenReturn(1L);
+
+        assertTrue(service.findMostRecentProbe(ServiceKind.BACKEND, "backend-a").isPresent());
+        assertEquals(1, service.listRecentProbes(ServiceKind.BACKEND, "backend-a", 1).size());
+        assertEquals(2, service.listRecentProbesByObserver("observer-1", 1).size());
+        assertEquals(1L, service.countProbesByStatus().get(ServiceProbeStatus.UP));
+
+        List<ServiceRegistryService.ServiceEffectiveHealthView> effective =
+                service.listServiceEffectiveHealth(Duration.ofSeconds(10), Duration.ofSeconds(10));
+        assertEquals(3, effective.size());
+
+        ServiceRegistryService.EffectiveServiceHealthStatus statusA = null;
+        ServiceRegistryService.EffectiveServiceHealthStatus statusB = null;
+        ServiceRegistryService.EffectiveServiceHealthStatus statusC = null;
+        for (ServiceRegistryService.ServiceEffectiveHealthView view : effective) {
+            if ("backend-a".equals(view.serviceName())) {
+                statusA = view.effectiveStatus();
+            } else if ("backend-b".equals(view.serviceName())) {
+                statusB = view.effectiveStatus();
+            } else if ("backend-c".equals(view.serviceName())) {
+                statusC = view.effectiveStatus();
+            }
+        }
+        assertEquals(ServiceRegistryService.EffectiveServiceHealthStatus.HEALTHY, statusA);
+        assertEquals(ServiceRegistryService.EffectiveServiceHealthStatus.UNREACHABLE, statusB);
+        assertEquals(ServiceRegistryService.EffectiveServiceHealthStatus.DEGRADED, statusC);
+
+        Optional<ServiceRegistryService.ServiceEffectiveHealthView> backendAView = service.findServiceEffectiveHealth(
+                ServiceKind.BACKEND,
+                "backend-a",
+                Duration.ofSeconds(10),
+                Duration.ofSeconds(10)
+        );
+        assertTrue(backendAView.isPresent());
+        assertEquals(ServiceRegistryService.EffectiveServiceHealthStatus.HEALTHY, backendAView.get().effectiveStatus());
+    }
+
+    @Test
+    void recordProbeValidatesRequiredFieldsAndLogsSanitizedErrors() {
+        DataRegistry registry = mock(DataRegistry.class);
+        ORMContext ormContext = mock(ORMContext.class);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        ServiceRegistryService service = new ServiceRegistryService(registry, logger, true);
+
+        service.recordProbe(
+                null,
+                "paper",
+                "PAPER",
+                "observer",
+                ServiceProbeStatus.UP,
+                "127.0.0.1",
+                25565,
+                null,
+                1L,
+                null,
+                null
+        );
+        service.recordProbe(
+                ServiceKind.BACKEND,
+                " ",
+                "PAPER",
+                "observer",
+                ServiceProbeStatus.UP,
+                "127.0.0.1",
+                25565,
+                null,
+                1L,
+                null,
+                null
+        );
+        verify(logger).warn("recordProbe called with null serviceKind or status.");
+        verify(logger).warn("recordProbe called with invalid required service metadata.");
+
+        when(registry.getServiceORM()).thenReturn(ormContext);
+        doThrow(new RuntimeException("probe tx failed")).when(ormContext).runInTransaction(any());
+
+        service.recordProbe(
+                ServiceKind.BACKEND,
+                "paper",
+                "PAPER",
+                "observer\nid",
+                ServiceProbeStatus.ERROR,
+                "127.0.0.1",
+                25565,
+                null,
+                1L,
+                "network\nerror",
+                "connection refused"
+        );
+        verify(logger).error(contains("BACKEND:paper"), any(RuntimeException.class));
+    }
+
+    @Test
     void disabledFeatureSkipsRegistryWrites() {
         DataRegistry registry = mock(DataRegistry.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
@@ -191,6 +408,19 @@ class ServiceRegistryServiceTest {
 
         service.refreshRunningInstance(ServiceKind.BACKEND, "paper", "PAPER", "id", null, null);
         service.markStopped("id");
+        service.recordProbe(
+                ServiceKind.BACKEND,
+                "paper",
+                "PAPER",
+                "observer-id",
+                ServiceProbeStatus.UP,
+                "127.0.0.1",
+                25565,
+                null,
+                10L,
+                null,
+                null
+        );
 
         verify(registry, never()).getServiceORM();
     }
@@ -295,6 +525,19 @@ class ServiceRegistryServiceTest {
         assertEquals("stale", service.listStaleRunningInstances(Duration.ofSeconds(30)).getFirst().instanceId());
         assertThrows(IllegalArgumentException.class, () -> service.isInstanceActiveWithin("fresh", Duration.ofSeconds(-1)));
         assertThrows(IllegalArgumentException.class, () -> service.listStaleRunningInstances(Duration.ofSeconds(-1)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.listServiceEffectiveHealth(Duration.ofSeconds(-1), Duration.ofSeconds(10))
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.findServiceEffectiveHealth(
+                        ServiceKind.PROXY,
+                        "velocity-edge",
+                        Duration.ofSeconds(10),
+                        Duration.ofSeconds(-1)
+                )
+        );
     }
 
     @Test

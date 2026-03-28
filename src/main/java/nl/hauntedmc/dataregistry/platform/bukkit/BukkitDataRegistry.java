@@ -113,7 +113,13 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
         localServiceInstanceId = instanceId;
         String host = normalizeHost(getServer().getIp());
         Integer port = normalizePort(getServer().getPort());
-        String serviceName = resolveBackendServiceName(host, port);
+        String serviceName = resolveBackendServiceName(settings.bukkitServiceName(), host, port);
+        if (settings.isBukkitServiceNameAuto()) {
+            logInstance.warn(
+                    "platform.bukkit.service-name is set to 'auto'; using host:port fallback '" + serviceName +
+                            "'. Set platform.bukkit.service-name to match Velocity server name for stable identity."
+            );
+        }
 
         registryService.refreshRunningInstance(
                 ServiceKind.BACKEND,
@@ -140,7 +146,10 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
         );
     }
 
-    private static String resolveBackendServiceName(String host, Integer port) {
+    private static String resolveBackendServiceName(String configuredServiceName, String host, Integer port) {
+        if (configuredServiceName != null && !"auto".equalsIgnoreCase(configuredServiceName.trim())) {
+            return configuredServiceName.trim();
+        }
         String hostPart = host == null ? "unknown-host" : host;
         String portPart = port == null ? "unknown-port" : Integer.toString(port);
         return "paper-" + hostPart + ":" + portPart;
