@@ -9,16 +9,12 @@ import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
 
 import java.time.Instant;
 
 @Entity
 @Table(
         name = "player_name_history",
-        uniqueConstraints = {
-                @UniqueConstraint(name = "uk_pnh_player_username", columnNames = {"player_id", "username"})
-        },
         indexes = {
                 @Index(name = "idx_pnh_player_seen", columnList = "player_id, last_seen_at"),
                 @Index(name = "idx_pnh_username_seen", columnList = "username, last_seen_at")
@@ -37,10 +33,7 @@ public class PlayerNameHistoryEntity {
     @Column(name = "username", nullable = false, length = 32)
     private String username;
 
-    @Column(name = "first_seen_at", nullable = false, columnDefinition = "TIMESTAMP", updatable = false)
-    private Instant firstSeenAt;
-
-    @Column(name = "last_seen_at", nullable = false, columnDefinition = "TIMESTAMP")
+    @Column(name = "last_seen_at", nullable = false, columnDefinition = "TIMESTAMP", updatable = false)
     private Instant lastSeenAt;
 
     public PlayerNameHistoryEntity() {
@@ -68,14 +61,6 @@ public class PlayerNameHistoryEntity {
 
     public void setUsername(String username) {
         this.username = username;
-    }
-
-    public Instant getFirstSeenAt() {
-        return firstSeenAt;
-    }
-
-    public void setFirstSeenAt(Instant firstSeenAt) {
-        this.firstSeenAt = firstSeenAt;
     }
 
     public Instant getLastSeenAt() {

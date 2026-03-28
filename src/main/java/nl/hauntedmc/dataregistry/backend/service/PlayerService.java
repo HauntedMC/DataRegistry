@@ -59,4 +59,19 @@ public final class PlayerService {
     public Optional<PlayerEntity> getActivePlayer(String uuid) {
         return playerRepository.getActivePlayer(uuid);
     }
+
+    /**
+     * Resolves the most recently known username for a UUID from active cache first, then persistence.
+     */
+    public Optional<String> findKnownUsername(String uuid) {
+        Optional<PlayerEntity> activePlayer = playerRepository.getActivePlayer(uuid);
+        if (activePlayer != null && activePlayer.isPresent()) {
+            return Optional.ofNullable(activePlayer.get().getUsername());
+        }
+        Optional<PlayerEntity> persistedPlayer = playerRepository.findByUUID(uuid);
+        if (persistedPlayer == null) {
+            return Optional.empty();
+        }
+        return persistedPlayer.map(PlayerEntity::getUsername);
+    }
 }

@@ -8,6 +8,7 @@ It keeps player identity, online status, connection metadata, and session lifecy
 - Single backend core with thin platform boot layers.
 - Privacy-first defaults (`ip`/`virtual-host` persistence is disabled by default).
 - Feature-gated built-in domains (`online-status`, `connection-info`, `sessions`, `name-history`, `service-registry`).
+- Name-history timeline preserves repeated names (`A -> B -> C -> A`) in a single history table.
 - Domain-level database profile split (`database.profiles.players` and `database.profiles.services`).
 - Configurable limits and database wiring through `config.yml`.
 - Transaction-safe session/status updates with defensive validation.
@@ -103,6 +104,8 @@ Invalid values are rejected and safe defaults are used.
 - `create-drop`: creates schema on startup and drops it on shutdown. Use only for tests/local.
 - `none`: disables ORM schema management entirely. Use when external migrations manage schema.
 
+When upgrading to this version with `validate` or `none`, ensure your schema for `player_name_history` matches the current mapping.
+
 ### Setting Reference
 
 - `database.type` (default `MYSQL`): DataProvider relational database type to register.
@@ -114,7 +117,7 @@ Invalid values are rejected and safe defaults are used.
 - `features.online-status` (default `true`): enables `player_online_status` domain.
 - `features.connection-info` (default `true`): enables `player_connection_info` domain.
 - `features.sessions` (default `true`): enables `player_sessions` domain.
-- `features.name-history` (default `true`): enables `player_name_history` domain.
+- `features.name-history` (default `true`): enables `player_name_history` (historical former-name timeline).
 - `features.service-registry` (default `true`): enables `network_service` and `service_instance` domains.
 - `service-registry.heartbeat-interval-seconds` (default `30`, range `5..300`): cadence for service instance heartbeat writes.
 - `platform.bukkit.join-delay-ticks` (default `4`, range `0..200`): delay after Bukkit join before status snapshot/writes.
@@ -134,6 +137,12 @@ Built-in domains can be enabled/disabled without code changes:
 - `features.service-registry`: controls `network_service` / `service_instance` writes and heartbeat updates.
 
 `player_entity` is always enabled because all other domains depend on identity records.
+
+Name history model:
+- `player_entity.username` stores the current username.
+- `player_name_history` stores former usernames only.
+- On detected rename at login, DataRegistry writes the previous username with `last_seen_at`.
+- `last_seen_at` uses `player_connection_info.last_disconnect_at` when available, otherwise current time.
 
 Connection routing:
 - `database.profiles.players.connection-id` is used for player tables.
@@ -159,7 +168,7 @@ Built-in repositories also expose read helpers so features do not need to duplic
 
 - `PlayerRepository`: `findByUsername(...)`, `findByUsernamePrefix(...)`, `findByUUIDs(...)`, active-cache snapshot/count helpers.
 - `PlayerSessionRepository`: latest/open/recent lookups, time-window queries, open-session counts.
-- `PlayerNameHistoryRepository`: latest lookup, player+username lookup, recent-by-player, recent-by-username.
+- `PlayerNameHistoryRepository`: former-name timeline lookups (latest, recent, and chronological by player).
 - `NetworkServiceRepository`: kind/name existence checks, service-name lookups, recency filters, kind counts.
 - `ServiceInstanceRepository`: running/by-service lookups, stale/fresh recency filters, status and per-service counters.
 - All repositories (via `AbstractRepository`) now include `findAll(limit)`, `existsById(...)`, and `count()`.

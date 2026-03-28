@@ -66,8 +66,9 @@ public class PlayerStatusListener {
         String vhost = extractVirtualHost(player);
 
         enqueuePlayerEvent(uuid, () -> {
+            String knownUsername = playerService.findKnownUsername(uuid).orElse(null);
             PlayerEntity persistent = playerService.onPlayerJoin(VelocityPlayerAdapter.fromSnapshot(uuid, username));
-            nameHistoryService.recordSeenUsername(persistent, username);
+            nameHistoryService.recordUsernameChange(persistent, knownUsername, username);
             connectionService.updateOnLogin(persistent, ip, vhost);
             sessionService.openSessionOnLogin(persistent, ip, vhost);
         });

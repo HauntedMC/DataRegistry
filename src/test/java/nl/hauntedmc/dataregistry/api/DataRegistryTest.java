@@ -267,6 +267,7 @@ class DataRegistryTest {
 
         assertThrows(IllegalStateException.class, registry::getORM);
         assertThrows(IllegalStateException.class, registry::getPlayerRepository);
+        assertThrows(IllegalStateException.class, registry::getPlayerNameHistoryRepository);
         assertFalse(registry.isInitialized());
     }
 

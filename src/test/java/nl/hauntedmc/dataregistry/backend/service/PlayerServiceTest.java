@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -78,5 +79,35 @@ class PlayerServiceTest {
 
         assertEquals(Optional.of(player), result);
         verify(repository).getActivePlayer(eq("uuid-123"));
+    }
+
+    @Test
+    void findKnownUsernamePrefersActiveCacheThenPersistence() {
+        PlayerRepository repository = mock(PlayerRepository.class);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        PlayerService service = new PlayerService(repository, logger);
+        PlayerEntity activePlayer = new PlayerEntity();
+        activePlayer.setUsername("ActiveName");
+
+        when(repository.getActivePlayer("uuid-123")).thenReturn(Optional.of(activePlayer));
+
+        assertEquals(Optional.of("ActiveName"), service.findKnownUsername("uuid-123"));
+        verify(repository).getActivePlayer("uuid-123");
+        verify(repository, never()).findByUUID("uuid-123");
+    }
+
+    @Test
+    void findKnownUsernameFallsBackToPersistentLookup() {
+        PlayerRepository repository = mock(PlayerRepository.class);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        PlayerService service = new PlayerService(repository, logger);
+        PlayerEntity persisted = new PlayerEntity();
+        persisted.setUsername("PersistedName");
+
+        when(repository.getActivePlayer("uuid-123")).thenReturn(Optional.empty());
+        when(repository.findByUUID("uuid-123")).thenReturn(Optional.of(persisted));
+
+        assertEquals(Optional.of("PersistedName"), service.findKnownUsername("uuid-123"));
+        verify(repository).findByUUID("uuid-123");
     }
 }

@@ -18,7 +18,7 @@ public class PlayerNameHistoryRepository extends AbstractRepository<PlayerNameHi
         return ormContext.runInTransaction(session ->
                 session.createQuery(
                                 "SELECT h FROM PlayerNameHistoryEntity h " +
-                                        "WHERE h.player.id = :playerId ORDER BY h.lastSeenAt DESC",
+                                        "WHERE h.player.id = :playerId ORDER BY h.lastSeenAt DESC, h.id DESC",
                                 PlayerNameHistoryEntity.class
                         )
                         .setParameter("playerId", playerId)
@@ -28,7 +28,7 @@ public class PlayerNameHistoryRepository extends AbstractRepository<PlayerNameHi
     }
 
     /**
-     * Returns the name-history row for a specific player/username pair when present.
+     * Returns the latest name-history row for a specific player/username pair when present.
      */
     public Optional<PlayerNameHistoryEntity> findByPlayerAndUsername(Long playerId, String username) {
         Objects.requireNonNull(playerId, "playerId must not be null");
@@ -36,7 +36,8 @@ public class PlayerNameHistoryRepository extends AbstractRepository<PlayerNameHi
         return ormContext.runInTransaction(session ->
                 session.createQuery(
                                 "SELECT h FROM PlayerNameHistoryEntity h " +
-                                        "WHERE h.player.id = :playerId AND h.username = :username",
+                                        "WHERE h.player.id = :playerId AND h.username = :username " +
+                                        "ORDER BY h.lastSeenAt DESC, h.id DESC",
                                 PlayerNameHistoryEntity.class
                         )
                         .setParameter("playerId", playerId)
@@ -54,7 +55,24 @@ public class PlayerNameHistoryRepository extends AbstractRepository<PlayerNameHi
         return ormContext.runInTransaction(session ->
                 session.createQuery(
                                 "SELECT h FROM PlayerNameHistoryEntity h " +
-                                        "WHERE h.player.id = :playerId ORDER BY h.lastSeenAt DESC",
+                                        "WHERE h.player.id = :playerId ORDER BY h.lastSeenAt DESC, h.id DESC",
+                                PlayerNameHistoryEntity.class
+                        )
+                        .setParameter("playerId", playerId)
+                        .setMaxResults(Math.max(1, limit))
+                        .list()
+        );
+    }
+
+    /**
+     * Returns chronological (oldest-first) name-history rows for a player.
+     */
+    public List<PlayerNameHistoryEntity> findChronologicalByPlayer(Long playerId, int limit) {
+        Objects.requireNonNull(playerId, "playerId must not be null");
+        return ormContext.runInTransaction(session ->
+                session.createQuery(
+                                "SELECT h FROM PlayerNameHistoryEntity h " +
+                                        "WHERE h.player.id = :playerId ORDER BY h.lastSeenAt ASC, h.id ASC",
                                 PlayerNameHistoryEntity.class
                         )
                         .setParameter("playerId", playerId)
@@ -71,7 +89,7 @@ public class PlayerNameHistoryRepository extends AbstractRepository<PlayerNameHi
         return ormContext.runInTransaction(session ->
                 session.createQuery(
                                 "SELECT h FROM PlayerNameHistoryEntity h " +
-                                        "WHERE h.username = :username ORDER BY h.lastSeenAt DESC",
+                                        "WHERE h.username = :username ORDER BY h.lastSeenAt DESC, h.id DESC",
                                 PlayerNameHistoryEntity.class
                         )
                         .setParameter("username", username)

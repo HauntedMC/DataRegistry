@@ -109,18 +109,15 @@ class EntityAccessorsTest {
         PlayerEntity player = new PlayerEntity();
         player.setId(6L);
         PlayerNameHistoryEntity history = new PlayerNameHistoryEntity();
-        Instant firstSeen = Instant.now().minusSeconds(30);
         Instant lastSeen = Instant.now();
         history.setId(11L);
         history.setPlayer(player);
         history.setUsername("Alice");
-        history.setFirstSeenAt(firstSeen);
         history.setLastSeenAt(lastSeen);
 
         assertEquals(11L, history.getId());
         assertSame(player, history.getPlayer());
         assertEquals("Alice", history.getUsername());
-        assertEquals(firstSeen, history.getFirstSeenAt());
         assertEquals(lastSeen, history.getLastSeenAt());
     }
 

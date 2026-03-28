@@ -167,6 +167,29 @@ class PlayerStatusListenerTest {
         context.listener.onPlayerJoin(new PostLoginEvent(player));
 
         verify(context.repository).getOrCreateActivePlayer(uuid, "Alice");
+        verify(context.ormContext, times(2)).runInTransaction(any());
+    }
+
+    @Test
+    void onPlayerJoinRecordsRenameHistoryWhenKnownUsernameChanged() throws Exception {
+        TestContext context = createContext();
+        String uuid = UUID.randomUUID().toString();
+        PlayerEntity previous = persistedPlayer(uuid, "OldName");
+        PlayerEntity persistent = persistedPlayer(uuid, "Alice");
+        when(context.repository.getActivePlayer(uuid)).thenReturn(Optional.empty());
+        when(context.repository.findByUUID(uuid)).thenReturn(Optional.of(previous));
+        when(context.repository.getOrCreateActivePlayer(uuid, "Alice")).thenReturn(persistent);
+
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
+        when(player.getUsername()).thenReturn("Alice");
+        when(player.getRemoteAddress()).thenReturn(
+                new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 25565)
+        );
+        when(player.getVirtualHost()).thenReturn(Optional.of(new InetSocketAddress("mc.example.org", 25566)));
+
+        context.listener.onPlayerJoin(new PostLoginEvent(player));
+
         verify(context.ormContext, times(3)).runInTransaction(any());
     }
 

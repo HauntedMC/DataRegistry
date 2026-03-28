@@ -29,13 +29,15 @@ class PlayerNameHistoryRepositoryTest {
         @SuppressWarnings("unchecked")
         Query<PlayerNameHistoryEntity> recentByPlayerQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
+        Query<PlayerNameHistoryEntity> chronologicalByPlayerQuery = mock(Query.class);
+        @SuppressWarnings("unchecked")
         Query<PlayerNameHistoryEntity> recentByUsernameQuery = mock(Query.class);
         PlayerNameHistoryRepository repository = new PlayerNameHistoryRepository(ormContext);
         PlayerNameHistoryEntity entry = new PlayerNameHistoryEntity();
 
         executeTransactionsWithSession(ormContext, session);
         when(session.createQuery(
-                "SELECT h FROM PlayerNameHistoryEntity h WHERE h.player.id = :playerId ORDER BY h.lastSeenAt DESC",
+                "SELECT h FROM PlayerNameHistoryEntity h WHERE h.player.id = :playerId ORDER BY h.lastSeenAt DESC, h.id DESC",
                 PlayerNameHistoryEntity.class
         )).thenReturn(latestQuery, recentByPlayerQuery);
         when(latestQuery.setParameter("playerId", 22L)).thenReturn(latestQuery);
@@ -43,7 +45,7 @@ class PlayerNameHistoryRepositoryTest {
         when(latestQuery.uniqueResultOptional()).thenReturn(Optional.of(entry));
 
         when(session.createQuery(
-                "SELECT h FROM PlayerNameHistoryEntity h WHERE h.player.id = :playerId AND h.username = :username",
+                "SELECT h FROM PlayerNameHistoryEntity h WHERE h.player.id = :playerId AND h.username = :username ORDER BY h.lastSeenAt DESC, h.id DESC",
                 PlayerNameHistoryEntity.class
         )).thenReturn(byPlayerAndNameQuery);
         when(byPlayerAndNameQuery.setParameter("playerId", 22L)).thenReturn(byPlayerAndNameQuery);
@@ -56,7 +58,15 @@ class PlayerNameHistoryRepositoryTest {
         when(recentByPlayerQuery.list()).thenReturn(List.of(entry));
 
         when(session.createQuery(
-                "SELECT h FROM PlayerNameHistoryEntity h WHERE h.username = :username ORDER BY h.lastSeenAt DESC",
+                "SELECT h FROM PlayerNameHistoryEntity h WHERE h.player.id = :playerId ORDER BY h.lastSeenAt ASC, h.id ASC",
+                PlayerNameHistoryEntity.class
+        )).thenReturn(chronologicalByPlayerQuery);
+        when(chronologicalByPlayerQuery.setParameter("playerId", 22L)).thenReturn(chronologicalByPlayerQuery);
+        when(chronologicalByPlayerQuery.setMaxResults(1)).thenReturn(chronologicalByPlayerQuery);
+        when(chronologicalByPlayerQuery.list()).thenReturn(List.of(entry));
+
+        when(session.createQuery(
+                "SELECT h FROM PlayerNameHistoryEntity h WHERE h.username = :username ORDER BY h.lastSeenAt DESC, h.id DESC",
                 PlayerNameHistoryEntity.class
         )).thenReturn(recentByUsernameQuery);
         when(recentByUsernameQuery.setParameter("username", "Alice")).thenReturn(recentByUsernameQuery);
@@ -66,8 +76,10 @@ class PlayerNameHistoryRepositoryTest {
         assertEquals(Optional.of(entry), repository.findLatestForPlayer(22L));
         assertEquals(Optional.of(entry), repository.findByPlayerAndUsername(22L, "Alice"));
         assertEquals(List.of(entry), repository.findRecentByPlayer(22L, 0));
+        assertEquals(List.of(entry), repository.findChronologicalByPlayer(22L, 0));
         assertEquals(List.of(entry), repository.findRecentByUsername("Alice", 0));
         verify(recentByPlayerQuery).setMaxResults(1);
+        verify(chronologicalByPlayerQuery).setMaxResults(1);
         verify(recentByUsernameQuery).setMaxResults(1);
     }
 
@@ -79,6 +91,7 @@ class PlayerNameHistoryRepositoryTest {
         assertThrows(NullPointerException.class, () -> repository.findByPlayerAndUsername(null, "Alice"));
         assertThrows(NullPointerException.class, () -> repository.findByPlayerAndUsername(1L, null));
         assertThrows(NullPointerException.class, () -> repository.findRecentByPlayer(null, 10));
+        assertThrows(NullPointerException.class, () -> repository.findChronologicalByPlayer(null, 10));
         assertThrows(NullPointerException.class, () -> repository.findRecentByUsername(null, 10));
     }
 }
