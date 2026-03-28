@@ -7,6 +7,8 @@ import org.hibernate.Session;
 import org.hibernate.query.Query;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -17,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
@@ -68,6 +71,70 @@ class PlayerRepositoryTest {
         Optional<PlayerEntity> result = repository.findByUUID(uuid);
 
         assertEquals(Optional.of(player), result);
+    }
+
+    @Test
+    void findByUsernameSupportsExactAndPrefixLookups() {
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerEntity> exactQuery = mock(Query.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerEntity> prefixQuery = mock(Query.class);
+        PlayerRepository repository = new PlayerRepository(ormContext);
+        PlayerEntity player = new PlayerEntity();
+        player.setUuid(UUID.randomUUID().toString());
+        player.setUsername("Alice");
+
+        executeTransactionsWithSession(ormContext, session);
+        when(session.createQuery(
+                "SELECT p FROM PlayerEntity p WHERE p.username = :username",
+                PlayerEntity.class
+        )).thenReturn(exactQuery);
+        when(exactQuery.setParameter("username", "Alice")).thenReturn(exactQuery);
+        when(exactQuery.setMaxResults(1)).thenReturn(exactQuery);
+        when(exactQuery.uniqueResult()).thenReturn(player);
+
+        when(session.createQuery(
+                "SELECT p FROM PlayerEntity p WHERE LOWER(p.username) LIKE :prefix ORDER BY p.username ASC",
+                PlayerEntity.class
+        )).thenReturn(prefixQuery);
+        when(prefixQuery.setParameter("prefix", "ali%")).thenReturn(prefixQuery);
+        when(prefixQuery.setMaxResults(1)).thenReturn(prefixQuery);
+        when(prefixQuery.list()).thenReturn(List.of(player));
+
+        assertEquals(Optional.of(player), repository.findByUsername("  Alice "));
+        assertEquals(List.of(player), repository.findByUsernamePrefix("Ali", 0));
+    }
+
+    @Test
+    void findByUuidsFiltersInvalidValuesAndQueriesWithNormalizedSet() {
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerEntity> query = mock(Query.class);
+        PlayerRepository repository = new PlayerRepository(ormContext);
+        String uuidA = UUID.randomUUID().toString();
+        String uuidB = UUID.randomUUID().toString();
+        PlayerEntity alice = new PlayerEntity();
+        alice.setUuid(uuidA);
+        alice.setUsername("Alice");
+        PlayerEntity bob = new PlayerEntity();
+        bob.setUuid(uuidB);
+        bob.setUsername("Bob");
+
+        executeTransactionsWithSession(ormContext, session);
+        when(session.createQuery(
+                "SELECT p FROM PlayerEntity p WHERE p.uuid IN :uuids ORDER BY p.username ASC",
+                PlayerEntity.class
+        )).thenReturn(query);
+        when(query.setParameter(eq("uuids"), any())).thenReturn(query);
+        when(query.list()).thenReturn(List.of(alice, bob));
+
+        List<PlayerEntity> result = repository.findByUUIDs(List.of("bad", uuidA, uuidB, " "));
+
+        assertEquals(2, result.size());
+        verify(query).setParameter(eq("uuids"), any());
     }
 
     @Test
@@ -176,5 +243,27 @@ class PlayerRepositoryTest {
         repository.removeActivePlayer(uuid);
 
         assertTrue(repository.getActivePlayer(uuid).isEmpty());
+    }
+
+    @Test
+    void activePlayerHelpersExposeCacheState() {
+        ORMContext ormContext = mock(ORMContext.class);
+        PlayerRepository repository = spy(new PlayerRepository(ormContext));
+        String uuid = UUID.randomUUID().toString();
+        PlayerEntity entity = new PlayerEntity();
+        entity.setId(99L);
+        entity.setUuid(uuid);
+        entity.setUsername("Alice");
+
+        doReturn(Optional.of(entity)).when(repository).findByUUID(uuid);
+        repository.getOrCreateActivePlayer(uuid, "Alice");
+
+        assertEquals(1, repository.countActivePlayers());
+        Map<String, PlayerEntity> snapshot = repository.snapshotActivePlayers();
+        assertEquals(1, snapshot.size());
+        assertThrows(UnsupportedOperationException.class, () -> snapshot.clear());
+
+        repository.clearActivePlayers();
+        assertEquals(0, repository.countActivePlayers());
     }
 }

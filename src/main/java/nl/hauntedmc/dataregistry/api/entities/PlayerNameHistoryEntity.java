@@ -9,12 +9,16 @@ import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 
 import java.time.Instant;
 
 @Entity
 @Table(
         name = "player_name_history",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_pnh_player_username", columnNames = {"player_id", "username"})
+        },
         indexes = {
                 @Index(name = "idx_pnh_player_seen", columnList = "player_id, last_seen_at"),
                 @Index(name = "idx_pnh_username_seen", columnList = "username, last_seen_at")

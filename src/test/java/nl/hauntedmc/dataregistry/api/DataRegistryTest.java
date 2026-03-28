@@ -8,13 +8,12 @@ import nl.hauntedmc.dataprovider.logging.LogLevel;
 import nl.hauntedmc.dataregistry.api.entities.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerNameHistoryEntity;
-import nl.hauntedmc.dataregistry.api.entities.NetworkServiceEntity;
-import nl.hauntedmc.dataregistry.api.entities.ServiceInstanceEntity;
 import nl.hauntedmc.dataregistry.api.repository.NetworkServiceRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerNameHistoryRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceInstanceRepository;
 import nl.hauntedmc.dataregistry.backend.config.DataRegistrySettings;
+import nl.hauntedmc.dataregistry.backend.service.ServiceRegistryService;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import org.junit.jupiter.api.Test;
 
@@ -217,7 +216,8 @@ class DataRegistryTest {
         ORMContext ormContext = mock(ORMContext.class);
         PlayerRepository repository = mock(PlayerRepository.class);
         DataRegistrySettings settings = DataRegistrySettings.builder()
-                .databaseConnectionId("custom_player_rw")
+                .playerDatabaseConnectionId("custom_player_rw")
+                .serviceDatabaseConnectionId("custom_player_rw")
                 .ormSchemaMode("update")
                 .build();
 
@@ -268,6 +268,28 @@ class DataRegistryTest {
         assertThrows(IllegalStateException.class, registry::getORM);
         assertThrows(IllegalStateException.class, registry::getPlayerRepository);
         assertFalse(registry.isInitialized());
+    }
+
+    @Test
+    void newServiceRegistryServiceReflectsFeatureToggleState() {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+
+        DataRegistry enabledRegistry = new DataRegistry(logger, "DataRegistry", api);
+        ServiceRegistryService enabledService = enabledRegistry.newServiceRegistryService();
+        assertTrue(enabledService.isFeatureEnabled());
+
+        DataRegistrySettings disabledSettings = DataRegistrySettings.builder()
+                .enabledFeatures(Set.of(
+                        DataRegistryFeature.ONLINE_STATUS,
+                        DataRegistryFeature.CONNECTION_INFO,
+                        DataRegistryFeature.SESSIONS,
+                        DataRegistryFeature.NAME_HISTORY
+                ))
+                .build();
+        DataRegistry disabledRegistry = new DataRegistry(logger, "DataRegistry", api, disabledSettings);
+        ServiceRegistryService disabledService = disabledRegistry.newServiceRegistryService();
+        assertFalse(disabledService.isFeatureEnabled());
     }
 
     @Test

@@ -15,6 +15,7 @@ import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerNameHistoryRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceInstanceRepository;
 import nl.hauntedmc.dataregistry.backend.config.DataRegistrySettings;
+import nl.hauntedmc.dataregistry.backend.service.ServiceRegistryService;
 import nl.hauntedmc.dataprovider.logging.LogLevel;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 
@@ -197,6 +198,13 @@ public class DataRegistry {
             throw new IllegalStateException("Service instance repository is unavailable.");
         }
         return serviceInstanceRepository;
+    }
+
+    /**
+     * Creates a helper facade for service-registry writes and read-side discovery helpers.
+     */
+    public ServiceRegistryService newServiceRegistryService() {
+        return new ServiceRegistryService(this, logger, settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
     }
 
     /**

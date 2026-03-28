@@ -57,4 +57,32 @@ public abstract class AbstractRepository<T, ID> implements Repository<T, ID> {
                 session.createQuery("FROM " + entityClass.getSimpleName(), entityClass).list()
         );
     }
+
+    public List<T> findAll(int limit) {
+        return ormContext.runInTransaction(session ->
+                session.createQuery("FROM " + entityClass.getSimpleName(), entityClass)
+                        .setMaxResults(Math.max(1, limit))
+                        .list()
+        );
+    }
+
+    /**
+     * Returns whether an entity with the given id exists.
+     */
+    public boolean existsById(ID id) {
+        return findById(id).isPresent();
+    }
+
+    /**
+     * Returns the total row count for this repository entity.
+     */
+    public long count() {
+        return ormContext.runInTransaction(session ->
+                session.createQuery(
+                                "SELECT COUNT(e) FROM " + entityClass.getSimpleName() + " e",
+                                Long.class
+                        )
+                        .getSingleResult()
+        );
+    }
 }

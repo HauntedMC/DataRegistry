@@ -14,7 +14,8 @@ import java.util.Set;
  */
 public final class DataRegistrySettings {
 
-    private static final String DEFAULT_CONNECTION_ID = "player_data_rw";
+    private static final String DEFAULT_PLAYER_CONNECTION_ID = "player_data_rw";
+    private static final String DEFAULT_SERVICE_CONNECTION_ID = "player_data_rw";
     private static final int DEFAULT_SERVICE_HEARTBEAT_INTERVAL_SECONDS = 30;
     private static final String DEFAULT_ORM_SCHEMA_MODE = "validate";
     private static final int DEFAULT_BUKKIT_JOIN_DELAY_TICKS = 4;
@@ -41,8 +42,14 @@ public final class DataRegistrySettings {
 
     private DataRegistrySettings(Builder builder) {
         this.databaseType = Objects.requireNonNull(builder.databaseType, "databaseType must not be null");
-        this.playerDatabaseConnectionId = normalizeConnectionId(builder.playerDatabaseConnectionId);
-        this.serviceDatabaseConnectionId = normalizeConnectionId(builder.serviceDatabaseConnectionId);
+        this.playerDatabaseConnectionId = normalizeConnectionId(
+                builder.playerDatabaseConnectionId,
+                "playerDatabaseConnectionId"
+        );
+        this.serviceDatabaseConnectionId = normalizeConnectionId(
+                builder.serviceDatabaseConnectionId,
+                "serviceDatabaseConnectionId"
+        );
         this.ormSchemaMode = normalizeSchemaMode(builder.ormSchemaMode);
         this.persistIpAddress = builder.persistIpAddress;
         this.persistVirtualHost = builder.persistVirtualHost;
@@ -95,10 +102,6 @@ public final class DataRegistrySettings {
 
     public DatabaseType databaseType() {
         return databaseType;
-    }
-
-    public String databaseConnectionId() {
-        return playerDatabaseConnectionId;
     }
 
     public String playerDatabaseConnectionId() {
@@ -162,17 +165,17 @@ public final class DataRegistrySettings {
         return value;
     }
 
-    private static String normalizeConnectionId(String value) {
+    private static String normalizeConnectionId(String value, String fieldName) {
         if (value == null) {
-            throw new IllegalArgumentException("databaseConnectionId must not be null");
+            throw new IllegalArgumentException(fieldName + " must not be null");
         }
         String normalized = value.trim();
         if (normalized.isEmpty()) {
-            throw new IllegalArgumentException("databaseConnectionId must not be blank");
+            throw new IllegalArgumentException(fieldName + " must not be blank");
         }
         if (!normalized.matches("[A-Za-z0-9._-]{1,64}")) {
             throw new IllegalArgumentException(
-                    "databaseConnectionId must match [A-Za-z0-9._-]{1,64}"
+                    fieldName + " must match [A-Za-z0-9._-]{1,64}"
             );
         }
         return normalized;
@@ -193,8 +196,8 @@ public final class DataRegistrySettings {
 
     public static final class Builder {
         private DatabaseType databaseType = DatabaseType.MYSQL;
-        private String playerDatabaseConnectionId = DEFAULT_CONNECTION_ID;
-        private String serviceDatabaseConnectionId = DEFAULT_CONNECTION_ID;
+        private String playerDatabaseConnectionId = DEFAULT_PLAYER_CONNECTION_ID;
+        private String serviceDatabaseConnectionId = DEFAULT_SERVICE_CONNECTION_ID;
         private String ormSchemaMode = DEFAULT_ORM_SCHEMA_MODE;
         private boolean persistIpAddress;
         private boolean persistVirtualHost;
@@ -211,13 +214,6 @@ public final class DataRegistrySettings {
 
         public Builder databaseType(DatabaseType value) {
             this.databaseType = Objects.requireNonNull(value, "databaseType must not be null");
-            return this;
-        }
-
-        public Builder databaseConnectionId(String value) {
-            String normalized = Objects.requireNonNull(value, "databaseConnectionId must not be null");
-            this.playerDatabaseConnectionId = normalized;
-            this.serviceDatabaseConnectionId = normalized;
             return this;
         }
 

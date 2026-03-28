@@ -18,7 +18,6 @@ class DataRegistrySettingsTest {
         DataRegistrySettings settings = DataRegistrySettings.defaults();
 
         assertEquals(DatabaseType.MYSQL, settings.databaseType());
-        assertEquals("player_data_rw", settings.databaseConnectionId());
         assertEquals("player_data_rw", settings.playerDatabaseConnectionId());
         assertEquals("player_data_rw", settings.serviceDatabaseConnectionId());
         assertEquals("validate", settings.ormSchemaMode());
@@ -36,33 +35,42 @@ class DataRegistrySettingsTest {
     }
 
     @Test
-    void builderNormalizesSchemaModeAndConnectionId() {
+    void builderNormalizesSchemaModeAndConnectionIds() {
         DataRegistrySettings settings = DataRegistrySettings.builder()
                 .databaseType(DatabaseType.MYSQL)
-                .databaseConnectionId("  main.players_1  ")
+                .playerDatabaseConnectionId("  main.players_1  ")
+                .serviceDatabaseConnectionId("  main.services_1  ")
                 .ormSchemaMode("  CREATE-DROP ")
                 .persistIpAddress(true)
                 .persistVirtualHost(true)
                 .build();
 
-        assertEquals("main.players_1", settings.databaseConnectionId());
         assertEquals("main.players_1", settings.playerDatabaseConnectionId());
-        assertEquals("main.players_1", settings.serviceDatabaseConnectionId());
+        assertEquals("main.services_1", settings.serviceDatabaseConnectionId());
         assertEquals("create-drop", settings.ormSchemaMode());
         assertTrue(settings.persistIpAddress());
         assertTrue(settings.persistVirtualHost());
     }
 
     @Test
-    void builderRejectsInvalidConnectionId() {
+    void builderRejectsInvalidConnectionIds() {
         IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
                 () -> DataRegistrySettings.builder()
-                        .databaseConnectionId("invalid value with spaces")
+                        .playerDatabaseConnectionId("invalid value with spaces")
+                        .serviceDatabaseConnectionId("services-rw")
+                        .build()
+        );
+        IllegalArgumentException serviceException = assertThrows(
+                IllegalArgumentException.class,
+                () -> DataRegistrySettings.builder()
+                        .playerDatabaseConnectionId("players-rw")
+                        .serviceDatabaseConnectionId("invalid value with spaces")
                         .build()
         );
 
-        assertTrue(exception.getMessage().contains("databaseConnectionId"));
+        assertTrue(exception.getMessage().contains("playerDatabaseConnectionId"));
+        assertTrue(serviceException.getMessage().contains("serviceDatabaseConnectionId"));
     }
 
     @Test

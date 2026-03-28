@@ -34,6 +34,7 @@ Database profile policy:
 - Player-facing domains must use the player profile connection (`database.profiles.players.connection-id`).
 - Service-facing domains must use the service profile connection (`database.profiles.services.connection-id`).
 - Keep domains independent; do not couple optional feature tables into the core identity schema.
+- Prefer exposing read-side helper methods via `DataRegistry#newServiceRegistryService()` for cross-feature service discovery instead of duplicating raw queries.
 
 ## Adding New Data Domains
 

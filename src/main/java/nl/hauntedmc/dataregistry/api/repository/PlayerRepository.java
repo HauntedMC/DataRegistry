@@ -5,6 +5,9 @@ import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 
 import java.util.Map;
+import java.util.LinkedHashSet;
+import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -39,6 +42,71 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
                         .setParameter("uuid", normalizedUuid)
                         .uniqueResult()
         ));
+    }
+
+    public Optional<PlayerEntity> findByUsername(String username) {
+        String normalizedUsername = normalizeUsername(username);
+        if (normalizedUsername == null) {
+            return Optional.empty();
+        }
+        return ormContext.runInTransaction(session -> Optional.ofNullable(
+                session.createQuery(
+                                "SELECT p FROM PlayerEntity p WHERE p.username = :username",
+                                PlayerEntity.class
+                        )
+                        .setParameter("username", normalizedUsername)
+                        .setMaxResults(1)
+                        .uniqueResult()
+        ));
+    }
+
+    /**
+     * Performs a prefix search on usernames (case-insensitive), ordered alphabetically.
+     */
+    public List<PlayerEntity> findByUsernamePrefix(String prefix, int limit) {
+        String normalizedPrefix = normalizeUsername(prefix);
+        if (normalizedPrefix == null) {
+            return List.of();
+        }
+        int resultLimit = Math.max(1, limit);
+        return ormContext.runInTransaction(session ->
+                session.createQuery(
+                                "SELECT p FROM PlayerEntity p " +
+                                        "WHERE LOWER(p.username) LIKE :prefix " +
+                                        "ORDER BY p.username ASC",
+                                PlayerEntity.class
+                        )
+                        .setParameter("prefix", normalizedPrefix.toLowerCase() + "%")
+                        .setMaxResults(resultLimit)
+                        .list()
+        );
+    }
+
+    /**
+     * Resolves a batch of UUIDs to persistent players, ignoring invalid UUID values.
+     */
+    public List<PlayerEntity> findByUUIDs(Collection<String> uuids) {
+        if (uuids == null || uuids.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> normalizedUuids = new LinkedHashSet<>();
+        for (String uuid : uuids) {
+            String normalizedUuid = normalizeUuid(uuid);
+            if (normalizedUuid != null) {
+                normalizedUuids.add(normalizedUuid);
+            }
+        }
+        if (normalizedUuids.isEmpty()) {
+            return List.of();
+        }
+        return ormContext.runInTransaction(session ->
+                session.createQuery(
+                                "SELECT p FROM PlayerEntity p WHERE p.uuid IN :uuids ORDER BY p.username ASC",
+                                PlayerEntity.class
+                        )
+                        .setParameter("uuids", normalizedUuids)
+                        .list()
+        );
     }
 
     /**
@@ -118,6 +186,27 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
         if (normalizedUuid != null) {
             activePlayers.remove(normalizedUuid);
         }
+    }
+
+    /**
+     * Returns the number of currently cached active players.
+     */
+    public int countActivePlayers() {
+        return activePlayers.size();
+    }
+
+    /**
+     * Clears all active-player cache entries.
+     */
+    public void clearActivePlayers() {
+        activePlayers.clear();
+    }
+
+    /**
+     * Returns an immutable snapshot of the active-player cache keyed by normalized UUID.
+     */
+    public Map<String, PlayerEntity> snapshotActivePlayers() {
+        return Map.copyOf(activePlayers);
     }
 
     private static String normalizeUuid(String uuid) {

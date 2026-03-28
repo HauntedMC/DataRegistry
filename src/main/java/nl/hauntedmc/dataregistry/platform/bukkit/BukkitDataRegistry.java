@@ -107,7 +107,7 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
             localServiceInstanceId = null;
             return;
         }
-        ServiceRegistryService registryService = new ServiceRegistryService(getDataRegistry(), getPlatformLogger(), true);
+        ServiceRegistryService registryService = getDataRegistry().newServiceRegistryService();
         serviceRegistryService = registryService;
         String instanceId = UUID.randomUUID().toString();
         localServiceInstanceId = instanceId;

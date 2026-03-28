@@ -241,7 +241,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
         }
         ensureServiceRegistryHeartbeatExecutor();
         DataRegistry registry = getDataRegistry();
-        ServiceRegistryService registryService = new ServiceRegistryService(registry, getPlatformLogger(), true);
+        ServiceRegistryService registryService = registry.newServiceRegistryService();
         serviceRegistryService = registryService;
 
         String instanceId = java.util.UUID.randomUUID().toString();

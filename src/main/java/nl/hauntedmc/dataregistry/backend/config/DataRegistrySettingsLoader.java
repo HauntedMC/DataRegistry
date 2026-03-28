@@ -33,7 +33,6 @@ public final class DataRegistrySettingsLoader {
 
             database:
               type: MYSQL
-              connection-id: player_data_rw
               profiles:
                 players:
                   connection-id: player_data_rw
@@ -75,7 +74,6 @@ public final class DataRegistrySettingsLoader {
             """;
 
     private static final String DATABASE_TYPE_KEY = "database.type";
-    private static final String DATABASE_CONNECTION_ID_KEY = "database.connection-id";
     private static final String PLAYER_DATABASE_CONNECTION_ID_KEY = "database.profiles.players.connection-id";
     private static final String SERVICE_DATABASE_CONNECTION_ID_KEY = "database.profiles.services.connection-id";
     private static final String ORM_SCHEMA_MODE_KEY = "orm.schema-mode";
@@ -136,28 +134,15 @@ public final class DataRegistrySettingsLoader {
                 logger,
                 DataRegistrySettings.Builder::databaseType
         ));
-        String baseConnectionId = validateWithBuilder(
-                DATABASE_CONNECTION_ID_KEY,
-                parseString(
-                        configRoot,
-                        DATABASE_CONNECTION_ID_KEY,
-                        defaults.databaseConnectionId(),
-                        logger
-                ),
-                defaults.databaseConnectionId(),
-                logger,
-                DataRegistrySettings.Builder::databaseConnectionId
-        );
-        builder.databaseConnectionId(baseConnectionId);
         builder.playerDatabaseConnectionId(validateWithBuilder(
                 PLAYER_DATABASE_CONNECTION_ID_KEY,
                 parseString(
                         configRoot,
                         PLAYER_DATABASE_CONNECTION_ID_KEY,
-                        baseConnectionId,
+                        defaults.playerDatabaseConnectionId(),
                         logger
                 ),
-                baseConnectionId,
+                defaults.playerDatabaseConnectionId(),
                 logger,
                 DataRegistrySettings.Builder::playerDatabaseConnectionId
         ));
@@ -166,10 +151,10 @@ public final class DataRegistrySettingsLoader {
                 parseString(
                         configRoot,
                         SERVICE_DATABASE_CONNECTION_ID_KEY,
-                        baseConnectionId,
+                        defaults.serviceDatabaseConnectionId(),
                         logger
                 ),
-                baseConnectionId,
+                defaults.serviceDatabaseConnectionId(),
                 logger,
                 DataRegistrySettings.Builder::serviceDatabaseConnectionId
         ));

@@ -32,7 +32,6 @@ class DataRegistrySettingsLoaderTest {
         Map<String, Object> config = Map.of(
                 "database", Map.of(
                         "type", "mysql",
-                        "connection-id", "players-main",
                         "profiles", Map.of(
                                 "players", Map.of("connection-id", "players-rw"),
                                 "services", Map.of("connection-id", "services-rw")
@@ -71,7 +70,6 @@ class DataRegistrySettingsLoaderTest {
         DataRegistrySettings settings = loader.parse(config, logger);
 
         assertEquals(DatabaseType.MYSQL, settings.databaseType());
-        assertEquals("players-rw", settings.databaseConnectionId());
         assertEquals("players-rw", settings.playerDatabaseConnectionId());
         assertEquals("services-rw", settings.serviceDatabaseConnectionId());
         assertEquals("update", settings.ormSchemaMode());
@@ -98,7 +96,6 @@ class DataRegistrySettingsLoaderTest {
         Map<String, Object> config = Map.of(
                 "database", Map.of(
                         "type", "mysql",
-                        "connection-id", "invalid id with spaces",
                         "profiles", Map.of(
                                 "services", Map.of("connection-id", "services-rw")
                         )
@@ -126,7 +123,6 @@ class DataRegistrySettingsLoaderTest {
         DataRegistrySettings defaults = DataRegistrySettings.defaults();
 
         assertEquals(DatabaseType.MYSQL, settings.databaseType());
-        assertEquals(defaults.databaseConnectionId(), settings.databaseConnectionId());
         assertEquals("update", settings.ormSchemaMode());
         assertTrue(settings.persistIpAddress());
         assertEquals(defaults.persistVirtualHost(), settings.persistVirtualHost());
@@ -155,8 +151,8 @@ class DataRegistrySettingsLoaderTest {
         Map<String, Object> config = Map.of(
                 "database", Map.of(
                         "type", "not-a-real-db",
-                        "connection-id", 12,
                         "profiles", Map.of(
+                                "players", Map.of("connection-id", 12),
                                 "services", Map.of("connection-id", "bad id")
                         )
                 ),
@@ -183,7 +179,7 @@ class DataRegistrySettingsLoaderTest {
         DataRegistrySettings defaults = DataRegistrySettings.defaults();
 
         assertEquals(defaults.databaseType(), settings.databaseType());
-        assertEquals(defaults.databaseConnectionId(), settings.databaseConnectionId());
+        assertEquals(defaults.playerDatabaseConnectionId(), settings.playerDatabaseConnectionId());
         assertEquals(defaults.ormSchemaMode(), settings.ormSchemaMode());
         assertEquals(defaults.persistIpAddress(), settings.persistIpAddress());
         assertEquals(defaults.persistVirtualHost(), settings.persistVirtualHost());
@@ -206,8 +202,9 @@ class DataRegistrySettingsLoaderTest {
         String fileContent = """
                 database:
                   type: MYSQL
-                  connection-id: players-main
                   profiles:
+                    players:
+                      connection-id: players-main
                     services:
                       connection-id: services-main
                 orm:
@@ -230,7 +227,7 @@ class DataRegistrySettingsLoaderTest {
         Path configFile = temporaryDirectory.resolve("config.yml");
         assertTrue(Files.exists(configFile));
         assertEquals(DatabaseType.MYSQL, settings.databaseType());
-        assertEquals("players-main", settings.databaseConnectionId());
+        assertEquals("players-main", settings.playerDatabaseConnectionId());
         assertEquals("services-main", settings.serviceDatabaseConnectionId());
         assertEquals("update", settings.ormSchemaMode());
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
@@ -251,7 +248,7 @@ class DataRegistrySettingsLoaderTest {
 
         assertNotNull(settings);
         assertTrue(generatedContent.contains("# DataRegistry runtime settings"));
-        assertEquals(DataRegistrySettings.defaults().databaseConnectionId(), settings.databaseConnectionId());
+        assertEquals(DataRegistrySettings.defaults().playerDatabaseConnectionId(), settings.playerDatabaseConnectionId());
     }
 
     @Test
@@ -288,7 +285,7 @@ class DataRegistrySettingsLoaderTest {
 
         DataRegistrySettings settings = loader.load(temporaryDirectory, getClass().getClassLoader(), logger);
 
-        assertEquals(DataRegistrySettings.defaults().databaseConnectionId(), settings.databaseConnectionId());
+        assertEquals(DataRegistrySettings.defaults().playerDatabaseConnectionId(), settings.playerDatabaseConnectionId());
         assertTrue(logger.warnMessages.stream().anyMatch(msg -> msg.contains("Invalid root YAML node")));
     }
 

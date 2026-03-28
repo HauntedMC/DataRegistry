@@ -48,21 +48,19 @@ public final class PlayerNameHistoryService {
         try {
             dataRegistry.getORM().runInTransaction(session -> {
                 PlayerEntity managed = session.merge(playerEntity);
-                Optional<PlayerNameHistoryEntity> latestOptional = session.createQuery(
+                Optional<PlayerNameHistoryEntity> existingOptional = session.createQuery(
                                 "SELECT h FROM PlayerNameHistoryEntity h " +
-                                        "WHERE h.player.id = :playerId ORDER BY h.lastSeenAt DESC",
+                                        "WHERE h.player.id = :playerId AND h.username = :username",
                                 PlayerNameHistoryEntity.class
                         )
                         .setParameter("playerId", managed.getId())
+                        .setParameter("username", normalizedUsername)
                         .setMaxResults(1)
                         .uniqueResultOptional();
 
-                if (latestOptional.isPresent()) {
-                    PlayerNameHistoryEntity latest = latestOptional.get();
-                    if (normalizedUsername.equals(latest.getUsername())) {
-                        latest.setLastSeenAt(now);
-                        return null;
-                    }
+                if (existingOptional.isPresent()) {
+                    existingOptional.get().setLastSeenAt(now);
+                    return null;
                 }
 
                 PlayerNameHistoryEntity history = new PlayerNameHistoryEntity();

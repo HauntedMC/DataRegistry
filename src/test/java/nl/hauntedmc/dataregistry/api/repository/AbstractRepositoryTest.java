@@ -135,6 +135,51 @@ class AbstractRepositoryTest {
         assertSame(expected, result);
     }
 
+    @Test
+    void findAllWithLimitAppliesMinimumOfOne() {
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<TestEntity> query = mock(Query.class);
+        TestRepository repository = new TestRepository(ormContext);
+        List<TestEntity> expected = List.of(new TestEntity(1L));
+
+        executeTransactionsWithSession(ormContext, session);
+        when(session.createQuery("FROM TestEntity", TestEntity.class)).thenReturn(query);
+        when(query.setMaxResults(1)).thenReturn(query);
+        when(query.list()).thenReturn(expected);
+
+        List<TestEntity> result = repository.findAll(0);
+
+        assertSame(expected, result);
+        verify(query).setMaxResults(1);
+    }
+
+    @Test
+    void existsByIdUsesFindByIdPresence() {
+        TestRepository repository = spy(new TestRepository(mock(ORMContext.class)));
+        doReturn(Optional.of(new TestEntity(9L))).when(repository).findById(9L);
+        doReturn(Optional.empty()).when(repository).findById(10L);
+
+        assertEquals(true, repository.existsById(9L));
+        assertEquals(false, repository.existsById(10L));
+    }
+
+    @Test
+    void countReturnsAggregateCountFromQuery() {
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<Long> query = mock(Query.class);
+        TestRepository repository = new TestRepository(ormContext);
+
+        executeTransactionsWithSession(ormContext, session);
+        when(session.createQuery("SELECT COUNT(e) FROM TestEntity e", Long.class)).thenReturn(query);
+        when(query.getSingleResult()).thenReturn(7L);
+
+        assertEquals(7L, repository.count());
+    }
+
     private static class TestRepository extends AbstractRepository<TestEntity, Long> {
         private TestRepository(ORMContext ormContext) {
             super(ormContext, TestEntity.class);

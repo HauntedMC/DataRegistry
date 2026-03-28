@@ -22,7 +22,8 @@ import java.time.Instant;
                 @UniqueConstraint(name = "uk_si_instance_id", columnNames = {"instance_id"})
         },
         indexes = {
-                @Index(name = "idx_si_service_last_seen", columnList = "service_id, last_seen_at")
+                @Index(name = "idx_si_service_last_seen", columnList = "service_id, last_seen_at"),
+                @Index(name = "idx_si_status_last_seen", columnList = "status, last_seen_at")
         }
 )
 public class ServiceInstanceEntity {

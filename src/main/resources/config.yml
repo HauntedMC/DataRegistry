@@ -3,7 +3,6 @@
 
 database:
   type: MYSQL
-  connection-id: player_data_rw
   profiles:
     players:
       connection-id: player_data_rw

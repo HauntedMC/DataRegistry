@@ -57,7 +57,7 @@ Keep persistence decisions (privacy, limits, schema behavior) configurable via `
 On first start, DataRegistry writes a `config.yml` to the plugin data directory.
 
 Key sections:
-- `database` (`type`, `connection-id`, `profiles.players.connection-id`, `profiles.services.connection-id`)
+- `database` (`type`, `profiles.players.connection-id`, `profiles.services.connection-id`)
 - `orm` (`schema-mode`)
 - `privacy` (`persist-ip-address`, `persist-virtual-host`)
 - `features` (`online-status`, `connection-info`, `sessions`, `name-history`, `service-registry`)
@@ -70,7 +70,6 @@ Example:
 ```yaml
 database:
   type: MYSQL
-  connection-id: player_data_rw
   profiles:
     players:
       connection-id: player_data_rw
@@ -109,6 +108,30 @@ Connection routing:
 - `database.profiles.players.connection-id` is used for player tables.
 - `database.profiles.services.connection-id` is used for service registry tables.
 - When both IDs match, DataRegistry reuses a single registered DataProvider connection.
+
+## Service Registry Helper API
+
+Other feature modules can use the built-in helper facade instead of writing custom ORM queries:
+
+- `DataRegistry#newServiceRegistryService()`
+- `listServices(...)`, `findService(...)`
+- `listInstances(...)`, `listRunningInstances()`, `findInstance(...)`
+- `findMostRecentRunningInstance(...)`, `resolveEndpoint(...)`
+- `isInstanceActiveWithin(...)`, `listStaleRunningInstances(...)`
+- `countRunningInstancesByKind()`, `listServiceHealth()`
+
+The helper returns immutable read views for safe cross-feature consumption.
+
+## Repository Helpers
+
+Built-in repositories also expose read helpers so features do not need to duplicate ORM queries:
+
+- `PlayerRepository`: `findByUsername(...)`, `findByUsernamePrefix(...)`, `findByUUIDs(...)`, active-cache snapshot/count helpers.
+- `PlayerSessionRepository`: latest/open/recent lookups, time-window queries, open-session counts.
+- `PlayerNameHistoryRepository`: latest lookup, player+username lookup, recent-by-player, recent-by-username.
+- `NetworkServiceRepository`: kind/name existence checks, service-name lookups, recency filters, kind counts.
+- `ServiceInstanceRepository`: running/by-service lookups, stale/fresh recency filters, status and per-service counters.
+- All repositories (via `AbstractRepository`) now include `findAll(limit)`, `existsById(...)`, and `count()`.
 
 Contributor/maintainer guidance:
 - `CONTRIBUTING.md`
