@@ -23,7 +23,8 @@ import java.time.Instant;
         },
         indexes = {
                 @Index(name = "idx_si_service_last_seen", columnList = "service_id, last_seen_at"),
-                @Index(name = "idx_si_status_last_seen", columnList = "status, last_seen_at")
+                @Index(name = "idx_si_status_last_seen", columnList = "status, last_seen_at"),
+                @Index(name = "idx_si_status_host_port_seen", columnList = "status, host, port, last_seen_at")
         }
 )
 public class ServiceInstanceEntity {

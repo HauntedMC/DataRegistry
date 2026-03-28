@@ -31,6 +31,7 @@ class DataRegistrySettingsTest {
         assertEquals(30, settings.serviceHeartbeatIntervalSeconds());
         assertEquals(15, settings.serviceProbeIntervalSeconds());
         assertEquals(1500, settings.serviceProbeTimeoutMillis());
+        assertEquals(168, settings.serviceProbeRetentionHours());
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
@@ -107,6 +108,8 @@ class DataRegistrySettingsTest {
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbeIntervalSeconds(301).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbeTimeoutMillis(199).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbeTimeoutMillis(10001).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbeRetentionHours(0).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbeRetentionHours(2161).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().bukkitServiceName(" ").build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().velocityServiceName(" ").build());
     }

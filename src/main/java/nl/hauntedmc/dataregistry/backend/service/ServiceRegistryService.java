@@ -440,6 +440,54 @@ public final class ServiceRegistryService {
     }
 
     /**
+     * Finds the most recently seen running instance for a kind + endpoint.
+     */
+    public Optional<ServiceInstanceView> findMostRecentRunningInstanceByEndpoint(
+            ServiceKind serviceKind,
+            String host,
+            Integer port
+    ) {
+        if (!featureEnabled || serviceKind == null) {
+            return Optional.empty();
+        }
+        String normalizedHost = Sanitization.trimToLengthOrNull(host, HOST_MAX_LENGTH);
+        Integer normalizedPort = normalizePort(port);
+        if (normalizedHost == null || normalizedPort == null) {
+            return Optional.empty();
+        }
+        try {
+            return dataRegistry.getServiceInstanceRepository()
+                    .findMostRecentRunningByEndpoint(serviceKind, normalizedHost, normalizedPort)
+                    .map(ServiceRegistryService::toInstanceView);
+        } catch (RuntimeException exception) {
+            logger.error(
+                    "Failed to find running service instance by endpoint '" +
+                            Sanitization.safeForLog(serviceKind.name() + ":" + normalizedHost + ":" + normalizedPort) + "'.",
+                    exception
+            );
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Finds the most recently seen running instance for a kind + endpoint that is fresh within {@code maxAge}.
+     */
+    public Optional<ServiceInstanceView> findMostRecentRunningInstanceByEndpointWithin(
+            ServiceKind serviceKind,
+            String host,
+            Integer port,
+            Duration maxAge
+    ) {
+        Objects.requireNonNull(maxAge, "maxAge must not be null");
+        if (maxAge.isNegative()) {
+            throw new IllegalArgumentException("maxAge must not be negative.");
+        }
+        Instant cutoff = Instant.now().minus(maxAge);
+        return findMostRecentRunningInstanceByEndpoint(serviceKind, host, port)
+                .filter(instance -> instance.lastSeenAt() != null && !instance.lastSeenAt().isBefore(cutoff));
+    }
+
+    /**
      * Resolves the freshest running endpoint for a logical service as {@code host:port}.
      */
     public Optional<String> resolveEndpoint(ServiceKind serviceKind, String serviceName) {
@@ -567,6 +615,35 @@ public final class ServiceRegistryService {
                     exception
             );
             return List.of();
+        }
+    }
+
+    /**
+     * Deletes stale probes older than {@code retentionWindow} in bounded batches.
+     */
+    public int purgeProbesOlderThan(Duration retentionWindow, int batchSize) {
+        Objects.requireNonNull(retentionWindow, "retentionWindow must not be null");
+        if (retentionWindow.isNegative()) {
+            throw new IllegalArgumentException("retentionWindow must not be negative.");
+        }
+        if (!featureEnabled) {
+            return 0;
+        }
+        Instant cutoff = Instant.now().minus(retentionWindow);
+        int boundedBatchSize = Math.max(1, batchSize);
+        int deleted = 0;
+        try {
+            while (true) {
+                int removed = dataRegistry.getServiceProbeRepository().deleteCheckedBefore(cutoff, boundedBatchSize);
+                deleted += removed;
+                if (removed < boundedBatchSize) {
+                    break;
+                }
+            }
+            return deleted;
+        } catch (RuntimeException exception) {
+            logger.error("Failed to purge stale service probes.", exception);
+            return deleted;
         }
     }
 
@@ -858,8 +935,14 @@ public final class ServiceRegistryService {
         if (heartbeatFresh && probeUp) {
             return EffectiveServiceHealthStatus.HEALTHY;
         }
+        if (heartbeatFresh && !probeFresh) {
+            return EffectiveServiceHealthStatus.UNKNOWN;
+        }
         if (!heartbeatFresh && probeFailing) {
             return EffectiveServiceHealthStatus.UNREACHABLE;
+        }
+        if (!heartbeatFresh && probeUp) {
+            return EffectiveServiceHealthStatus.DEGRADED;
         }
         if (!heartbeatFresh && !probeFresh) {
             return EffectiveServiceHealthStatus.UNKNOWN;

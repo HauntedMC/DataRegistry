@@ -131,6 +131,33 @@ public class ServiceProbeRepository extends AbstractRepository<ServiceProbeEntit
         );
     }
 
+    /**
+     * Deletes up to {@code limit} oldest probes older than the given timestamp.
+     */
+    public int deleteCheckedBefore(Instant checkedBefore, int limit) {
+        Objects.requireNonNull(checkedBefore, "checkedBefore must not be null");
+        int boundedLimit = Math.max(1, limit);
+        return ormContext.runInTransaction(session -> {
+            List<Long> ids = session.createQuery(
+                            "SELECT p.id FROM ServiceProbeEntity p " +
+                                    "WHERE p.checkedAt < :checkedBefore " +
+                                    "ORDER BY p.checkedAt ASC, p.id ASC",
+                            Long.class
+                    )
+                    .setParameter("checkedBefore", checkedBefore)
+                    .setMaxResults(boundedLimit)
+                    .list();
+            if (ids.isEmpty()) {
+                return 0;
+            }
+            return session.createMutationQuery(
+                            "DELETE FROM ServiceProbeEntity p WHERE p.id IN :ids"
+                    )
+                    .setParameter("ids", ids)
+                    .executeUpdate();
+        });
+    }
+
     private static String normalizeNonBlank(String value, String fieldName) {
         Objects.requireNonNull(value, fieldName + " must not be null");
         String normalized = value.trim();

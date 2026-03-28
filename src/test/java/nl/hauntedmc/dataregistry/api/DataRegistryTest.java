@@ -8,6 +8,9 @@ import nl.hauntedmc.dataprovider.logging.LogLevel;
 import nl.hauntedmc.dataregistry.api.entities.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerNameHistoryEntity;
+import nl.hauntedmc.dataregistry.api.entities.NetworkServiceEntity;
+import nl.hauntedmc.dataregistry.api.entities.ServiceInstanceEntity;
+import nl.hauntedmc.dataregistry.api.entities.ServiceProbeEntity;
 import nl.hauntedmc.dataregistry.api.repository.NetworkServiceRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerNameHistoryRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
@@ -78,6 +81,10 @@ class DataRegistryTest {
         assertSame(registry.testNetworkServiceRepository(), registry.getNetworkServiceRepository());
         assertSame(registry.testServiceInstanceRepository(), registry.getServiceInstanceRepository());
         assertSame(registry.testServiceProbeRepository(), registry.getServiceProbeRepository());
+        assertEquals(3, registry.lastServiceEntityClasses.length);
+        assertTrue(Arrays.asList(registry.lastServiceEntityClasses).contains(NetworkServiceEntity.class));
+        assertTrue(Arrays.asList(registry.lastServiceEntityClasses).contains(ServiceInstanceEntity.class));
+        assertTrue(Arrays.asList(registry.lastServiceEntityClasses).contains(ServiceProbeEntity.class));
         assertTrue(registry.isInitialized());
     }
 

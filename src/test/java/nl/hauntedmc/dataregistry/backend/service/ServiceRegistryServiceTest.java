@@ -303,17 +303,23 @@ class ServiceRegistryServiceTest {
         when(registry.getServiceProbeRepository()).thenReturn(probeRepository);
         when(serviceRepository.findAllOrdered()).thenReturn(List.of(backendA, backendB, backendC));
         when(instanceRepository.findAllOrdered()).thenReturn(List.of(runningA, runningC));
+        when(instanceRepository.findMostRecentRunningByEndpoint(ServiceKind.BACKEND, "10.0.0.5", 25565))
+                .thenReturn(Optional.of(runningA));
         when(probeRepository.findMostRecentByService(ServiceKind.BACKEND, "backend-a")).thenReturn(Optional.of(probeA));
         when(probeRepository.findMostRecentByService(ServiceKind.BACKEND, "backend-b")).thenReturn(Optional.of(probeB));
         when(probeRepository.findMostRecentByService(ServiceKind.BACKEND, "backend-c")).thenReturn(Optional.empty());
         when(probeRepository.findRecentByService(ServiceKind.BACKEND, "backend-a", 1)).thenReturn(List.of(probeA));
         when(probeRepository.findByObserverInstanceId("observer-1", 1)).thenReturn(List.of(probeA, probeB));
         when(probeRepository.countByStatus(any())).thenReturn(1L);
+        when(probeRepository.deleteCheckedBefore(any(Instant.class), org.mockito.ArgumentMatchers.eq(2)))
+                .thenReturn(2, 1);
 
         assertTrue(service.findMostRecentProbe(ServiceKind.BACKEND, "backend-a").isPresent());
         assertEquals(1, service.listRecentProbes(ServiceKind.BACKEND, "backend-a", 1).size());
         assertEquals(2, service.listRecentProbesByObserver("observer-1", 1).size());
         assertEquals(1L, service.countProbesByStatus().get(ServiceProbeStatus.UP));
+        assertTrue(service.findMostRecentRunningInstanceByEndpoint(ServiceKind.BACKEND, "10.0.0.5", 25565).isPresent());
+        assertEquals(3, service.purgeProbesOlderThan(Duration.ofHours(24), 2));
 
         List<ServiceRegistryService.ServiceEffectiveHealthView> effective =
                 service.listServiceEffectiveHealth(Duration.ofSeconds(10), Duration.ofSeconds(10));
@@ -333,7 +339,7 @@ class ServiceRegistryServiceTest {
         }
         assertEquals(ServiceRegistryService.EffectiveServiceHealthStatus.HEALTHY, statusA);
         assertEquals(ServiceRegistryService.EffectiveServiceHealthStatus.UNREACHABLE, statusB);
-        assertEquals(ServiceRegistryService.EffectiveServiceHealthStatus.DEGRADED, statusC);
+        assertEquals(ServiceRegistryService.EffectiveServiceHealthStatus.UNKNOWN, statusC);
 
         Optional<ServiceRegistryService.ServiceEffectiveHealthView> backendAView = service.findServiceEffectiveHealth(
                 ServiceKind.BACKEND,
@@ -343,6 +349,58 @@ class ServiceRegistryServiceTest {
         );
         assertTrue(backendAView.isPresent());
         assertEquals(ServiceRegistryService.EffectiveServiceHealthStatus.HEALTHY, backendAView.get().effectiveStatus());
+    }
+
+    @Test
+    void findMostRecentRunningInstanceByEndpointWithinHonorsFreshnessWindow() {
+        DataRegistry registry = mock(DataRegistry.class);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        ServiceInstanceRepository instanceRepository = mock(ServiceInstanceRepository.class);
+        ServiceRegistryService service = new ServiceRegistryService(registry, logger, true);
+
+        Instant now = Instant.now();
+        NetworkServiceEntity backend = new NetworkServiceEntity();
+        backend.setServiceKind(ServiceKind.BACKEND);
+        backend.setServiceName("backend-a");
+        backend.setPlatform("PAPER");
+
+        ServiceInstanceEntity running = new ServiceInstanceEntity();
+        running.setService(backend);
+        running.setInstanceId("inst-1");
+        running.setStatus(ServiceInstanceStatus.RUNNING);
+        running.setHost("10.0.0.5");
+        running.setPort(25565);
+        running.setLastSeenAt(now.minusSeconds(5));
+
+        when(registry.getServiceInstanceRepository()).thenReturn(instanceRepository);
+        when(instanceRepository.findMostRecentRunningByEndpoint(ServiceKind.BACKEND, "10.0.0.5", 25565))
+                .thenReturn(Optional.of(running));
+
+        assertTrue(
+                service.findMostRecentRunningInstanceByEndpointWithin(
+                        ServiceKind.BACKEND,
+                        "10.0.0.5",
+                        25565,
+                        Duration.ofSeconds(10)
+                ).isPresent()
+        );
+        assertTrue(
+                service.findMostRecentRunningInstanceByEndpointWithin(
+                        ServiceKind.BACKEND,
+                        "10.0.0.5",
+                        25565,
+                        Duration.ofSeconds(2)
+                ).isEmpty()
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.findMostRecentRunningInstanceByEndpointWithin(
+                        ServiceKind.BACKEND,
+                        "10.0.0.5",
+                        25565,
+                        Duration.ofSeconds(-1)
+                )
+        );
     }
 
     @Test
@@ -537,6 +595,10 @@ class ServiceRegistryServiceTest {
                         Duration.ofSeconds(10),
                         Duration.ofSeconds(-1)
                 )
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.purgeProbesOlderThan(Duration.ofSeconds(-1), 100)
         );
     }
 

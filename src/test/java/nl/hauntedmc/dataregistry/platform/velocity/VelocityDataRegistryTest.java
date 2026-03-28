@@ -94,6 +94,38 @@ class VelocityDataRegistryTest {
     }
 
     @Test
+    void resolveBackendProbeServiceNameUsesConfiguredVelocityNameWhenPresent() throws ReflectiveOperationException {
+        Method method = VelocityDataRegistry.class.getDeclaredMethod(
+                "resolveBackendProbeServiceName",
+                String.class,
+                String.class,
+                Integer.class
+        );
+        method.setAccessible(true);
+
+        String resolved = (String) method.invoke(null, " lobby-01 ", "10.0.0.5", 25565);
+
+        assertEquals("lobby-01", resolved);
+    }
+
+    @Test
+    void resolveBackendProbeServiceNameFallsBackToEndpointWhenNameMissing() throws ReflectiveOperationException {
+        Method method = VelocityDataRegistry.class.getDeclaredMethod(
+                "resolveBackendProbeServiceName",
+                String.class,
+                String.class,
+                Integer.class
+        );
+        method.setAccessible(true);
+
+        String resolved = (String) method.invoke(null, " ", "10.0.0.5", 25565);
+        String unresolved = (String) method.invoke(null, null, null, null);
+
+        assertEquals("paper-10.0.0.5:25565", resolved);
+        assertEquals("paper-unknown-host:unknown-port", unresolved);
+    }
+
+    @Test
     void resolveDataProviderApiReturnsSupplierApi() {
         ProxyServer proxyServer = mock(ProxyServer.class);
         PluginManager pluginManager = mock(PluginManager.class);

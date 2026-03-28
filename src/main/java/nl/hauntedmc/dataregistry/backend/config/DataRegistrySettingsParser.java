@@ -29,6 +29,7 @@ final class DataRegistrySettingsParser {
     private static final String SERVICE_HEARTBEAT_INTERVAL_SECONDS_KEY = "service-registry.heartbeat-interval-seconds";
     private static final String SERVICE_PROBE_INTERVAL_SECONDS_KEY = "service-registry.probe-interval-seconds";
     private static final String SERVICE_PROBE_TIMEOUT_MILLIS_KEY = "service-registry.probe-timeout-millis";
+    private static final String SERVICE_PROBE_RETENTION_HOURS_KEY = "service-registry.probe-retention-hours";
     private static final String BUKKIT_JOIN_DELAY_TICKS_KEY = "platform.bukkit.join-delay-ticks";
     private static final String BUKKIT_SERVICE_NAME_KEY = "platform.bukkit.service-name";
     private static final String VELOCITY_SERVICE_NAME_KEY = "platform.velocity.service-name";
@@ -141,6 +142,18 @@ final class DataRegistrySettingsParser {
                 defaults.serviceProbeTimeoutMillis(),
                 logger,
                 DataRegistrySettings.Builder::serviceProbeTimeoutMillis
+        ));
+        builder.serviceProbeRetentionHours(validateWithBuilder(
+                SERVICE_PROBE_RETENTION_HOURS_KEY,
+                parseInteger(
+                        configRoot,
+                        SERVICE_PROBE_RETENTION_HOURS_KEY,
+                        defaults.serviceProbeRetentionHours(),
+                        logger
+                ),
+                defaults.serviceProbeRetentionHours(),
+                logger,
+                DataRegistrySettings.Builder::serviceProbeRetentionHours
         ));
         builder.bukkitJoinDelayTicks(validateWithBuilder(
                 BUKKIT_JOIN_DELAY_TICKS_KEY,

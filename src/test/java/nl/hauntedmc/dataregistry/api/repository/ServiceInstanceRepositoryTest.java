@@ -36,6 +36,8 @@ class ServiceInstanceRepositoryTest {
         Query<ServiceInstanceEntity> runningByServiceQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
         Query<ServiceInstanceEntity> mostRecentQuery = mock(Query.class);
+        @SuppressWarnings("unchecked")
+        Query<ServiceInstanceEntity> byEndpointQuery = mock(Query.class);
         ServiceInstanceRepository repository = new ServiceInstanceRepository(ormContext);
         ServiceInstanceEntity instance = new ServiceInstanceEntity();
         instance.setInstanceId("inst-1");
@@ -82,6 +84,22 @@ class ServiceInstanceRepositoryTest {
         when(mostRecentQuery.setMaxResults(1)).thenReturn(mostRecentQuery);
         when(mostRecentQuery.uniqueResultOptional()).thenReturn(Optional.of(instance));
 
+        when(session.createQuery(
+                "SELECT i FROM ServiceInstanceEntity i " +
+                        "WHERE i.service.serviceKind = :kind " +
+                        "AND i.status = :status " +
+                        "AND i.host = :host " +
+                        "AND i.port = :port " +
+                        "ORDER BY i.lastSeenAt DESC",
+                ServiceInstanceEntity.class
+        )).thenReturn(byEndpointQuery);
+        when(byEndpointQuery.setParameter("kind", ServiceKind.BACKEND)).thenReturn(byEndpointQuery);
+        when(byEndpointQuery.setParameter("status", ServiceInstanceStatus.RUNNING)).thenReturn(byEndpointQuery);
+        when(byEndpointQuery.setParameter("host", "10.0.0.5")).thenReturn(byEndpointQuery);
+        when(byEndpointQuery.setParameter("port", 25565)).thenReturn(byEndpointQuery);
+        when(byEndpointQuery.setMaxResults(1)).thenReturn(byEndpointQuery);
+        when(byEndpointQuery.uniqueResultOptional()).thenReturn(Optional.of(instance));
+
         assertEquals(Optional.of(instance), repository.findByInstanceId(" inst-1 "));
         assertTrue(repository.existsByInstanceId("inst-1"));
         assertEquals(List.of(instance), repository.findByStatus(ServiceInstanceStatus.RUNNING));
@@ -94,6 +112,10 @@ class ServiceInstanceRepositoryTest {
                         "paper-lobby-1",
                         ServiceInstanceStatus.RUNNING
                 )
+        );
+        assertEquals(
+                Optional.of(instance),
+                repository.findMostRecentRunningByEndpoint(ServiceKind.BACKEND, " 10.0.0.5 ", 25565)
         );
         verify(runningByServiceQuery).setMaxResults(1);
     }
@@ -227,6 +249,26 @@ class ServiceInstanceRepositoryTest {
         assertThrows(
                 NullPointerException.class,
                 () -> repository.findMostRecentByServiceAndStatus(ServiceKind.BACKEND, "paper", null)
+        );
+        assertThrows(
+                NullPointerException.class,
+                () -> repository.findMostRecentRunningByEndpoint(null, "10.0.0.5", 25565)
+        );
+        assertThrows(
+                NullPointerException.class,
+                () -> repository.findMostRecentRunningByEndpoint(ServiceKind.BACKEND, null, 25565)
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> repository.findMostRecentRunningByEndpoint(ServiceKind.BACKEND, " ", 25565)
+        );
+        assertThrows(
+                NullPointerException.class,
+                () -> repository.findMostRecentRunningByEndpoint(ServiceKind.BACKEND, "10.0.0.5", null)
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> repository.findMostRecentRunningByEndpoint(ServiceKind.BACKEND, "10.0.0.5", 65536)
         );
     }
 }

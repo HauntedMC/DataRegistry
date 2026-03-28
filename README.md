@@ -66,8 +66,7 @@ Key sections:
 - `orm` (`schema-mode`)
 - `privacy` (`persist-ip-address`, `persist-virtual-host`)
 - `features` (`online-status`, `connection-info`, `sessions`, `name-history`, `service-registry`)
-- `service-registry` (`heartbeat-interval-seconds`)
-- `service-registry` (`probe-interval-seconds`, `probe-timeout-millis`)
+- `service-registry` (`heartbeat-interval-seconds`, `probe-interval-seconds`, `probe-timeout-millis`, `probe-retention-hours`)
 - `platform.bukkit` (`join-delay-ticks`)
 - `platform.bukkit` / `platform.velocity` (`service-name`)
 - `validation` (`username/server/virtual-host/ip` max lengths)
@@ -97,6 +96,7 @@ service-registry:
   heartbeat-interval-seconds: 30
   probe-interval-seconds: 15
   probe-timeout-millis: 1500
+  probe-retention-hours: 168
 platform:
   bukkit:
     service-name: auto
@@ -114,7 +114,9 @@ Invalid values are rejected and safe defaults are used.
 - `create-drop`: creates schema on startup and drops it on shutdown. Use only for tests/local.
 - `none`: disables ORM schema management entirely. Use when external migrations manage schema.
 
-When upgrading to this version with `validate` or `none`, ensure your schema for `player_name_history` matches the current mapping.
+When upgrading to this version with `validate` or `none`, ensure your schema matches the current mappings, including:
+- `player_name_history` (single-table former-name timeline model)
+- `service_probe` (Velocity backend probe history)
 
 ### Setting Reference
 
@@ -132,6 +134,7 @@ When upgrading to this version with `validate` or `none`, ensure your schema for
 - `service-registry.heartbeat-interval-seconds` (default `30`, range `5..300`): cadence for service instance heartbeat writes.
 - `service-registry.probe-interval-seconds` (default `15`, range `5..300`): Velocity backend-probe cadence.
 - `service-registry.probe-timeout-millis` (default `1500`, range `200..10000`): timeout per backend probe.
+- `service-registry.probe-retention-hours` (default `168`, range `1..2160`): probe history retention; stale rows are pruned during probe passes.
 - `platform.bukkit.join-delay-ticks` (default `4`, range `0..200`): delay after Bukkit join before status snapshot/writes.
 - `platform.bukkit.service-name` (default `auto`): backend logical service identity; set explicitly to match Velocity server name.
 - `platform.velocity.service-name` (default `auto`): proxy logical service identity.
@@ -164,6 +167,11 @@ Connection routing:
 - `database.profiles.services.connection-id` is used for `network_service`, `service_instance`, and `service_probe`.
 - When both IDs match, DataRegistry reuses a single registered DataProvider connection.
 
+Service identity notes:
+- Best practice: set `platform.bukkit.service-name` explicitly to the Velocity server name (`lobby-1`, `survival-2`, ...).
+- With `platform.bukkit.service-name: auto`, DataRegistry falls back to `paper-<host>:<port>` naming and logs a warning.
+- Velocity probe writes auto-correlate to recently seen running backend instances by endpoint (`host:port`) when possible, reducing mismatch risk from stale crash leftovers.
+
 ## Service Registry Helper API
 
 Other feature modules can use the built-in helper facade instead of writing custom ORM queries:
@@ -176,6 +184,7 @@ Other feature modules can use the built-in helper facade instead of writing cust
 - `countRunningInstancesByKind()`, `listServiceHealth()`
 - `recordProbe(...)`, `findMostRecentProbe(...)`, `listRecentProbes(...)`
 - `listRecentProbesByObserver(...)`, `countProbesByStatus()`
+- `findMostRecentRunningInstanceByEndpoint(...)`, `findMostRecentRunningInstanceByEndpointWithin(...)`, `purgeProbesOlderThan(...)`
 - `listServiceEffectiveHealth(...)`, `findServiceEffectiveHealth(...)`
 
 The helper returns immutable read views for safe cross-feature consumption.

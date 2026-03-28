@@ -49,6 +49,7 @@ class DataRegistryConfigSchemaTest {
         assertTrue(rendered.contains("heartbeat-interval-seconds: 30"));
         assertTrue(rendered.contains("probe-interval-seconds: 15"));
         assertTrue(rendered.contains("probe-timeout-millis: 1500"));
+        assertTrue(rendered.contains("probe-retention-hours: 168"));
         assertTrue(rendered.contains("service-name: auto"));
         assertTrue(rendered.contains("max-length: 32"));
         assertTrue(rendered.contains("max-length: 64"));

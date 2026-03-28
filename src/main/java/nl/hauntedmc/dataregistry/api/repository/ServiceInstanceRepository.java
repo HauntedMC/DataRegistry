@@ -218,6 +218,35 @@ public class ServiceInstanceRepository extends AbstractRepository<ServiceInstanc
         );
     }
 
+    /**
+     * Returns the newest running instance for one kind + endpoint.
+     */
+    public Optional<ServiceInstanceEntity> findMostRecentRunningByEndpoint(ServiceKind kind, String host, Integer port) {
+        Objects.requireNonNull(kind, "kind must not be null");
+        String normalizedHost = normalizeNonBlank(host, "host");
+        Objects.requireNonNull(port, "port must not be null");
+        if (port < 0 || port > 65535) {
+            throw new IllegalArgumentException("port must be between 0 and 65535");
+        }
+        return ormContext.runInTransaction(session ->
+                session.createQuery(
+                                "SELECT i FROM ServiceInstanceEntity i " +
+                                        "WHERE i.service.serviceKind = :kind " +
+                                        "AND i.status = :status " +
+                                        "AND i.host = :host " +
+                                        "AND i.port = :port " +
+                                        "ORDER BY i.lastSeenAt DESC",
+                                ServiceInstanceEntity.class
+                        )
+                        .setParameter("kind", kind)
+                        .setParameter("status", ServiceInstanceStatus.RUNNING)
+                        .setParameter("host", normalizedHost)
+                        .setParameter("port", port)
+                        .setMaxResults(1)
+                        .uniqueResultOptional()
+        );
+    }
+
     private static String normalizeNonBlank(String value, String fieldName) {
         Objects.requireNonNull(value, fieldName + " must not be null");
         String normalized = value.trim();

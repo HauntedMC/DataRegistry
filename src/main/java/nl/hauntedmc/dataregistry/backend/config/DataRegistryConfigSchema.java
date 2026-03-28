@@ -52,6 +52,7 @@ final class DataRegistryConfigSchema {
         serviceRegistry.put("heartbeat-interval-seconds", defaults.serviceHeartbeatIntervalSeconds());
         serviceRegistry.put("probe-interval-seconds", defaults.serviceProbeIntervalSeconds());
         serviceRegistry.put("probe-timeout-millis", defaults.serviceProbeTimeoutMillis());
+        serviceRegistry.put("probe-retention-hours", defaults.serviceProbeRetentionHours());
         root.put("service-registry", serviceRegistry);
 
         Map<String, Object> platform = new LinkedHashMap<>();
@@ -135,15 +136,18 @@ final class DataRegistryConfigSchema {
         builder.append("  probe-interval-seconds: ").append(settings.serviceProbeIntervalSeconds()).append('\n');
         builder.append("  # Velocity backend-probe timeout (milliseconds, 200-10000).\n");
         builder.append("  probe-timeout-millis: ").append(settings.serviceProbeTimeoutMillis()).append('\n');
+        builder.append("  # Retention window for probe history cleanup (hours, 1-2160).\n");
+        builder.append("  probe-retention-hours: ").append(settings.serviceProbeRetentionHours()).append('\n');
         builder.append('\n');
         builder.append("platform:\n");
         builder.append("  bukkit:\n");
         builder.append("    # Delay after join event before snapshotting status (ticks, 0-200).\n");
         builder.append("    join-delay-ticks: ").append(settings.bukkitJoinDelayTicks()).append('\n');
-        builder.append("    # Backend logical service name; set to 'auto' to derive from host:port.\n");
+        builder.append("    # Backend logical service name; set equal to the Velocity server name for stable identity.\n");
+        builder.append("    # Set to 'auto' to derive from host:port fallback naming.\n");
         builder.append("    service-name: ").append(settings.bukkitServiceName()).append('\n');
         builder.append("  velocity:\n");
-        builder.append("    # Proxy logical service name; set to 'auto' to derive from host:port.\n");
+        builder.append("    # Proxy logical service name; set to 'auto' to derive from host:port fallback naming.\n");
         builder.append("    service-name: ").append(settings.velocityServiceName()).append('\n');
         builder.append('\n');
         builder.append("validation:\n");

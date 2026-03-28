@@ -35,7 +35,11 @@ import org.slf4j.Logger;
 
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -268,6 +272,10 @@ public class VelocityDataRegistry implements PlatformPlugin {
         int heartbeatIntervalSeconds = settings.serviceHeartbeatIntervalSeconds();
         int probeIntervalSeconds = settings.serviceProbeIntervalSeconds();
         int probeTimeoutMillis = settings.serviceProbeTimeoutMillis();
+        int probeRetentionHours = settings.serviceProbeRetentionHours();
+        Duration endpointCorrelationFreshness = Duration.ofSeconds(
+                Math.max(15L, Math.max(1L, heartbeatIntervalSeconds) * 3L)
+        );
 
         registryService.refreshRunningInstance(
                 ServiceKind.PROXY,
@@ -291,7 +299,13 @@ public class VelocityDataRegistry implements PlatformPlugin {
                 TimeUnit.SECONDS
         );
         serviceRegistryProbeExecutor.scheduleAtFixedRate(
-                () -> runBackendProbePass(registryService, instanceId, probeTimeoutMillis),
+                () -> runBackendProbePass(
+                        registryService,
+                        instanceId,
+                        probeTimeoutMillis,
+                        probeRetentionHours,
+                        endpointCorrelationFreshness
+                ),
                 probeIntervalSeconds,
                 probeIntervalSeconds,
                 TimeUnit.SECONDS
@@ -307,68 +321,159 @@ public class VelocityDataRegistry implements PlatformPlugin {
         return "velocity-" + hostPart + ":" + portPart;
     }
 
-    private void runBackendProbePass(ServiceRegistryService registryService, String observerInstanceId, int timeoutMillis) {
+    private void runBackendProbePass(
+            ServiceRegistryService registryService,
+            String observerInstanceId,
+            int timeoutMillis,
+            int retentionHours,
+            Duration endpointCorrelationFreshness
+    ) {
         try {
             Iterable<RegisteredServer> servers = proxyServer.getAllServers();
             if (servers == null) {
                 logger.warn("Velocity returned null backend server list during probe pass.");
                 return;
             }
+            List<PendingBackendProbe> pendingProbes = new ArrayList<>();
             for (RegisteredServer registeredServer : servers) {
-                probeBackendServer(registryService, observerInstanceId, registeredServer, timeoutMillis);
+                try {
+                    pendingProbes.add(
+                            prepareBackendProbe(
+                                    registryService,
+                                    registeredServer,
+                                    timeoutMillis,
+                                    endpointCorrelationFreshness
+                            )
+                    );
+                } catch (RuntimeException exception) {
+                    String serverLabel = describeServer(registeredServer);
+                    logger.error(
+                            "Failed to prepare backend probe for server '" + serverLabel + "'.",
+                            exception
+                    );
+                }
+            }
+            for (PendingBackendProbe pendingProbe : pendingProbes) {
+                try {
+                    BackendProbeOutcome outcome = pendingProbe.outcomeFuture().join();
+                    registryService.recordProbe(
+                            ServiceKind.BACKEND,
+                            pendingProbe.serviceName(),
+                            pendingProbe.platform(),
+                            observerInstanceId,
+                            outcome.status(),
+                            pendingProbe.host(),
+                            pendingProbe.port(),
+                            pendingProbe.targetInstanceId(),
+                            outcome.latencyMillis(),
+                            outcome.errorCode(),
+                            outcome.errorDetail()
+                    );
+                } catch (RuntimeException exception) {
+                    logger.error(
+                            "Failed to record backend probe for service '" + pendingProbe.serviceName() + "'.",
+                            exception
+                    );
+                }
+            }
+            int deleted = registryService.purgeProbesOlderThan(Duration.ofHours(retentionHours), 500);
+            if (deleted > 0) {
+                logger.info("Purged {} stale service probe rows older than {} hours.", deleted, retentionHours);
             }
         } catch (RuntimeException exception) {
             logger.error("Service registry backend probe pass failed.", exception);
         }
     }
 
-    private static void probeBackendServer(
+    private PendingBackendProbe prepareBackendProbe(
             ServiceRegistryService registryService,
-            String observerInstanceId,
             RegisteredServer registeredServer,
-            int timeoutMillis
+            int timeoutMillis,
+            Duration endpointCorrelationFreshness
     ) {
         ServerInfo serverInfo = registeredServer.getServerInfo();
-        String serviceName = serverInfo == null ? null : serverInfo.getName();
+        String configuredServerName = serverInfo == null ? null : serverInfo.getName();
         InetSocketAddress address = serverInfo == null ? null : serverInfo.getAddress();
         String host = address == null ? null : address.getHostString();
         Integer port = address == null ? null : address.getPort();
-
+        Optional<ServiceRegistryService.ServiceInstanceView> endpointInstance = registryService
+                .findMostRecentRunningInstanceByEndpointWithin(
+                        ServiceKind.BACKEND,
+                        host,
+                        port,
+                        endpointCorrelationFreshness
+                );
+        String serviceName = endpointInstance
+                .map(ServiceRegistryService.ServiceInstanceView::serviceName)
+                .orElseGet(() -> resolveBackendProbeServiceName(configuredServerName, host, port));
+        String targetInstanceId = endpointInstance
+                .map(ServiceRegistryService.ServiceInstanceView::instanceId)
+                .orElse(null);
+        String platform = endpointInstance
+                .map(ServiceRegistryService.ServiceInstanceView::platform)
+                .orElse("PAPER");
         long startedAtNanos = System.nanoTime();
-        ServiceProbeStatus status = ServiceProbeStatus.UP;
-        Long latencyMillis = null;
-        String errorCode = null;
-        String errorDetail = null;
-        try {
-            registeredServer.ping()
-                    .orTimeout(Math.max(1L, timeoutMillis), TimeUnit.MILLISECONDS)
-                    .join();
-            latencyMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos);
-        } catch (RuntimeException probeFailure) {
-            Throwable cause = unwrapProbeFailure(probeFailure);
-            if (cause instanceof TimeoutException) {
-                status = ServiceProbeStatus.TIMEOUT;
-                errorCode = "timeout";
-            } else {
-                status = ServiceProbeStatus.DOWN;
-                errorCode = "probe-failed";
-            }
-            errorDetail = cause == null ? probeFailure.getMessage() : cause.getMessage();
-        }
+        CompletableFuture<BackendProbeOutcome> outcomeFuture = registeredServer.ping()
+                .orTimeout(Math.max(1L, timeoutMillis), TimeUnit.MILLISECONDS)
+                .handle((ignored, probeFailure) -> {
+                    if (probeFailure == null) {
+                        Long latencyMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos);
+                        return new BackendProbeOutcome(ServiceProbeStatus.UP, latencyMillis, null, null);
+                    }
+                    Throwable cause = unwrapProbeFailure(probeFailure);
+                    if (cause instanceof TimeoutException) {
+                        return new BackendProbeOutcome(
+                                ServiceProbeStatus.TIMEOUT,
+                                null,
+                                "timeout",
+                                cause.getMessage()
+                        );
+                    }
+                    String errorDetail = cause == null ? probeFailure.getMessage() : cause.getMessage();
+                    return new BackendProbeOutcome(
+                            ServiceProbeStatus.DOWN,
+                            null,
+                            "probe-failed",
+                            errorDetail
+                    );
+                });
 
-        registryService.recordProbe(
-                ServiceKind.BACKEND,
+        return new PendingBackendProbe(
                 serviceName,
-                "PAPER",
-                observerInstanceId,
-                status,
+                platform,
                 host,
                 port,
-                null,
-                latencyMillis,
-                errorCode,
-                errorDetail
+                targetInstanceId,
+                outcomeFuture
         );
+    }
+
+    private static String resolveBackendProbeServiceName(String configuredServerName, String host, Integer port) {
+        if (configuredServerName != null) {
+            String normalized = configuredServerName.trim();
+            if (!normalized.isEmpty()) {
+                return normalized;
+            }
+        }
+        String hostPart = host == null || host.isBlank() ? "unknown-host" : host;
+        String portPart = port == null ? "unknown-port" : Integer.toString(port);
+        return "paper-" + hostPart + ":" + portPart;
+    }
+
+    private static String describeServer(RegisteredServer registeredServer) {
+        if (registeredServer == null) {
+            return "unknown";
+        }
+        ServerInfo serverInfo = registeredServer.getServerInfo();
+        if (serverInfo == null) {
+            return "unknown";
+        }
+        String name = serverInfo.getName();
+        InetSocketAddress address = serverInfo.getAddress();
+        String host = address == null ? "unknown-host" : address.getHostString();
+        String port = address == null ? "unknown-port" : Integer.toString(address.getPort());
+        String normalizedName = name == null || name.isBlank() ? "unnamed" : name.trim();
+        return normalizedName + " (" + host + ":" + port + ")";
     }
 
     private static Throwable unwrapProbeFailure(Throwable failure) {
@@ -377,6 +482,24 @@ public class VelocityDataRegistry implements PlatformPlugin {
             current = current.getCause();
         }
         return current;
+    }
+
+    private record PendingBackendProbe(
+            String serviceName,
+            String platform,
+            String host,
+            Integer port,
+            String targetInstanceId,
+            CompletableFuture<BackendProbeOutcome> outcomeFuture
+    ) {
+    }
+
+    private record BackendProbeOutcome(
+            ServiceProbeStatus status,
+            Long latencyMillis,
+            String errorCode,
+            String errorDetail
+    ) {
     }
 
     private void stopServiceRegistryLifecycle() {

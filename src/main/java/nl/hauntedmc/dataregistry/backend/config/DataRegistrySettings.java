@@ -19,6 +19,7 @@ public final class DataRegistrySettings {
     private static final int DEFAULT_SERVICE_HEARTBEAT_INTERVAL_SECONDS = 30;
     private static final int DEFAULT_SERVICE_PROBE_INTERVAL_SECONDS = 15;
     private static final int DEFAULT_SERVICE_PROBE_TIMEOUT_MILLIS = 1500;
+    private static final int DEFAULT_SERVICE_PROBE_RETENTION_HOURS = 168;
     private static final String DEFAULT_ORM_SCHEMA_MODE = "validate";
     private static final int DEFAULT_BUKKIT_JOIN_DELAY_TICKS = 4;
     private static final String DEFAULT_BUKKIT_SERVICE_NAME = "auto";
@@ -46,6 +47,7 @@ public final class DataRegistrySettings {
     private final int serviceHeartbeatIntervalSeconds;
     private final int serviceProbeIntervalSeconds;
     private final int serviceProbeTimeoutMillis;
+    private final int serviceProbeRetentionHours;
     private final Set<DataRegistryFeature> enabledFeatures;
 
     private DataRegistrySettings(Builder builder) {
@@ -116,6 +118,12 @@ public final class DataRegistrySettings {
                 "serviceProbeTimeoutMillis",
                 200,
                 10000
+        );
+        this.serviceProbeRetentionHours = validateRange(
+                builder.serviceProbeRetentionHours,
+                "serviceProbeRetentionHours",
+                1,
+                2160
         );
         this.enabledFeatures = Collections.unmodifiableSet(EnumSet.copyOf(builder.enabledFeatures));
     }
@@ -200,6 +208,10 @@ public final class DataRegistrySettings {
         return serviceProbeTimeoutMillis;
     }
 
+    public int serviceProbeRetentionHours() {
+        return serviceProbeRetentionHours;
+    }
+
     public Set<DataRegistryFeature> enabledFeatures() {
         return enabledFeatures;
     }
@@ -279,6 +291,7 @@ public final class DataRegistrySettings {
         private int serviceHeartbeatIntervalSeconds = DEFAULT_SERVICE_HEARTBEAT_INTERVAL_SECONDS;
         private int serviceProbeIntervalSeconds = DEFAULT_SERVICE_PROBE_INTERVAL_SECONDS;
         private int serviceProbeTimeoutMillis = DEFAULT_SERVICE_PROBE_TIMEOUT_MILLIS;
+        private int serviceProbeRetentionHours = DEFAULT_SERVICE_PROBE_RETENTION_HOURS;
         private EnumSet<DataRegistryFeature> enabledFeatures = EnumSet.allOf(DataRegistryFeature.class);
 
         private Builder() {
@@ -362,6 +375,11 @@ public final class DataRegistrySettings {
 
         public Builder serviceProbeTimeoutMillis(int value) {
             this.serviceProbeTimeoutMillis = value;
+            return this;
+        }
+
+        public Builder serviceProbeRetentionHours(int value) {
+            this.serviceProbeRetentionHours = value;
             return this;
         }
 
