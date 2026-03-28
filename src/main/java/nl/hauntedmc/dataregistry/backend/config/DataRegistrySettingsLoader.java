@@ -1,5 +1,6 @@
 package nl.hauntedmc.dataregistry.backend.config;
 
+import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import nl.hauntedmc.dataprovider.database.DatabaseType;
 import org.yaml.snakeyaml.LoaderOptions;
@@ -14,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.EnumSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -32,6 +34,11 @@ public final class DataRegistrySettingsLoader {
             database:
               type: MYSQL
               connection-id: player_data_rw
+              profiles:
+                players:
+                  connection-id: player_data_rw
+                services:
+                  connection-id: player_data_rw
 
             orm:
               schema-mode: validate
@@ -39,6 +46,18 @@ public final class DataRegistrySettingsLoader {
             privacy:
               persist-ip-address: false
               persist-virtual-host: false
+
+            features:
+              # Toggle built-in data domains.
+              # Disabled domains are not registered in ORM and will not receive writes.
+              online-status: true
+              connection-info: true
+              sessions: true
+              name-history: true
+              service-registry: true
+
+            service-registry:
+              heartbeat-interval-seconds: 30
 
             platform:
               bukkit:
@@ -57,9 +76,17 @@ public final class DataRegistrySettingsLoader {
 
     private static final String DATABASE_TYPE_KEY = "database.type";
     private static final String DATABASE_CONNECTION_ID_KEY = "database.connection-id";
+    private static final String PLAYER_DATABASE_CONNECTION_ID_KEY = "database.profiles.players.connection-id";
+    private static final String SERVICE_DATABASE_CONNECTION_ID_KEY = "database.profiles.services.connection-id";
     private static final String ORM_SCHEMA_MODE_KEY = "orm.schema-mode";
     private static final String PRIVACY_PERSIST_IP_KEY = "privacy.persist-ip-address";
     private static final String PRIVACY_PERSIST_VHOST_KEY = "privacy.persist-virtual-host";
+    private static final String FEATURE_ONLINE_STATUS_KEY = "features.online-status";
+    private static final String FEATURE_CONNECTION_INFO_KEY = "features.connection-info";
+    private static final String FEATURE_SESSIONS_KEY = "features.sessions";
+    private static final String FEATURE_NAME_HISTORY_KEY = "features.name-history";
+    private static final String FEATURE_SERVICE_REGISTRY_KEY = "features.service-registry";
+    private static final String SERVICE_HEARTBEAT_INTERVAL_SECONDS_KEY = "service-registry.heartbeat-interval-seconds";
     private static final String BUKKIT_JOIN_DELAY_TICKS_KEY = "platform.bukkit.join-delay-ticks";
     private static final String USERNAME_MAX_LENGTH_KEY = "validation.username.max-length";
     private static final String SERVER_NAME_MAX_LENGTH_KEY = "validation.server.max-length";
@@ -109,7 +136,7 @@ public final class DataRegistrySettingsLoader {
                 logger,
                 DataRegistrySettings.Builder::databaseType
         ));
-        builder.databaseConnectionId(validateWithBuilder(
+        String baseConnectionId = validateWithBuilder(
                 DATABASE_CONNECTION_ID_KEY,
                 parseString(
                         configRoot,
@@ -120,6 +147,31 @@ public final class DataRegistrySettingsLoader {
                 defaults.databaseConnectionId(),
                 logger,
                 DataRegistrySettings.Builder::databaseConnectionId
+        );
+        builder.databaseConnectionId(baseConnectionId);
+        builder.playerDatabaseConnectionId(validateWithBuilder(
+                PLAYER_DATABASE_CONNECTION_ID_KEY,
+                parseString(
+                        configRoot,
+                        PLAYER_DATABASE_CONNECTION_ID_KEY,
+                        baseConnectionId,
+                        logger
+                ),
+                baseConnectionId,
+                logger,
+                DataRegistrySettings.Builder::playerDatabaseConnectionId
+        ));
+        builder.serviceDatabaseConnectionId(validateWithBuilder(
+                SERVICE_DATABASE_CONNECTION_ID_KEY,
+                parseString(
+                        configRoot,
+                        SERVICE_DATABASE_CONNECTION_ID_KEY,
+                        baseConnectionId,
+                        logger
+                ),
+                baseConnectionId,
+                logger,
+                DataRegistrySettings.Builder::serviceDatabaseConnectionId
         ));
         builder.ormSchemaMode(validateWithBuilder(
                 ORM_SCHEMA_MODE_KEY,
@@ -144,6 +196,19 @@ public final class DataRegistrySettingsLoader {
                 PRIVACY_PERSIST_VHOST_KEY,
                 defaults.persistVirtualHost(),
                 logger
+        ));
+        builder.enabledFeatures(parseEnabledFeatures(configRoot, defaults, logger));
+        builder.serviceHeartbeatIntervalSeconds(validateWithBuilder(
+                SERVICE_HEARTBEAT_INTERVAL_SECONDS_KEY,
+                parseInteger(
+                        configRoot,
+                        SERVICE_HEARTBEAT_INTERVAL_SECONDS_KEY,
+                        defaults.serviceHeartbeatIntervalSeconds(),
+                        logger
+                ),
+                defaults.serviceHeartbeatIntervalSeconds(),
+                logger,
+                DataRegistrySettings.Builder::serviceHeartbeatIntervalSeconds
         ));
         builder.bukkitJoinDelayTicks(validateWithBuilder(
                 BUKKIT_JOIN_DELAY_TICKS_KEY,
@@ -304,6 +369,55 @@ public final class DataRegistrySettingsLoader {
         return result;
     }
 
+    private static EnumSet<DataRegistryFeature> parseEnabledFeatures(
+            Map<?, ?> configRoot,
+            DataRegistrySettings defaults,
+            ILoggerAdapter logger
+    ) {
+        EnumSet<DataRegistryFeature> enabledFeatures = EnumSet.noneOf(DataRegistryFeature.class);
+        if (parseBoolean(
+                configRoot,
+                FEATURE_ONLINE_STATUS_KEY,
+                defaults.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS),
+                logger
+        )) {
+            enabledFeatures.add(DataRegistryFeature.ONLINE_STATUS);
+        }
+        if (parseBoolean(
+                configRoot,
+                FEATURE_CONNECTION_INFO_KEY,
+                defaults.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO),
+                logger
+        )) {
+            enabledFeatures.add(DataRegistryFeature.CONNECTION_INFO);
+        }
+        if (parseBoolean(
+                configRoot,
+                FEATURE_SESSIONS_KEY,
+                defaults.isFeatureEnabled(DataRegistryFeature.SESSIONS),
+                logger
+        )) {
+            enabledFeatures.add(DataRegistryFeature.SESSIONS);
+        }
+        if (parseBoolean(
+                configRoot,
+                FEATURE_NAME_HISTORY_KEY,
+                defaults.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY),
+                logger
+        )) {
+            enabledFeatures.add(DataRegistryFeature.NAME_HISTORY);
+        }
+        if (parseBoolean(
+                configRoot,
+                FEATURE_SERVICE_REGISTRY_KEY,
+                defaults.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY),
+                logger
+        )) {
+            enabledFeatures.add(DataRegistryFeature.SERVICE_REGISTRY);
+        }
+        return enabledFeatures;
+    }
+
     private static Object getValue(Map<?, ?> configRoot, String dottedKey) {
         Object current = configRoot;
         String[] segments = dottedKey.split("\\.");
@@ -339,6 +453,8 @@ public final class DataRegistrySettingsLoader {
         LoaderOptions options = new LoaderOptions();
         options.setAllowDuplicateKeys(false);
         options.setMaxAliasesForCollections(20);
+        options.setNestingDepthLimit(50);
+        options.setCodePointLimit(2_000_000);
         return new Yaml(new SafeConstructor(options));
     }
 

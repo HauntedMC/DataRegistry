@@ -7,6 +7,7 @@ import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.proxy.Player;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.backend.service.PlayerConnectionInfoService;
+import nl.hauntedmc.dataregistry.backend.service.PlayerNameHistoryService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerSessionService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerStatusService;
@@ -28,7 +29,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class PlayerStatusListener {
 
+    private static final int MAX_LOG_VALUE_LENGTH = 256;
+
     private final PlayerService playerService;
+    private final PlayerNameHistoryService nameHistoryService;
     private final PlayerStatusService statusService;
     private final PlayerConnectionInfoService connectionService;
     private final PlayerSessionService sessionService;
@@ -38,12 +42,14 @@ public class PlayerStatusListener {
     private final AtomicBoolean acceptingEvents = new AtomicBoolean(true);
 
     public PlayerStatusListener(PlayerService playerService,
+                                PlayerNameHistoryService nameHistoryService,
                                 PlayerStatusService statusService,
                                 PlayerConnectionInfoService connectionService,
                                 PlayerSessionService sessionService,
                                 ILoggerAdapter logger,
                                 Executor eventExecutor) {
         this.playerService = Objects.requireNonNull(playerService, "playerService must not be null");
+        this.nameHistoryService = Objects.requireNonNull(nameHistoryService, "nameHistoryService must not be null");
         this.statusService = Objects.requireNonNull(statusService, "statusService must not be null");
         this.connectionService = Objects.requireNonNull(connectionService, "connectionService must not be null");
         this.sessionService = Objects.requireNonNull(sessionService, "sessionService must not be null");
@@ -61,6 +67,7 @@ public class PlayerStatusListener {
 
         enqueuePlayerEvent(uuid, () -> {
             PlayerEntity persistent = playerService.onPlayerJoin(VelocityPlayerAdapter.fromSnapshot(uuid, username));
+            nameHistoryService.recordSeenUsername(persistent, username);
             connectionService.updateOnLogin(persistent, ip, vhost);
             sessionService.openSessionOnLogin(persistent, ip, vhost);
         });
@@ -167,7 +174,16 @@ public class PlayerStatusListener {
         if (value == null) {
             return "<null>";
         }
-        return value.replace('\n', '_').replace('\r', '_');
+        int outputLimit = Math.min(value.length(), MAX_LOG_VALUE_LENGTH);
+        StringBuilder sanitized = new StringBuilder(outputLimit + 3);
+        for (int i = 0; i < value.length() && sanitized.length() < outputLimit; i++) {
+            char character = value.charAt(i);
+            sanitized.append(Character.isISOControl(character) ? '_' : character);
+        }
+        if (value.length() > outputLimit) {
+            sanitized.append("...");
+        }
+        return sanitized.toString();
     }
 
     private String extractIp(Player player) {

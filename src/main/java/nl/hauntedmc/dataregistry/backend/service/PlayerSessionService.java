@@ -21,6 +21,7 @@ public final class PlayerSessionService {
     private final int ipAddressMaxLength;
     private final int virtualHostMaxLength;
     private final int serverNameMaxLength;
+    private final boolean featureEnabled;
 
     public PlayerSessionService(
             DataRegistry dataRegistry,
@@ -30,6 +31,28 @@ public final class PlayerSessionService {
             int ipAddressMaxLength,
             int virtualHostMaxLength,
             int serverNameMaxLength
+    ) {
+        this(
+                dataRegistry,
+                logger,
+                persistIpAddress,
+                persistVirtualHost,
+                ipAddressMaxLength,
+                virtualHostMaxLength,
+                serverNameMaxLength,
+                true
+        );
+    }
+
+    public PlayerSessionService(
+            DataRegistry dataRegistry,
+            ILoggerAdapter logger,
+            boolean persistIpAddress,
+            boolean persistVirtualHost,
+            int ipAddressMaxLength,
+            int virtualHostMaxLength,
+            int serverNameMaxLength,
+            boolean featureEnabled
     ) {
         this.dataRegistry = Objects.requireNonNull(dataRegistry, "dataRegistry must not be null");
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
@@ -47,12 +70,16 @@ public final class PlayerSessionService {
         this.ipAddressMaxLength = ipAddressMaxLength;
         this.virtualHostMaxLength = virtualHostMaxLength;
         this.serverNameMaxLength = serverNameMaxLength;
+        this.featureEnabled = featureEnabled;
     }
 
     /**
      * Creates a new open session. Any dangling open sessions are closed first.
      */
     public void openSessionOnLogin(PlayerEntity playerEntity, String ipAddress, String virtualHost) {
+        if (!featureEnabled) {
+            return;
+        }
         if (!isPersistedPlayer(playerEntity)) {
             logger.warn("openSessionOnLogin called with an invalid player entity.");
             return;
@@ -98,6 +125,9 @@ public final class PlayerSessionService {
      * Updates open session server information on backend switch.
      */
     public void updateServerOnSwitch(PlayerEntity playerEntity, String serverName) {
+        if (!featureEnabled) {
+            return;
+        }
         if (!isPersistedPlayer(playerEntity)) {
             logger.warn("updateServerOnSwitch called with an invalid player entity.");
             return;
@@ -140,6 +170,9 @@ public final class PlayerSessionService {
      * Closes a currently open session on disconnect.
      */
     public void closeSessionOnDisconnect(PlayerEntity playerEntity) {
+        if (!featureEnabled) {
+            return;
+        }
         if (!isPersistedPlayer(playerEntity)) {
             logger.warn("closeSessionOnDisconnect called with an invalid player entity.");
             return;

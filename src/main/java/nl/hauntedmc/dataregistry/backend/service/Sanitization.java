@@ -5,6 +5,8 @@ package nl.hauntedmc.dataregistry.backend.service;
  */
 final class Sanitization {
 
+    private static final int MAX_LOG_VALUE_LENGTH = 256;
+
     private Sanitization() {
     }
 
@@ -30,6 +32,15 @@ final class Sanitization {
         if (value == null) {
             return "<null>";
         }
-        return value.replace('\n', '_').replace('\r', '_');
+        int outputLimit = Math.min(value.length(), MAX_LOG_VALUE_LENGTH);
+        StringBuilder sanitized = new StringBuilder(outputLimit + 3);
+        for (int i = 0; i < value.length() && sanitized.length() < outputLimit; i++) {
+            char character = value.charAt(i);
+            sanitized.append(Character.isISOControl(character) ? '_' : character);
+        }
+        if (value.length() > outputLimit) {
+            sanitized.append("...");
+        }
+        return sanitized.toString();
     }
 }

@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SanitizationTest {
 
@@ -21,5 +22,10 @@ class SanitizationTest {
         assertEquals("value", Sanitization.emptyIfNull("value"));
         assertEquals("<null>", Sanitization.safeForLog(null));
         assertEquals("line_1_line_2", Sanitization.safeForLog("line\n1\rline\n2"));
+
+        String longValue = "x".repeat(300);
+        String sanitized = Sanitization.safeForLog(longValue);
+        assertTrue(sanitized.endsWith("..."));
+        assertTrue(sanitized.length() <= 259);
     }
 }

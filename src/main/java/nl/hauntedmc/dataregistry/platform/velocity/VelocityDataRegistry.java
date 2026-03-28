@@ -12,10 +12,14 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import nl.hauntedmc.dataprovider.api.DataProviderAPI;
 import nl.hauntedmc.dataprovider.api.DataProviderApiSupplier;
 import nl.hauntedmc.dataregistry.api.DataRegistry;
+import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
+import nl.hauntedmc.dataregistry.api.entities.ServiceKind;
 import nl.hauntedmc.dataregistry.backend.service.PlayerConnectionInfoService;
+import nl.hauntedmc.dataregistry.backend.service.PlayerNameHistoryService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerSessionService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerStatusService;
+import nl.hauntedmc.dataregistry.backend.service.ServiceRegistryService;
 import nl.hauntedmc.dataregistry.backend.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.backend.config.DataRegistrySettingsLoader;
 import nl.hauntedmc.dataregistry.platform.common.PlatformPlugin;
@@ -26,13 +30,16 @@ import nl.hauntedmc.dataregistry.platform.velocity.logger.SLF4JLoggerAdapter;
 import nl.hauntedmc.dataregistry.platform.velocity.util.VelocityPlayerAdapter;
 import org.slf4j.Logger;
 
+import java.net.InetSocketAddress;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Plugin(
         id = "dataregistry",
@@ -47,6 +54,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
     static final int INITIALIZE_EVENT_PRIORITY = 1000;
     static final int SHUTDOWN_EVENT_PRIORITY = -1000;
     static final long EVENT_PIPELINE_DRAIN_TIMEOUT_SECONDS = 5L;
+    static final long SERVICE_REGISTRY_SHUTDOWN_TIMEOUT_SECONDS = 2L;
 
     private final ProxyServer proxyServer;
     private final Logger logger;
@@ -57,7 +65,10 @@ public class VelocityDataRegistry implements PlatformPlugin {
     private SLF4JLoggerAdapter logInstance;
     private DataRegistrySettings settings = DataRegistrySettings.defaults();
     private ExecutorService playerEventExecutor;
+    private ScheduledExecutorService serviceRegistryHeartbeatExecutor;
     private PlayerStatusListener playerStatusListener;
+    private ServiceRegistryService serviceRegistryService;
+    private final AtomicReference<String> localServiceInstanceId = new AtomicReference<>();
 
     @Inject
     public VelocityDataRegistry(ProxyServer proxyServer, Logger logger, @DataDirectory Path dataDirectory) {
@@ -85,20 +96,25 @@ public class VelocityDataRegistry implements PlatformPlugin {
                     getPlatformLogger()
             );
             registerPlayerStatusListener();
+            startServiceRegistryLifecycle();
         } catch (RuntimeException | Error startupFailure) {
             shutdownPlayerEventExecutor();
+            shutdownServiceRegistryHeartbeatExecutor();
             logger.error("DataRegistry startup failed on Velocity.", startupFailure);
             return;
         }
 
         logger.info("DataRegistry enabled successfully on Velocity.");
+        logger.info("Enabled built-in data domains: {}", settings.enabledFeatures());
     }
 
     @Subscribe(priority = SHUTDOWN_EVENT_PRIORITY)
     public void onProxyShutdown(ProxyShutdownEvent event) {
         stopAcceptingAndDrainPlayerEvents();
+        stopServiceRegistryLifecycle();
         runtime.stop(getPlatformLogger());
         shutdownPlayerEventExecutor();
+        shutdownServiceRegistryHeartbeatExecutor();
         logger.info("DataRegistry disabled on Velocity.");
     }
 
@@ -153,10 +169,17 @@ public class VelocityDataRegistry implements PlatformPlugin {
         ensurePlayerEventExecutor();
         DataRegistry registry = getDataRegistry();
         PlayerService playerService = new PlayerService(registry.getPlayerRepository(), getPlatformLogger());
+        PlayerNameHistoryService nameHistoryService = new PlayerNameHistoryService(
+                registry,
+                getPlatformLogger(),
+                settings.usernameMaxLength(),
+                settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY)
+        );
         PlayerStatusService statusService = new PlayerStatusService(
                 registry,
                 getPlatformLogger(),
-                settings.serverNameMaxLength()
+                settings.serverNameMaxLength(),
+                settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)
         );
         PlayerConnectionInfoService connectionService = new PlayerConnectionInfoService(
                 registry,
@@ -164,7 +187,8 @@ public class VelocityDataRegistry implements PlatformPlugin {
                 settings.persistIpAddress(),
                 settings.persistVirtualHost(),
                 settings.ipAddressMaxLength(),
-                settings.virtualHostMaxLength()
+                settings.virtualHostMaxLength(),
+                settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO)
         );
         PlayerSessionService sessionService = new PlayerSessionService(
                 registry,
@@ -173,11 +197,13 @@ public class VelocityDataRegistry implements PlatformPlugin {
                 settings.persistVirtualHost(),
                 settings.ipAddressMaxLength(),
                 settings.virtualHostMaxLength(),
-                settings.serverNameMaxLength()
+                settings.serverNameMaxLength(),
+                settings.isFeatureEnabled(DataRegistryFeature.SESSIONS)
         );
 
         PlayerStatusListener listener = new PlayerStatusListener(
                 playerService,
+                nameHistoryService,
                 statusService,
                 connectionService,
                 sessionService,
@@ -207,6 +233,67 @@ public class VelocityDataRegistry implements PlatformPlugin {
         }
     }
 
+    private void startServiceRegistryLifecycle() {
+        if (!settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY)) {
+            serviceRegistryService = null;
+            localServiceInstanceId.set(null);
+            return;
+        }
+        ensureServiceRegistryHeartbeatExecutor();
+        DataRegistry registry = getDataRegistry();
+        ServiceRegistryService registryService = new ServiceRegistryService(registry, getPlatformLogger(), true);
+        serviceRegistryService = registryService;
+
+        String instanceId = java.util.UUID.randomUUID().toString();
+        localServiceInstanceId.set(instanceId);
+        String version = resolvePluginVersion(proxyServer, this);
+        InetSocketAddress address = proxyServer.getBoundAddress();
+        String host = address == null ? null : address.getHostString();
+        Integer port = address == null ? null : address.getPort();
+        String serviceName = resolveProxyServiceName(host, port);
+        int heartbeatIntervalSeconds = settings.serviceHeartbeatIntervalSeconds();
+
+        registryService.refreshRunningInstance(
+                ServiceKind.PROXY,
+                serviceName,
+                "VELOCITY",
+                instanceId,
+                host,
+                port,
+                version
+        );
+        serviceRegistryHeartbeatExecutor.scheduleAtFixedRate(
+                () -> registryService.refreshRunningInstance(
+                        ServiceKind.PROXY,
+                        serviceName,
+                        "VELOCITY",
+                        instanceId,
+                        host,
+                        port,
+                        version
+                ),
+                heartbeatIntervalSeconds,
+                heartbeatIntervalSeconds,
+                TimeUnit.SECONDS
+        );
+    }
+
+    private static String resolveProxyServiceName(String host, Integer port) {
+        String hostPart = host == null || host.isBlank() ? "unknown-host" : host;
+        String portPart = port == null ? "unknown-port" : Integer.toString(port);
+        return "velocity-" + hostPart + ":" + portPart;
+    }
+
+    private void stopServiceRegistryLifecycle() {
+        ServiceRegistryService registryService = serviceRegistryService;
+        serviceRegistryService = null;
+        String instanceId = localServiceInstanceId.getAndSet(null);
+        if (registryService == null || instanceId == null) {
+            return;
+        }
+        registryService.markStopped(instanceId);
+    }
+
     private void ensurePlayerEventExecutor() {
         if (playerEventExecutor != null && !playerEventExecutor.isShutdown()) {
             return;
@@ -226,6 +313,19 @@ public class VelocityDataRegistry implements PlatformPlugin {
         playerEventExecutor = Executors.newFixedThreadPool(workerCount, threadFactory);
     }
 
+    private void ensureServiceRegistryHeartbeatExecutor() {
+        if (serviceRegistryHeartbeatExecutor != null && !serviceRegistryHeartbeatExecutor.isShutdown()) {
+            return;
+        }
+        ThreadFactory threadFactory = runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("DataRegistry-velocity-service-heartbeat");
+            thread.setDaemon(true);
+            return thread;
+        };
+        serviceRegistryHeartbeatExecutor = Executors.newSingleThreadScheduledExecutor(threadFactory);
+    }
+
     private void shutdownPlayerEventExecutor() {
         ExecutorService executor = playerEventExecutor;
         playerEventExecutor = null;
@@ -235,6 +335,23 @@ public class VelocityDataRegistry implements PlatformPlugin {
         executor.shutdown();
         try {
             if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            executor.shutdownNow();
+        }
+    }
+
+    private void shutdownServiceRegistryHeartbeatExecutor() {
+        ScheduledExecutorService executor = serviceRegistryHeartbeatExecutor;
+        serviceRegistryHeartbeatExecutor = null;
+        if (executor == null) {
+            return;
+        }
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(SERVICE_REGISTRY_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 executor.shutdownNow();
             }
         } catch (InterruptedException interruptedException) {

@@ -9,10 +9,12 @@ import com.velocitypowered.api.proxy.server.ServerInfo;
 import nl.hauntedmc.dataregistry.api.DataRegistry;
 import nl.hauntedmc.dataregistry.api.entities.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerNameHistoryEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerOnlineStatusEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.backend.service.PlayerConnectionInfoService;
+import nl.hauntedmc.dataregistry.backend.service.PlayerNameHistoryService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerSessionService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerStatusService;
@@ -55,6 +57,7 @@ class PlayerStatusListenerTest {
         ORMContext ormContext = mock(ORMContext.class);
         when(registry.getORM()).thenReturn(ormContext);
         PlayerService playerService = new PlayerService(repository, logger);
+        PlayerNameHistoryService nameHistoryService = new PlayerNameHistoryService(registry, logger, 32, true);
         PlayerStatusService statusService = new PlayerStatusService(registry, logger, 64);
         PlayerConnectionInfoService connectionService = new PlayerConnectionInfoService(registry, logger, true, true, 45, 255);
         PlayerSessionService sessionService = new PlayerSessionService(registry, logger, true, true, 45, 255, 64);
@@ -64,6 +67,7 @@ class PlayerStatusListenerTest {
                 NullPointerException.class,
                 () -> new PlayerStatusListener(
                         null,
+                        nameHistoryService,
                         statusService,
                         connectionService,
                         sessionService,
@@ -76,6 +80,7 @@ class PlayerStatusListenerTest {
                 () -> new PlayerStatusListener(
                         playerService,
                         null,
+                        statusService,
                         connectionService,
                         sessionService,
                         logger,
@@ -86,6 +91,19 @@ class PlayerStatusListenerTest {
                 NullPointerException.class,
                 () -> new PlayerStatusListener(
                         playerService,
+                        nameHistoryService,
+                        null,
+                        connectionService,
+                        sessionService,
+                        logger,
+                        directExecutor
+                )
+        );
+        assertThrows(
+                NullPointerException.class,
+                () -> new PlayerStatusListener(
+                        playerService,
+                        nameHistoryService,
                         statusService,
                         null,
                         sessionService,
@@ -97,6 +115,7 @@ class PlayerStatusListenerTest {
                 NullPointerException.class,
                 () -> new PlayerStatusListener(
                         playerService,
+                        nameHistoryService,
                         statusService,
                         connectionService,
                         null,
@@ -108,6 +127,7 @@ class PlayerStatusListenerTest {
                 NullPointerException.class,
                 () -> new PlayerStatusListener(
                         playerService,
+                        nameHistoryService,
                         statusService,
                         connectionService,
                         sessionService,
@@ -119,6 +139,7 @@ class PlayerStatusListenerTest {
                 NullPointerException.class,
                 () -> new PlayerStatusListener(
                         playerService,
+                        nameHistoryService,
                         statusService,
                         connectionService,
                         sessionService,
@@ -146,7 +167,7 @@ class PlayerStatusListenerTest {
         context.listener.onPlayerJoin(new PostLoginEvent(player));
 
         verify(context.repository).getOrCreateActivePlayer(uuid, "Alice");
-        verify(context.ormContext, times(2)).runInTransaction(any());
+        verify(context.ormContext, times(3)).runInTransaction(any());
     }
 
     @Test
@@ -296,6 +317,8 @@ class PlayerStatusListenerTest {
         MutationQuery mutationQuery = mock(MutationQuery.class);
         @SuppressWarnings("unchecked")
         Query<PlayerSessionEntity> sessionQuery = mock(Query.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerNameHistoryEntity> nameHistoryQuery = mock(Query.class);
 
         when(registry.getORM()).thenReturn(ormContext);
         executeTransactionsWithSession(ormContext, session);
@@ -311,8 +334,13 @@ class PlayerStatusListenerTest {
         when(sessionQuery.setParameter(anyString(), any())).thenReturn(sessionQuery);
         when(sessionQuery.setMaxResults(anyInt())).thenReturn(sessionQuery);
         when(sessionQuery.uniqueResultOptional()).thenReturn(Optional.empty());
+        when(session.createQuery(anyString(), eq(PlayerNameHistoryEntity.class))).thenReturn(nameHistoryQuery);
+        when(nameHistoryQuery.setParameter(anyString(), any())).thenReturn(nameHistoryQuery);
+        when(nameHistoryQuery.setMaxResults(anyInt())).thenReturn(nameHistoryQuery);
+        when(nameHistoryQuery.uniqueResultOptional()).thenReturn(Optional.empty());
 
         PlayerService playerService = new PlayerService(repository, logger);
+        PlayerNameHistoryService nameHistoryService = new PlayerNameHistoryService(registry, logger, 32, true);
         PlayerStatusService statusService = new PlayerStatusService(registry, logger, 64);
         PlayerConnectionInfoService connectionService = new PlayerConnectionInfoService(
                 registry,
@@ -334,6 +362,7 @@ class PlayerStatusListenerTest {
 
         PlayerStatusListener listener = new PlayerStatusListener(
                 playerService,
+                nameHistoryService,
                 statusService,
                 connectionService,
                 sessionService,

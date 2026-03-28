@@ -151,6 +151,20 @@ class PlayerStatusServiceTest {
         verify(session, never()).persist(org.mockito.ArgumentMatchers.any());
     }
 
+    @Test
+    void disabledFeatureSkipsStatusTransactions() {
+        DataRegistry registry = mock(DataRegistry.class);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        PlayerStatusService service = new PlayerStatusService(registry, logger, 64, false);
+        PlayerEntity player = persistedPlayer();
+
+        service.updateStatus(player, "lobby");
+        service.updateStatusOnQuit(player);
+
+        verify(registry, never()).getORM();
+        verify(logger, never()).warn(org.mockito.ArgumentMatchers.anyString());
+    }
+
     private static PlayerEntity persistedPlayer() {
         PlayerEntity player = new PlayerEntity();
         player.setId(1L);

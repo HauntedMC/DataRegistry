@@ -4,6 +4,11 @@
 database:
   type: MYSQL
   connection-id: player_data_rw
+  profiles:
+    players:
+      connection-id: player_data_rw
+    services:
+      connection-id: player_data_rw
 
 orm:
   schema-mode: validate
@@ -11,6 +16,18 @@ orm:
 privacy:
   persist-ip-address: false
   persist-virtual-host: false
+
+features:
+  # Toggle built-in data domains.
+  # Disabled domains are not registered in ORM and will not receive writes.
+  online-status: true
+  connection-info: true
+  sessions: true
+  name-history: true
+  service-registry: true
+
+service-registry:
+  heartbeat-interval-seconds: 30
 
 platform:
   bukkit:

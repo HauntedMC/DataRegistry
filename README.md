@@ -7,6 +7,8 @@ It keeps player identity, online status, connection metadata, and session lifecy
 
 - Single backend core with thin platform boot layers.
 - Privacy-first defaults (`ip`/`virtual-host` persistence is disabled by default).
+- Feature-gated built-in domains (`online-status`, `connection-info`, `sessions`, `name-history`, `service-registry`).
+- Domain-level database profile split (`database.profiles.players` and `database.profiles.services`).
 - Configurable limits and database wiring through `config.yml`.
 - Transaction-safe session/status updates with defensive validation.
 
@@ -55,9 +57,11 @@ Keep persistence decisions (privacy, limits, schema behavior) configurable via `
 On first start, DataRegistry writes a `config.yml` to the plugin data directory.
 
 Key sections:
-- `database` (`type`, `connection-id`)
+- `database` (`type`, `connection-id`, `profiles.players.connection-id`, `profiles.services.connection-id`)
 - `orm` (`schema-mode`)
 - `privacy` (`persist-ip-address`, `persist-virtual-host`)
+- `features` (`online-status`, `connection-info`, `sessions`, `name-history`, `service-registry`)
+- `service-registry` (`heartbeat-interval-seconds`)
 - `platform.bukkit` (`join-delay-ticks`)
 - `validation` (`username/server/virtual-host/ip` max lengths)
 
@@ -67,14 +71,47 @@ Example:
 database:
   type: MYSQL
   connection-id: player_data_rw
+  profiles:
+    players:
+      connection-id: player_data_rw
+    services:
+      connection-id: player_data_rw
 orm:
   schema-mode: validate
 privacy:
   persist-ip-address: false
   persist-virtual-host: false
+features:
+  online-status: true
+  connection-info: true
+  sessions: true
+  name-history: true
+  service-registry: true
+service-registry:
+  heartbeat-interval-seconds: 30
 ```
 
 Invalid values are rejected and safe defaults are used.
+
+## Feature Toggles
+
+Built-in domains can be enabled/disabled without code changes:
+
+- `features.online-status`: controls `player_online_status` writes.
+- `features.connection-info`: controls `player_connection_info` writes.
+- `features.sessions`: controls `player_sessions` writes.
+- `features.name-history`: controls `player_name_history` writes.
+- `features.service-registry`: controls `network_service` / `service_instance` writes and heartbeat updates.
+
+`player_entity` is always enabled because all other domains depend on identity records.
+
+Connection routing:
+- `database.profiles.players.connection-id` is used for player tables.
+- `database.profiles.services.connection-id` is used for service registry tables.
+- When both IDs match, DataRegistry reuses a single registered DataProvider connection.
+
+Contributor/maintainer guidance:
+- `CONTRIBUTING.md`
 
 ## Testing
 

@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -181,7 +182,31 @@ class PlayerSessionServiceTest {
         when(registry.getORM()).thenReturn(ormContext);
         service.updateServerOnSwitch(persistedPlayer(), "   ");
 
-        verify(ormContext, org.mockito.Mockito.never()).runInTransaction(any());
+        verify(ormContext, never()).runInTransaction(any());
+    }
+
+    @Test
+    void disabledFeatureSkipsSessionTransactions() {
+        DataRegistry registry = mock(DataRegistry.class);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        PlayerSessionService service = new PlayerSessionService(
+                registry,
+                logger,
+                true,
+                true,
+                45,
+                255,
+                64,
+                false
+        );
+        PlayerEntity player = persistedPlayer();
+
+        service.openSessionOnLogin(player, "127.0.0.1", "mc.example.org");
+        service.updateServerOnSwitch(player, "lobby-1");
+        service.closeSessionOnDisconnect(player);
+
+        verify(registry, never()).getORM();
+        verify(logger, never()).warn(any());
     }
 
     private static PlayerEntity persistedPlayer() {

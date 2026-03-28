@@ -1,7 +1,10 @@
 package nl.hauntedmc.dataregistry.backend.config;
 
+import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataprovider.database.DatabaseType;
 
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
@@ -12,6 +15,7 @@ import java.util.Set;
 public final class DataRegistrySettings {
 
     private static final String DEFAULT_CONNECTION_ID = "player_data_rw";
+    private static final int DEFAULT_SERVICE_HEARTBEAT_INTERVAL_SECONDS = 30;
     private static final String DEFAULT_ORM_SCHEMA_MODE = "validate";
     private static final int DEFAULT_BUKKIT_JOIN_DELAY_TICKS = 4;
     private static final int DEFAULT_USERNAME_MAX_LENGTH = 32;
@@ -22,7 +26,8 @@ public final class DataRegistrySettings {
             Set.of("validate", "update", "create", "create-drop", "none");
 
     private final DatabaseType databaseType;
-    private final String databaseConnectionId;
+    private final String playerDatabaseConnectionId;
+    private final String serviceDatabaseConnectionId;
     private final String ormSchemaMode;
     private final boolean persistIpAddress;
     private final boolean persistVirtualHost;
@@ -31,10 +36,13 @@ public final class DataRegistrySettings {
     private final int serverNameMaxLength;
     private final int virtualHostMaxLength;
     private final int ipAddressMaxLength;
+    private final int serviceHeartbeatIntervalSeconds;
+    private final Set<DataRegistryFeature> enabledFeatures;
 
     private DataRegistrySettings(Builder builder) {
         this.databaseType = Objects.requireNonNull(builder.databaseType, "databaseType must not be null");
-        this.databaseConnectionId = normalizeConnectionId(builder.databaseConnectionId);
+        this.playerDatabaseConnectionId = normalizeConnectionId(builder.playerDatabaseConnectionId);
+        this.serviceDatabaseConnectionId = normalizeConnectionId(builder.serviceDatabaseConnectionId);
         this.ormSchemaMode = normalizeSchemaMode(builder.ormSchemaMode);
         this.persistIpAddress = builder.persistIpAddress;
         this.persistVirtualHost = builder.persistVirtualHost;
@@ -68,6 +76,13 @@ public final class DataRegistrySettings {
                 7,
                 45
         );
+        this.serviceHeartbeatIntervalSeconds = validateRange(
+                builder.serviceHeartbeatIntervalSeconds,
+                "serviceHeartbeatIntervalSeconds",
+                5,
+                300
+        );
+        this.enabledFeatures = Collections.unmodifiableSet(EnumSet.copyOf(builder.enabledFeatures));
     }
 
     public static Builder builder() {
@@ -83,7 +98,15 @@ public final class DataRegistrySettings {
     }
 
     public String databaseConnectionId() {
-        return databaseConnectionId;
+        return playerDatabaseConnectionId;
+    }
+
+    public String playerDatabaseConnectionId() {
+        return playerDatabaseConnectionId;
+    }
+
+    public String serviceDatabaseConnectionId() {
+        return serviceDatabaseConnectionId;
     }
 
     public String ormSchemaMode() {
@@ -116,6 +139,18 @@ public final class DataRegistrySettings {
 
     public int ipAddressMaxLength() {
         return ipAddressMaxLength;
+    }
+
+    public int serviceHeartbeatIntervalSeconds() {
+        return serviceHeartbeatIntervalSeconds;
+    }
+
+    public Set<DataRegistryFeature> enabledFeatures() {
+        return enabledFeatures;
+    }
+
+    public boolean isFeatureEnabled(DataRegistryFeature feature) {
+        return enabledFeatures.contains(Objects.requireNonNull(feature, "feature must not be null"));
     }
 
     private static int validateRange(int value, String fieldName, int minInclusive, int maxInclusive) {
@@ -158,7 +193,8 @@ public final class DataRegistrySettings {
 
     public static final class Builder {
         private DatabaseType databaseType = DatabaseType.MYSQL;
-        private String databaseConnectionId = DEFAULT_CONNECTION_ID;
+        private String playerDatabaseConnectionId = DEFAULT_CONNECTION_ID;
+        private String serviceDatabaseConnectionId = DEFAULT_CONNECTION_ID;
         private String ormSchemaMode = DEFAULT_ORM_SCHEMA_MODE;
         private boolean persistIpAddress;
         private boolean persistVirtualHost;
@@ -167,6 +203,8 @@ public final class DataRegistrySettings {
         private int serverNameMaxLength = DEFAULT_SERVER_NAME_MAX_LENGTH;
         private int virtualHostMaxLength = DEFAULT_VIRTUAL_HOST_MAX_LENGTH;
         private int ipAddressMaxLength = DEFAULT_IP_ADDRESS_MAX_LENGTH;
+        private int serviceHeartbeatIntervalSeconds = DEFAULT_SERVICE_HEARTBEAT_INTERVAL_SECONDS;
+        private EnumSet<DataRegistryFeature> enabledFeatures = EnumSet.allOf(DataRegistryFeature.class);
 
         private Builder() {
         }
@@ -177,7 +215,20 @@ public final class DataRegistrySettings {
         }
 
         public Builder databaseConnectionId(String value) {
-            this.databaseConnectionId = Objects.requireNonNull(value, "databaseConnectionId must not be null");
+            String normalized = Objects.requireNonNull(value, "databaseConnectionId must not be null");
+            this.playerDatabaseConnectionId = normalized;
+            this.serviceDatabaseConnectionId = normalized;
+            return this;
+        }
+
+        public Builder playerDatabaseConnectionId(String value) {
+            this.playerDatabaseConnectionId = Objects.requireNonNull(value, "playerDatabaseConnectionId must not be null");
+            return this;
+        }
+
+        public Builder serviceDatabaseConnectionId(String value) {
+            this.serviceDatabaseConnectionId =
+                    Objects.requireNonNull(value, "serviceDatabaseConnectionId must not be null");
             return this;
         }
 
@@ -218,6 +269,29 @@ public final class DataRegistrySettings {
 
         public Builder ipAddressMaxLength(int value) {
             this.ipAddressMaxLength = value;
+            return this;
+        }
+
+        public Builder serviceHeartbeatIntervalSeconds(int value) {
+            this.serviceHeartbeatIntervalSeconds = value;
+            return this;
+        }
+
+        public Builder enabledFeatures(Set<DataRegistryFeature> values) {
+            Objects.requireNonNull(values, "enabledFeatures must not be null");
+            this.enabledFeatures = values.isEmpty()
+                    ? EnumSet.noneOf(DataRegistryFeature.class)
+                    : EnumSet.copyOf(values);
+            return this;
+        }
+
+        public Builder enableFeature(DataRegistryFeature feature) {
+            this.enabledFeatures.add(Objects.requireNonNull(feature, "feature must not be null"));
+            return this;
+        }
+
+        public Builder disableFeature(DataRegistryFeature feature) {
+            this.enabledFeatures.remove(Objects.requireNonNull(feature, "feature must not be null"));
             return this;
         }
 

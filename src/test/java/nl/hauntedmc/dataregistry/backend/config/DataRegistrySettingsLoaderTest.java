@@ -1,5 +1,6 @@
 package nl.hauntedmc.dataregistry.backend.config;
 
+import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataprovider.database.DatabaseType;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import org.junit.jupiter.api.Test;
@@ -31,7 +32,11 @@ class DataRegistrySettingsLoaderTest {
         Map<String, Object> config = Map.of(
                 "database", Map.of(
                         "type", "mysql",
-                        "connection-id", "players-main"
+                        "connection-id", "players-main",
+                        "profiles", Map.of(
+                                "players", Map.of("connection-id", "players-rw"),
+                                "services", Map.of("connection-id", "services-rw")
+                        )
                 ),
                 "orm", Map.of(
                         "schema-mode", "update"
@@ -39,6 +44,16 @@ class DataRegistrySettingsLoaderTest {
                 "privacy", Map.of(
                         "persist-ip-address", true,
                         "persist-virtual-host", true
+                ),
+                "features", Map.of(
+                        "online-status", true,
+                        "connection-info", false,
+                        "sessions", true,
+                        "name-history", true,
+                        "service-registry", true
+                ),
+                "service-registry", Map.of(
+                        "heartbeat-interval-seconds", 45
                 ),
                 "platform", Map.of(
                         "bukkit", Map.of(
@@ -56,10 +71,18 @@ class DataRegistrySettingsLoaderTest {
         DataRegistrySettings settings = loader.parse(config, logger);
 
         assertEquals(DatabaseType.MYSQL, settings.databaseType());
-        assertEquals("players-main", settings.databaseConnectionId());
+        assertEquals("players-rw", settings.databaseConnectionId());
+        assertEquals("players-rw", settings.playerDatabaseConnectionId());
+        assertEquals("services-rw", settings.serviceDatabaseConnectionId());
         assertEquals("update", settings.ormSchemaMode());
         assertTrue(settings.persistIpAddress());
         assertTrue(settings.persistVirtualHost());
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS));
+        assertFalse(settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO));
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY));
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
+        assertEquals(45, settings.serviceHeartbeatIntervalSeconds());
         assertEquals(12, settings.bukkitJoinDelayTicks());
         assertEquals(24, settings.usernameMaxLength());
         assertEquals(48, settings.serverNameMaxLength());
@@ -75,13 +98,23 @@ class DataRegistrySettingsLoaderTest {
         Map<String, Object> config = Map.of(
                 "database", Map.of(
                         "type", "mysql",
-                        "connection-id", "invalid id with spaces"
+                        "connection-id", "invalid id with spaces",
+                        "profiles", Map.of(
+                                "services", Map.of("connection-id", "services-rw")
+                        )
                 ),
                 "orm", Map.of(
                         "schema-mode", "update"
                 ),
                 "privacy", Map.of(
                         "persist-ip-address", true
+                ),
+                "features", Map.of(
+                        "sessions", false,
+                        "service-registry", true
+                ),
+                "service-registry", Map.of(
+                        "heartbeat-interval-seconds", 500
                 ),
                 "validation", Map.of(
                         "username", Map.of("max-length", 999),
@@ -97,6 +130,15 @@ class DataRegistrySettingsLoaderTest {
         assertEquals("update", settings.ormSchemaMode());
         assertTrue(settings.persistIpAddress());
         assertEquals(defaults.persistVirtualHost(), settings.persistVirtualHost());
+        assertFalse(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
+        assertEquals(
+                defaults.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS),
+                settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)
+        );
+        assertEquals(defaults.serviceHeartbeatIntervalSeconds(), settings.serviceHeartbeatIntervalSeconds());
+        assertEquals(defaults.playerDatabaseConnectionId(), settings.playerDatabaseConnectionId());
+        assertEquals("services-rw", settings.serviceDatabaseConnectionId());
         assertEquals(defaults.bukkitJoinDelayTicks(), settings.bukkitJoinDelayTicks());
         assertEquals(defaults.usernameMaxLength(), settings.usernameMaxLength());
         assertEquals(48, settings.serverNameMaxLength());
@@ -113,12 +155,22 @@ class DataRegistrySettingsLoaderTest {
         Map<String, Object> config = Map.of(
                 "database", Map.of(
                         "type", "not-a-real-db",
-                        "connection-id", 12
+                        "connection-id", 12,
+                        "profiles", Map.of(
+                                "services", Map.of("connection-id", "bad id")
+                        )
                 ),
                 "orm", Map.of("schema-mode", ""),
                 "privacy", Map.of(
                         "persist-ip-address", "yes",
                         "persist-virtual-host", "no"
+                ),
+                "features", Map.of(
+                        "online-status", "on",
+                        "service-registry", "on"
+                ),
+                "service-registry", Map.of(
+                        "heartbeat-interval-seconds", "x"
                 ),
                 "platform", Map.of(
                         "bukkit", Map.of(
@@ -135,6 +187,16 @@ class DataRegistrySettingsLoaderTest {
         assertEquals(defaults.ormSchemaMode(), settings.ormSchemaMode());
         assertEquals(defaults.persistIpAddress(), settings.persistIpAddress());
         assertEquals(defaults.persistVirtualHost(), settings.persistVirtualHost());
+        assertEquals(
+                defaults.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS),
+                settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)
+        );
+        assertEquals(
+                defaults.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY),
+                settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY)
+        );
+        assertEquals(defaults.serviceHeartbeatIntervalSeconds(), settings.serviceHeartbeatIntervalSeconds());
+        assertEquals(defaults.serviceDatabaseConnectionId(), settings.serviceDatabaseConnectionId());
         assertEquals(defaults.bukkitJoinDelayTicks(), settings.bukkitJoinDelayTicks());
         assertTrue(logger.warnMessages.size() >= 4);
     }
@@ -145,8 +207,15 @@ class DataRegistrySettingsLoaderTest {
                 database:
                   type: MYSQL
                   connection-id: players-main
+                  profiles:
+                    services:
+                      connection-id: services-main
                 orm:
                   schema-mode: update
+                features:
+                  sessions: false
+                service-registry:
+                  heartbeat-interval-seconds: 40
                 validation:
                   username:
                     max-length: 24
@@ -162,7 +231,10 @@ class DataRegistrySettingsLoaderTest {
         assertTrue(Files.exists(configFile));
         assertEquals(DatabaseType.MYSQL, settings.databaseType());
         assertEquals("players-main", settings.databaseConnectionId());
+        assertEquals("services-main", settings.serviceDatabaseConnectionId());
         assertEquals("update", settings.ormSchemaMode());
+        assertFalse(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
+        assertEquals(40, settings.serviceHeartbeatIntervalSeconds());
         assertEquals(24, settings.usernameMaxLength());
         assertTrue(logger.infoMessages.stream().anyMatch(msg -> msg.contains("Generated default DataRegistry config")));
     }
@@ -192,8 +264,18 @@ class DataRegistrySettingsLoaderTest {
 
         assertFalse(settings.persistIpAddress());
         assertFalse(settings.persistVirtualHost());
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS));
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO));
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY));
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
         assertTrue(generatedContent.contains("persist-ip-address: false"));
         assertTrue(generatedContent.contains("persist-virtual-host: false"));
+        assertTrue(generatedContent.contains("online-status: true"));
+        assertTrue(generatedContent.contains("connection-info: true"));
+        assertTrue(generatedContent.contains("sessions: true"));
+        assertTrue(generatedContent.contains("name-history: true"));
+        assertTrue(generatedContent.contains("service-registry: true"));
     }
 
     @Test

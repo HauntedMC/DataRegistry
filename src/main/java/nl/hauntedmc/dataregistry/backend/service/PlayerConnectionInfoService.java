@@ -19,6 +19,7 @@ public final class PlayerConnectionInfoService {
     private final boolean persistVirtualHost;
     private final int ipAddressMaxLength;
     private final int virtualHostMaxLength;
+    private final boolean featureEnabled;
 
     public PlayerConnectionInfoService(
             DataRegistry dataRegistry,
@@ -27,6 +28,26 @@ public final class PlayerConnectionInfoService {
             boolean persistVirtualHost,
             int ipAddressMaxLength,
             int virtualHostMaxLength
+    ) {
+        this(
+                dataRegistry,
+                logger,
+                persistIpAddress,
+                persistVirtualHost,
+                ipAddressMaxLength,
+                virtualHostMaxLength,
+                true
+        );
+    }
+
+    public PlayerConnectionInfoService(
+            DataRegistry dataRegistry,
+            ILoggerAdapter logger,
+            boolean persistIpAddress,
+            boolean persistVirtualHost,
+            int ipAddressMaxLength,
+            int virtualHostMaxLength,
+            boolean featureEnabled
     ) {
         this.dataRegistry = Objects.requireNonNull(dataRegistry, "dataRegistry must not be null");
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
@@ -40,12 +61,16 @@ public final class PlayerConnectionInfoService {
         }
         this.ipAddressMaxLength = ipAddressMaxLength;
         this.virtualHostMaxLength = virtualHostMaxLength;
+        this.featureEnabled = featureEnabled;
     }
 
     /**
      * Updates or creates connection info on player login.
      */
     public void updateOnLogin(PlayerEntity playerEntity, String ipAddress, String virtualHost) {
+        if (!featureEnabled) {
+            return;
+        }
         if (!isPersistedPlayer(playerEntity)) {
             logger.warn("updateOnLogin called with an invalid player entity.");
             return;
@@ -92,6 +117,9 @@ public final class PlayerConnectionInfoService {
      * Updates or creates disconnect timestamp for a player.
      */
     public void updateOnDisconnect(PlayerEntity playerEntity) {
+        if (!featureEnabled) {
+            return;
+        }
         if (!isPersistedPlayer(playerEntity)) {
             logger.warn("updateOnDisconnect called with an invalid player entity.");
             return;

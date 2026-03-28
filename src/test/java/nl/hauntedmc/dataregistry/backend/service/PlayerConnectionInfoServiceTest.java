@@ -18,6 +18,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -151,6 +152,28 @@ class PlayerConnectionInfoServiceTest {
         service.updateOnDisconnect(player);
 
         verify(logger, times(2)).error(contains("uuid_value"), any(RuntimeException.class));
+    }
+
+    @Test
+    void disabledFeatureSkipsConnectionInfoTransactions() {
+        DataRegistry registry = mock(DataRegistry.class);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        PlayerConnectionInfoService service = new PlayerConnectionInfoService(
+                registry,
+                logger,
+                true,
+                true,
+                45,
+                255,
+                false
+        );
+        PlayerEntity player = persistedPlayer();
+
+        service.updateOnLogin(player, "127.0.0.1", "mc.example.org");
+        service.updateOnDisconnect(player);
+
+        verify(registry, never()).getORM();
+        verify(logger, never()).warn(any());
     }
 
     private static PlayerEntity persistedPlayer() {
