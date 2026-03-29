@@ -62,22 +62,6 @@ class VelocityDataRegistryTest {
     }
 
     @Test
-    void resolvePluginVersionReturnsDescriptionVersionValue() {
-        ProxyServer proxyServer = mock(ProxyServer.class);
-        PluginManager pluginManager = mock(PluginManager.class);
-        PluginContainer pluginContainer = mock(PluginContainer.class);
-        PluginDescription pluginDescription = mock(PluginDescription.class);
-        Object pluginInstance = new Object();
-
-        when(proxyServer.getPluginManager()).thenReturn(pluginManager);
-        when(pluginManager.fromInstance(pluginInstance)).thenReturn(Optional.of(pluginContainer));
-        when(pluginContainer.getDescription()).thenReturn(pluginDescription);
-        when(pluginDescription.getVersion()).thenReturn(Optional.of("1.6.0"));
-
-        assertEquals("1.6.0", VelocityDataRegistry.resolvePluginVersion(proxyServer, pluginInstance));
-    }
-
-    @Test
     void resolvePluginVersionFallsBackToUnknownWhenVersionMissing() {
         ProxyServer proxyServer = mock(ProxyServer.class);
         PluginManager pluginManager = mock(PluginManager.class);

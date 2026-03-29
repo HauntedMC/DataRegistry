@@ -57,7 +57,7 @@ body:
     id: dataregistry_version
     attributes:
       label: DataRegistry Version
-      placeholder: 1.6.0
+      placeholder: 1.x.x
     validations:
       required: true
   - type: input

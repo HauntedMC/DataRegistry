@@ -188,6 +188,11 @@
 
     <repositories>
         <repository>
+            <id>github</id>
+            <name>GitHub Packages - DataProvider</name>
+            <url>https://maven.pkg.github.com/HauntedMC/DataProvider</url>
+        </repository>
+        <repository>
             <id>papermc</id>
             <url>https://repo.papermc.io/repository/maven-public/</url>
         </repository>

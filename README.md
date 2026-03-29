@@ -74,7 +74,7 @@ Repository:
 
 - `https://maven.pkg.github.com/HauntedMC/DataRegistry`
 
-Maven:****
+Maven:
 
 ```xml
 <repository>
@@ -87,7 +87,7 @@ Maven:****
 <dependency>
   <groupId>nl.hauntedmc.dataregistry</groupId>
   <artifactId>dataregistry</artifactId>
-  <version>VERSION_HERE</version>
+  <version>1.7.0</version>
   <scope>provided</scope>
 </dependency>
 ```
