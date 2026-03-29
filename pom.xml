@@ -27,7 +27,7 @@
         <checkstyle.version>10.21.3</checkstyle.version>
         <paper.version>1.21.11-R0.1-SNAPSHOT</paper.version>
         <velocity.version>3.5.0-SNAPSHOT</velocity.version>
-        <mockito.version>5.14.2</mockito.version>
+        <mockito.version>5.23.0</mockito.version>
         <mockito.agent.path>
             ${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar
         </mockito.agent.path>
