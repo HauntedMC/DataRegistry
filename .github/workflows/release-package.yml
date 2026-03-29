@@ -43,7 +43,6 @@ jobs:
           server-id: github
           server-username: PACKAGES_USER
           server-password: PACKAGES_TOKEN
-          settings-path: ${{ github.workspace }}
 
       - name: Verify build
         run: mvn -U -B -ntp verify
@@ -58,7 +57,7 @@ jobs:
           path: target/${{ env.TARGET_NAME }}.jar
 
       - name: Publish to GitHub Packages (Maven)
-        run: mvn -U -B -ntp -DskipTests deploy -s "$GITHUB_WORKSPACE/settings.xml"
+        run: mvn -U -B -ntp -DskipTests deploy
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
