@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+gi#!/usr/bin/env bash
 set -euo pipefail
 
 # Read the current version from pom.xml

@@ -1,10 +1,10 @@
 # DataRegistry
 
+[![CI Tests and Coverage](https://github.com/HauntedMC/DataRegistry/actions/workflows/ci-tests-and-coverage.yml/badge.svg?branch=main)](https://github.com/HauntedMC/DataRegistry/actions/workflows/ci-tests-and-coverage.yml)
+[![CI Lint](https://github.com/HauntedMC/DataRegistry/actions/workflows/ci-lint.yml/badge.svg?branch=main)](https://github.com/HauntedMC/DataRegistry/actions/workflows/ci-lint.yml)
 [![Release](https://img.shields.io/github/v/release/HauntedMC/DataRegistry)](https://github.com/HauntedMC/DataRegistry/releases)
 [![License](https://img.shields.io/github/license/HauntedMC/DataRegistry)](LICENSE)
 [![Java 21](https://img.shields.io/badge/Java-21-007396)](https://adoptium.net/)
-[![Velocity](https://img.shields.io/badge/Velocity-3.5.0--SNAPSHOT-1f6feb)](https://papermc.io/software/velocity)
-[![Paper](https://img.shields.io/badge/Paper-1.21.11--R0.1--SNAPSHOT-3c873a)](https://papermc.io/)
 
 Shared player and service-state storage for HauntedMC across Velocity and Paper.
 
@@ -60,9 +60,9 @@ The config is intentionally small. Most deployments only need to review:
 - `platform.bukkit.service-name`
 - `platform.velocity.service-name`
 
-Defaults and inline comments live in [src/main/resources/config.yml](src/main/resources/config.yml).
+Defaults and inline comments live in [src/main/resources/config.yml](src/main/resources/config.yml). Missing supported keys are restored on load and stale keys are removed.
 
-## Add It to Your Plugin Project
+## Dependency Information
 
 Coordinates:
 
@@ -74,7 +74,7 @@ Repository:
 
 - `https://maven.pkg.github.com/HauntedMC/DataRegistry`
 
-Maven:
+Maven:****
 
 ```xml
 <repository>
@@ -132,9 +132,12 @@ Build output:
 
 - `target/DataRegistry.jar`
 
-## Contributing
+## Project Info
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+- [Contributing](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security](SECURITY.md)
+- [Support](SUPPORT.md)
 
 ## License
 
