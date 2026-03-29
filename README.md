@@ -87,7 +87,7 @@ Maven:
 <dependency>
   <groupId>nl.hauntedmc.dataregistry</groupId>
   <artifactId>dataregistry</artifactId>
-  <version>1.7.0</version>
+  <version>VERSION_HERE</version>
   <scope>provided</scope>
 </dependency>
 ```
