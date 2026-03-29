@@ -123,6 +123,24 @@ Primary entry points:
 
 ## Build
 
+`mvn verify` expects `nl.hauntedmc.dataprovider:dataprovider:2.0.0` to be available locally or via authenticated GitHub Packages access.
+
+For authenticated GitHub Packages access, add a Maven server entry for repository id `github` in `~/.m2/settings.xml`:
+
+```xml
+<settings>
+  <servers>
+    <server>
+      <id>github</id>
+      <username>YOUR_GITHUB_USERNAME</username>
+      <password>YOUR_TOKEN</password>
+    </server>
+  </servers>
+</settings>
+```
+
+Use a token with `read:packages` (and `repo` if the package source repository is private), then run:
+
 ```bash
 mvn test
 mvn verify
