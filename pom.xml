@@ -31,7 +31,7 @@
         <mockito.agent.path>
             ${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar
         </mockito.agent.path>
-        <snakeyaml.version>2.4</snakeyaml.version>
+        <snakeyaml.version>2.6</snakeyaml.version>
         <jacoco.version>0.8.12</jacoco.version>
     </properties>
 
