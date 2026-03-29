@@ -64,7 +64,7 @@ jobs:
         run: echo "TARGET_NAME=$(mvn -q -DforceStdout help:evaluate -Dexpression=project.build.finalName)" >> "$GITHUB_ENV"
 
       - name: Upload distributable
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist
           path: target/${{ env.TARGET_NAME }}.jar
