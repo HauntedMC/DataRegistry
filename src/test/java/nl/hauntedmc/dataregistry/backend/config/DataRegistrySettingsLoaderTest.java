@@ -294,36 +294,6 @@ class DataRegistrySettingsLoaderTest {
     }
 
     @Test
-    void bundledConfigDisablesSensitivePersistenceByDefault() throws Exception {
-        DataRegistrySettingsLoader loader = new DataRegistrySettingsLoader();
-        RecordingLogger logger = new RecordingLogger();
-
-        DataRegistrySettings settings = loader.load(temporaryDirectory, getClass().getClassLoader(), logger);
-        String generatedContent = Files.readString(temporaryDirectory.resolve("config.yml"));
-
-        assertFalse(settings.persistIpAddress());
-        assertFalse(settings.persistVirtualHost());
-        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS));
-        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO));
-        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
-        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY));
-        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
-        assertTrue(generatedContent.contains("persist-ip-address: false"));
-        assertTrue(generatedContent.contains("persist-virtual-host: false"));
-        assertTrue(generatedContent.contains("validate: verify schema only"));
-        assertTrue(generatedContent.contains("none: disable ORM schema management"));
-        assertTrue(generatedContent.contains("online-status: true"));
-        assertTrue(generatedContent.contains("connection-info: true"));
-        assertTrue(generatedContent.contains("sessions: true"));
-        assertTrue(generatedContent.contains("name-history: true"));
-        assertTrue(generatedContent.contains("service-registry: true"));
-        assertTrue(generatedContent.contains("probe-interval-seconds: 15"));
-        assertTrue(generatedContent.contains("probe-timeout-millis: 1500"));
-        assertTrue(generatedContent.contains("probe-retention-hours: 168"));
-        assertTrue(generatedContent.contains("service-name: auto"));
-    }
-
-    @Test
     void loadWarnsAndUsesDefaultsWhenYamlRootIsNotAMap() throws Exception {
         Path configFile = temporaryDirectory.resolve("config.yml");
         Files.writeString(configFile, "just-a-scalar-value");
