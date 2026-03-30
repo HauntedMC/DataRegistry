@@ -15,6 +15,7 @@ import nl.hauntedmc.dataregistry.platform.common.PlatformPlugin;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import nl.hauntedmc.dataregistry.platform.internal.lifecycle.PlatformDataRegistryRuntime;
 import org.bukkit.plugin.Plugin;
+import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -74,6 +75,13 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
     }
 
     DataProviderAPI resolveDataProviderApi() {
+        RegisteredServiceProvider<DataProviderAPI> registration = getServer()
+                .getServicesManager()
+                .getRegistration(DataProviderAPI.class);
+        if (registration != null) {
+            return registration.getProvider();
+        }
+
         Plugin dataProviderPlugin = getServer().getPluginManager().getPlugin("DataProvider");
         if (!(dataProviderPlugin instanceof DataProviderApiSupplier supplier)) {
             return null;
