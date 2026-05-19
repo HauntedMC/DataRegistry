@@ -82,14 +82,14 @@ body:
     id: platform_version
     attributes:
       label: Platform Version
-      placeholder: "Velocity 3.x / Paper 1.21.x"
+      placeholder: "Velocity 3.x / Paper 26.1.x"
     validations:
       required: true
   - type: input
     id: java_version
     attributes:
       label: Java Version
-      placeholder: "21"
+      placeholder: "25"
     validations:
       required: true
   - type: dropdown

@@ -4,7 +4,7 @@
 [![CI Lint](https://github.com/HauntedMC/DataRegistry/actions/workflows/ci-lint.yml/badge.svg?branch=main)](https://github.com/HauntedMC/DataRegistry/actions/workflows/ci-lint.yml)
 [![Release](https://img.shields.io/github/v/release/HauntedMC/DataRegistry)](https://github.com/HauntedMC/DataRegistry/releases)
 [![License](https://img.shields.io/github/license/HauntedMC/DataRegistry)](LICENSE)
-[![Java 21](https://img.shields.io/badge/Java-21-007396)](https://adoptium.net/)
+[![Java 25](https://img.shields.io/badge/Java-25-007396)](https://adoptium.net/)
 
 Shared player and service-state storage for HauntedMC across Velocity and Paper.
 
@@ -29,10 +29,10 @@ Running only Bukkit/Paper without Velocity is not a supported deployment mode.
 
 ## Requirements
 
-- Java 21
+- Java 25
 - Maven 3.8.6+
 - DataProvider `2.0.0`
-- Velocity `3.5.0-SNAPSHOT` and/or Paper `1.21.11-R0.1-SNAPSHOT`
+- Velocity `3.5.0-SNAPSHOT` and/or Paper `26.1.2+` (resolved via `paper-api` range)
 
 ## Install
 

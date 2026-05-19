@@ -22,17 +22,17 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <java.version>21</java.version>
+        <java.version>25</java.version>
         <maven.compiler.release>${java.version}</maven.compiler.release>
         <checkstyle.version>13.4.2</checkstyle.version>
-        <paper.version>1.21.11-R0.1-SNAPSHOT</paper.version>
+        <paper.version>[26.1.2.build,)</paper.version>
         <velocity.version>3.5.0-SNAPSHOT</velocity.version>
         <mockito.version>5.14.2</mockito.version>
         <mockito.agent.path>
             ${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar
         </mockito.agent.path>
         <snakeyaml.version>2.4</snakeyaml.version>
-        <jacoco.version>0.8.12</jacoco.version>
+        <jacoco.version>0.8.14</jacoco.version>
     </properties>
 
     <distributionManagement>
@@ -49,10 +49,12 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.14.0</version>
+                <version>3.15.0</version>
                 <configuration>
                     <release>${maven.compiler.release}</release>
                     <parameters>true</parameters>
+                    <useIncrementalCompilation>false</useIncrementalCompilation>
+                    <forceLegacyJavacApi>true</forceLegacyJavacApi>
                 </configuration>
             </plugin>
 
@@ -70,7 +72,7 @@
                         <configuration>
                             <rules>
                                 <requireJavaVersion>
-                                    <version>[21,)</version>
+                                    <version>[25,)</version>
                                 </requireJavaVersion>
                                 <requireMavenVersion>
                                     <version>[3.8.6,)</version>
@@ -209,7 +211,7 @@
         <dependency>
             <groupId>nl.hauntedmc.dataprovider</groupId>
             <artifactId>dataprovider</artifactId>
-            <version>2.0.0</version>
+            <version>2.1.0</version>
             <scope>provided</scope>
         </dependency>
 
