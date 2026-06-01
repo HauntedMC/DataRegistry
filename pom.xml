@@ -24,7 +24,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <java.version>25</java.version>
         <maven.compiler.release>${java.version}</maven.compiler.release>
-        <checkstyle.version>13.4.2</checkstyle.version>
+        <checkstyle.version>13.5.0</checkstyle.version>
         <paper.version>[26.1.2.build,)</paper.version>
         <velocity.version>3.5.0-SNAPSHOT</velocity.version>
         <mockito.version>5.14.2</mockito.version>
