@@ -12,6 +12,7 @@ import nl.hauntedmc.dataprovider.api.DataProviderAPI;
 import nl.hauntedmc.dataprovider.api.DataProviderApiSupplier;
 import nl.hauntedmc.dataregistry.api.DataRegistry;
 import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
+import nl.hauntedmc.dataregistry.api.repository.ServiceProbeRepository;
 import nl.hauntedmc.dataregistry.backend.service.ServiceRegistryService;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import nl.hauntedmc.dataregistry.platform.velocity.listener.PlayerStatusListener;
@@ -31,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
@@ -277,8 +279,12 @@ class VelocityDataRegistryTest {
                 mock(Logger.class),
                 TEST_DATA_DIRECTORY
         );
-        ServiceRegistryService registryService = mock(ServiceRegistryService.class);
-        when(registryService.purgeProbesOlderThan(Duration.ofHours(72), 500)).thenReturn(9);
+        DataRegistry registry = mock(DataRegistry.class);
+        ILoggerAdapter platformLogger = mock(ILoggerAdapter.class);
+        ServiceProbeRepository probeRepository = mock(ServiceProbeRepository.class);
+        when(registry.getServiceProbeRepository()).thenReturn(probeRepository);
+        when(probeRepository.deleteCheckedBefore(any(), anyInt())).thenReturn(500, 0);
+        ServiceRegistryService registryService = new ServiceRegistryService(registry, platformLogger, true);
 
         Method purgeMethod = VelocityDataRegistry.class.getDeclaredMethod(
                 "purgeStaleProbesIfDue",
@@ -291,7 +297,7 @@ class VelocityDataRegistryTest {
         purgeMethod.invoke(plugin, registryService, 72, 12);
         purgeMethod.invoke(plugin, registryService, 72, 12);
 
-        verify(registryService, times(1)).purgeProbesOlderThan(eq(Duration.ofHours(72)), eq(500));
+        verify(probeRepository, times(2)).deleteCheckedBefore(any(), eq(500));
     }
 
     private static final class TestVelocityDataRegistry extends VelocityDataRegistry {

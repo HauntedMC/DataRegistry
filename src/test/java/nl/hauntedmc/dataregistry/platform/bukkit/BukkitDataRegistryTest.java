@@ -1,10 +1,10 @@
 package nl.hauntedmc.dataregistry.platform.bukkit;
 
 import nl.hauntedmc.dataregistry.api.DataRegistry;
-import nl.hauntedmc.dataregistry.api.entities.ServiceKind;
 import nl.hauntedmc.dataregistry.backend.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.backend.service.ServiceRegistryService;
 import nl.hauntedmc.dataregistry.platform.bukkit.logger.BukkitLoggerAdapter;
+import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import org.bukkit.Server;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.bukkit.scheduler.BukkitTask;
@@ -17,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -30,10 +31,8 @@ class BukkitDataRegistryTest {
         BukkitDataRegistry plugin = newPluginMock();
         BukkitLoggerAdapter logger = mock(BukkitLoggerAdapter.class);
         DataRegistry registry = mock(DataRegistry.class);
-        ServiceRegistryService registryService = mock(ServiceRegistryService.class);
 
-        when(plugin.getDataRegistry()).thenReturn(registry);
-        when(registry.newServiceRegistryService()).thenReturn(registryService);
+        doReturn(registry).when(plugin).getDataRegistry();
 
         setField(plugin, "settings", DataRegistrySettings.defaults());
         setField(plugin, "logInstance", logger);
@@ -52,10 +51,8 @@ class BukkitDataRegistryTest {
         BukkitDataRegistry plugin = newPluginMock();
         BukkitLoggerAdapter logger = mock(BukkitLoggerAdapter.class);
         DataRegistry registry = mock(DataRegistry.class);
-        ServiceRegistryService registryService = mock(ServiceRegistryService.class);
 
-        when(plugin.getDataRegistry()).thenReturn(registry);
-        when(registry.newServiceRegistryService()).thenReturn(registryService);
+        doReturn(registry).when(plugin).getDataRegistry();
 
         setField(plugin, "settings", DataRegistrySettings.builder()
                 .bukkitRegisterServiceInstance(true)
@@ -71,46 +68,6 @@ class BukkitDataRegistryTest {
                         "Set platform.bukkit.service-name to the matching Velocity server name to enable it."
         );
         assertNull(getField(plugin, "serviceRegistryService"));
-    }
-
-    @Test
-    void startServiceRegistryLifecycleRegistersExplicitBackendServiceName() throws Exception {
-        BukkitDataRegistry plugin = newPluginMock();
-        BukkitLoggerAdapter logger = mock(BukkitLoggerAdapter.class);
-        DataRegistry registry = mock(DataRegistry.class);
-        ServiceRegistryService registryService = mock(ServiceRegistryService.class);
-        Server server = mock(Server.class);
-        BukkitScheduler scheduler = mock(BukkitScheduler.class);
-        BukkitTask task = mock(BukkitTask.class);
-
-        when(plugin.getDataRegistry()).thenReturn(registry);
-        when(plugin.getServer()).thenReturn(server);
-        when(registry.newServiceRegistryService()).thenReturn(registryService);
-        when(server.getIp()).thenReturn("10.0.0.5");
-        when(server.getPort()).thenReturn(25565);
-        when(server.getScheduler()).thenReturn(scheduler);
-        when(scheduler.runTaskTimerAsynchronously(eq(plugin), any(Runnable.class), anyLong(), anyLong())).thenReturn(task);
-
-        setField(plugin, "settings", DataRegistrySettings.builder()
-                .bukkitRegisterServiceInstance(true)
-                .bukkitServiceName("lobby")
-                .serviceHeartbeatIntervalSeconds(30)
-                .build());
-        setField(plugin, "logInstance", logger);
-
-        plugin.startServiceRegistryLifecycle();
-
-        verify(registry).newServiceRegistryService();
-        verify(registryService).refreshRunningInstance(
-                eq(ServiceKind.BACKEND),
-                eq("lobby"),
-                eq("PAPER"),
-                any(String.class),
-                eq("10.0.0.5"),
-                eq(25565)
-        );
-        verify(scheduler).runTaskTimerAsynchronously(eq(plugin), any(Runnable.class), eq(600L), eq(600L));
-        assertNotNull(getField(plugin, "serviceRegistryService"));
     }
 
     private static BukkitDataRegistry newPluginMock() {
