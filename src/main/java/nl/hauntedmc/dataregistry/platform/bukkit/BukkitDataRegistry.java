@@ -115,19 +115,31 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
             localServiceInstanceId = null;
             return;
         }
+        if (!settings.bukkitRegisterServiceInstance()) {
+            serviceRegistryService = null;
+            localServiceInstanceId = null;
+            logInstance.info(
+                    "Skipping Paper backend service self-registration; Velocity owns backend service identity by default."
+            );
+            return;
+        }
+        if (settings.isBukkitServiceNameAuto()) {
+            serviceRegistryService = null;
+            localServiceInstanceId = null;
+            logInstance.warn(
+                    "platform.bukkit.register-service-instance is enabled but platform.bukkit.service-name is 'auto'. " +
+                            "Skipping backend self-registration to avoid duplicate paper-* service identities. " +
+                            "Set platform.bukkit.service-name to the matching Velocity server name to enable it."
+            );
+            return;
+        }
         ServiceRegistryService registryService = getDataRegistry().newServiceRegistryService();
         serviceRegistryService = registryService;
         String instanceId = UUID.randomUUID().toString();
         localServiceInstanceId = instanceId;
         String host = normalizeHost(getServer().getIp());
         Integer port = normalizePort(getServer().getPort());
-        String serviceName = resolveBackendServiceName(settings.bukkitServiceName(), host, port);
-        if (settings.isBukkitServiceNameAuto()) {
-            logInstance.warn(
-                    "platform.bukkit.service-name is set to 'auto'; using host:port fallback '" + serviceName +
-                            "'. Set platform.bukkit.service-name to match Velocity server name for stable identity."
-            );
-        }
+        String serviceName = settings.bukkitServiceName().trim();
 
         registryService.refreshRunningInstance(
                 ServiceKind.BACKEND,
@@ -152,15 +164,6 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
                 intervalTicks,
                 intervalTicks
         );
-    }
-
-    private static String resolveBackendServiceName(String configuredServiceName, String host, Integer port) {
-        if (configuredServiceName != null && !"auto".equalsIgnoreCase(configuredServiceName.trim())) {
-            return configuredServiceName.trim();
-        }
-        String hostPart = host == null ? "unknown-host" : host;
-        String portPart = port == null ? "unknown-port" : Integer.toString(port);
-        return "paper-" + hostPart + ":" + portPart;
     }
 
     private static String normalizeHost(String host) {

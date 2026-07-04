@@ -23,6 +23,7 @@ public final class DataRegistrySettings {
     private static final int DEFAULT_SERVICE_PROBE_PURGE_INTERVAL_HOURS = 12;
     private static final String DEFAULT_ORM_SCHEMA_MODE = "validate";
     private static final int DEFAULT_BUKKIT_JOIN_DELAY_TICKS = 4;
+    private static final boolean DEFAULT_BUKKIT_REGISTER_SERVICE_INSTANCE = false;
     private static final String DEFAULT_BUKKIT_SERVICE_NAME = "auto";
     private static final String DEFAULT_VELOCITY_SERVICE_NAME = "auto";
     private static final int DEFAULT_USERNAME_MAX_LENGTH = 32;
@@ -39,6 +40,7 @@ public final class DataRegistrySettings {
     private final boolean persistIpAddress;
     private final boolean persistVirtualHost;
     private final int bukkitJoinDelayTicks;
+    private final boolean bukkitRegisterServiceInstance;
     private final String bukkitServiceName;
     private final String velocityServiceName;
     private final int usernameMaxLength;
@@ -71,6 +73,7 @@ public final class DataRegistrySettings {
                 0,
                 200
         );
+        this.bukkitRegisterServiceInstance = builder.bukkitRegisterServiceInstance;
         this.bukkitServiceName = normalizeServiceName(
                 builder.bukkitServiceName,
                 "bukkitServiceName"
@@ -170,6 +173,10 @@ public final class DataRegistrySettings {
 
     public int bukkitJoinDelayTicks() {
         return bukkitJoinDelayTicks;
+    }
+
+    public boolean bukkitRegisterServiceInstance() {
+        return bukkitRegisterServiceInstance;
     }
 
     public String bukkitServiceName() {
@@ -294,6 +301,7 @@ public final class DataRegistrySettings {
         private boolean persistIpAddress;
         private boolean persistVirtualHost;
         private int bukkitJoinDelayTicks = DEFAULT_BUKKIT_JOIN_DELAY_TICKS;
+        private boolean bukkitRegisterServiceInstance = DEFAULT_BUKKIT_REGISTER_SERVICE_INSTANCE;
         private String bukkitServiceName = DEFAULT_BUKKIT_SERVICE_NAME;
         private String velocityServiceName = DEFAULT_VELOCITY_SERVICE_NAME;
         private int usernameMaxLength = DEFAULT_USERNAME_MAX_LENGTH;
@@ -343,6 +351,11 @@ public final class DataRegistrySettings {
 
         public Builder bukkitJoinDelayTicks(int value) {
             this.bukkitJoinDelayTicks = value;
+            return this;
+        }
+
+        public Builder bukkitRegisterServiceInstance(boolean value) {
+            this.bukkitRegisterServiceInstance = value;
             return this;
         }
 

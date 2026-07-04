@@ -32,6 +32,7 @@ final class DataRegistrySettingsParser {
     private static final String SERVICE_PROBE_RETENTION_HOURS_KEY = "service-registry.probe-retention-hours";
     private static final String SERVICE_PROBE_PURGE_INTERVAL_HOURS_KEY = "service-registry.probe-purge-interval-hours";
     private static final String BUKKIT_JOIN_DELAY_TICKS_KEY = "platform.bukkit.join-delay-ticks";
+    private static final String BUKKIT_REGISTER_SERVICE_INSTANCE_KEY = "platform.bukkit.register-service-instance";
     private static final String BUKKIT_SERVICE_NAME_KEY = "platform.bukkit.service-name";
     private static final String VELOCITY_SERVICE_NAME_KEY = "platform.velocity.service-name";
     private static final String USERNAME_MAX_LENGTH_KEY = "validation.username.max-length";
@@ -179,6 +180,12 @@ final class DataRegistrySettingsParser {
                 defaults.bukkitJoinDelayTicks(),
                 logger,
                 DataRegistrySettings.Builder::bukkitJoinDelayTicks
+        ));
+        builder.bukkitRegisterServiceInstance(parseBoolean(
+                configRoot,
+                BUKKIT_REGISTER_SERVICE_INSTANCE_KEY,
+                defaults.bukkitRegisterServiceInstance(),
+                logger
         ));
         builder.bukkitServiceName(validateWithBuilder(
                 BUKKIT_SERVICE_NAME_KEY,

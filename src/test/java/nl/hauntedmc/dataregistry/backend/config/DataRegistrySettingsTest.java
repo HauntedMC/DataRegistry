@@ -22,6 +22,7 @@ class DataRegistrySettingsTest {
         assertEquals("player_data_rw", settings.serviceDatabaseConnectionId());
         assertEquals("validate", settings.ormSchemaMode());
         assertEquals(4, settings.bukkitJoinDelayTicks());
+        assertFalse(settings.bukkitRegisterServiceInstance());
         assertEquals("auto", settings.bukkitServiceName());
         assertEquals("auto", settings.velocityServiceName());
         assertEquals(32, settings.usernameMaxLength());
@@ -49,6 +50,7 @@ class DataRegistrySettingsTest {
                 .ormSchemaMode("  CREATE-DROP ")
                 .persistIpAddress(true)
                 .persistVirtualHost(true)
+                .bukkitRegisterServiceInstance(true)
                 .bukkitServiceName(" lobby-01 ")
                 .velocityServiceName(" proxy-edge ")
                 .build();
@@ -58,6 +60,7 @@ class DataRegistrySettingsTest {
         assertEquals("create-drop", settings.ormSchemaMode());
         assertTrue(settings.persistIpAddress());
         assertTrue(settings.persistVirtualHost());
+        assertTrue(settings.bukkitRegisterServiceInstance());
         assertEquals("lobby-01", settings.bukkitServiceName());
         assertEquals("proxy-edge", settings.velocityServiceName());
     }

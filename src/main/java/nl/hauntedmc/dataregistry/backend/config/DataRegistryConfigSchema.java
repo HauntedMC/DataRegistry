@@ -59,6 +59,7 @@ final class DataRegistryConfigSchema {
         Map<String, Object> platform = new LinkedHashMap<>();
         Map<String, Object> bukkit = new LinkedHashMap<>();
         bukkit.put("join-delay-ticks", defaults.bukkitJoinDelayTicks());
+        bukkit.put("register-service-instance", defaults.bukkitRegisterServiceInstance());
         bukkit.put("service-name", defaults.bukkitServiceName());
         Map<String, Object> velocity = new LinkedHashMap<>();
         velocity.put("service-name", defaults.velocityServiceName());
@@ -146,8 +147,11 @@ final class DataRegistryConfigSchema {
         builder.append("  bukkit:\n");
         builder.append("    # Delay after join event before snapshotting status (ticks, 0-200).\n");
         builder.append("    join-delay-ticks: ").append(settings.bukkitJoinDelayTicks()).append('\n');
+        builder.append("    # Register Paper backend heartbeats in the service registry.\n");
+        builder.append("    # Leave disabled when Velocity should own backend service identity.\n");
+        builder.append("    register-service-instance: ").append(settings.bukkitRegisterServiceInstance()).append('\n');
         builder.append("    # Backend logical service name; set equal to the Velocity server name for stable identity.\n");
-        builder.append("    # Set to 'auto' to derive from host:port fallback naming.\n");
+        builder.append("    # Required when register-service-instance is true; 'auto' is only a placeholder default.\n");
         builder.append("    service-name: ").append(settings.bukkitServiceName()).append('\n');
         builder.append("  velocity:\n");
         builder.append("    # Proxy logical service name; set to 'auto' to derive from host:port fallback naming.\n");

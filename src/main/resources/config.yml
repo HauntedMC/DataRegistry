@@ -54,8 +54,11 @@ platform:
   bukkit:
     # Delay after join event before snapshotting status (ticks, 0-200).
     join-delay-ticks: 4
+    # Register Paper backend heartbeats in the service registry.
+    # Leave disabled when Velocity should own backend service identity.
+    register-service-instance: false
     # Backend logical service name; set equal to the Velocity server name for stable identity.
-    # Set to 'auto' to derive from host:port fallback naming.
+    # Required when register-service-instance is true; 'auto' is only a placeholder default.
     service-name: auto
   velocity:
     # Proxy logical service name; set to 'auto' to derive from host:port fallback naming.

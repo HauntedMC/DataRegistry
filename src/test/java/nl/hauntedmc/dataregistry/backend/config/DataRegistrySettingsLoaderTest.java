@@ -61,6 +61,7 @@ class DataRegistrySettingsLoaderTest {
                 "platform", Map.of(
                         "bukkit", Map.of(
                                 "join-delay-ticks", 12,
+                                "register-service-instance", true,
                                 "service-name", "lobby-01"
                         ),
                         "velocity", Map.of(
@@ -94,6 +95,7 @@ class DataRegistrySettingsLoaderTest {
         assertEquals(336, settings.serviceProbeRetentionHours());
         assertEquals(24, settings.serviceProbePurgeIntervalHours());
         assertEquals(12, settings.bukkitJoinDelayTicks());
+        assertTrue(settings.bukkitRegisterServiceInstance());
         assertEquals("lobby-01", settings.bukkitServiceName());
         assertEquals("proxy-eu", settings.velocityServiceName());
         assertEquals(24, settings.usernameMaxLength());
@@ -154,6 +156,7 @@ class DataRegistrySettingsLoaderTest {
         assertEquals(defaults.playerDatabaseConnectionId(), settings.playerDatabaseConnectionId());
         assertEquals("services-rw", settings.serviceDatabaseConnectionId());
         assertEquals(defaults.bukkitJoinDelayTicks(), settings.bukkitJoinDelayTicks());
+        assertEquals(defaults.bukkitRegisterServiceInstance(), settings.bukkitRegisterServiceInstance());
         assertEquals(defaults.bukkitServiceName(), settings.bukkitServiceName());
         assertEquals(defaults.velocityServiceName(), settings.velocityServiceName());
         assertEquals(defaults.usernameMaxLength(), settings.usernameMaxLength());
@@ -195,6 +198,7 @@ class DataRegistrySettingsLoaderTest {
                 "platform", Map.of(
                         "bukkit", Map.of(
                                 "join-delay-ticks", "x",
+                                "register-service-instance", "yes",
                                 "service-name", 123
                         ),
                         "velocity", Map.of(
@@ -226,6 +230,7 @@ class DataRegistrySettingsLoaderTest {
         assertEquals(defaults.serviceProbePurgeIntervalHours(), settings.serviceProbePurgeIntervalHours());
         assertEquals(defaults.serviceDatabaseConnectionId(), settings.serviceDatabaseConnectionId());
         assertEquals(defaults.bukkitJoinDelayTicks(), settings.bukkitJoinDelayTicks());
+        assertEquals(defaults.bukkitRegisterServiceInstance(), settings.bukkitRegisterServiceInstance());
         assertEquals(defaults.bukkitServiceName(), settings.bukkitServiceName());
         assertEquals(defaults.velocityServiceName(), settings.velocityServiceName());
         assertTrue(logger.warnMessages.size() >= 4);
@@ -253,6 +258,7 @@ class DataRegistrySettingsLoaderTest {
                   probe-purge-interval-hours: 12
                 platform:
                   bukkit:
+                    register-service-instance: true
                     service-name: lobby-01
                   velocity:
                     service-name: proxy-01
