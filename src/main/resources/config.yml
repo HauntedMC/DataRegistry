@@ -47,6 +47,8 @@ service-registry:
   probe-timeout-millis: 1500
   # Retention window for probe history cleanup (hours, 1-2160).
   probe-retention-hours: 72
+  # How often stale probe history cleanup runs (hours, 1-2160).
+  probe-purge-interval-hours: 12
 
 platform:
   bukkit:

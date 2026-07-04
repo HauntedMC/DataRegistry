@@ -55,7 +55,8 @@ class DataRegistrySettingsLoaderTest {
                         "heartbeat-interval-seconds", 45,
                         "probe-interval-seconds", 18,
                         "probe-timeout-millis", 2200,
-                        "probe-retention-hours", 336
+                        "probe-retention-hours", 336,
+                        "probe-purge-interval-hours", 24
                 ),
                 "platform", Map.of(
                         "bukkit", Map.of(
@@ -91,6 +92,7 @@ class DataRegistrySettingsLoaderTest {
         assertEquals(18, settings.serviceProbeIntervalSeconds());
         assertEquals(2200, settings.serviceProbeTimeoutMillis());
         assertEquals(336, settings.serviceProbeRetentionHours());
+        assertEquals(24, settings.serviceProbePurgeIntervalHours());
         assertEquals(12, settings.bukkitJoinDelayTicks());
         assertEquals("lobby-01", settings.bukkitServiceName());
         assertEquals("proxy-eu", settings.velocityServiceName());
@@ -148,6 +150,7 @@ class DataRegistrySettingsLoaderTest {
         assertEquals(defaults.serviceProbeIntervalSeconds(), settings.serviceProbeIntervalSeconds());
         assertEquals(defaults.serviceProbeTimeoutMillis(), settings.serviceProbeTimeoutMillis());
         assertEquals(defaults.serviceProbeRetentionHours(), settings.serviceProbeRetentionHours());
+        assertEquals(defaults.serviceProbePurgeIntervalHours(), settings.serviceProbePurgeIntervalHours());
         assertEquals(defaults.playerDatabaseConnectionId(), settings.playerDatabaseConnectionId());
         assertEquals("services-rw", settings.serviceDatabaseConnectionId());
         assertEquals(defaults.bukkitJoinDelayTicks(), settings.bukkitJoinDelayTicks());
@@ -186,7 +189,8 @@ class DataRegistrySettingsLoaderTest {
                         "heartbeat-interval-seconds", "x",
                         "probe-interval-seconds", "x",
                         "probe-timeout-millis", "x",
-                        "probe-retention-hours", "x"
+                        "probe-retention-hours", "x",
+                        "probe-purge-interval-hours", "x"
                 ),
                 "platform", Map.of(
                         "bukkit", Map.of(
@@ -219,6 +223,7 @@ class DataRegistrySettingsLoaderTest {
         assertEquals(defaults.serviceProbeIntervalSeconds(), settings.serviceProbeIntervalSeconds());
         assertEquals(defaults.serviceProbeTimeoutMillis(), settings.serviceProbeTimeoutMillis());
         assertEquals(defaults.serviceProbeRetentionHours(), settings.serviceProbeRetentionHours());
+        assertEquals(defaults.serviceProbePurgeIntervalHours(), settings.serviceProbePurgeIntervalHours());
         assertEquals(defaults.serviceDatabaseConnectionId(), settings.serviceDatabaseConnectionId());
         assertEquals(defaults.bukkitJoinDelayTicks(), settings.bukkitJoinDelayTicks());
         assertEquals(defaults.bukkitServiceName(), settings.bukkitServiceName());
@@ -245,6 +250,7 @@ class DataRegistrySettingsLoaderTest {
                   probe-interval-seconds: 20
                   probe-timeout-millis: 1800
                   probe-retention-hours: 240
+                  probe-purge-interval-hours: 12
                 platform:
                   bukkit:
                     service-name: lobby-01

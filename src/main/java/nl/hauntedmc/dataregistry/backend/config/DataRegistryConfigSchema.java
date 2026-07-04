@@ -53,6 +53,7 @@ final class DataRegistryConfigSchema {
         serviceRegistry.put("probe-interval-seconds", defaults.serviceProbeIntervalSeconds());
         serviceRegistry.put("probe-timeout-millis", defaults.serviceProbeTimeoutMillis());
         serviceRegistry.put("probe-retention-hours", defaults.serviceProbeRetentionHours());
+        serviceRegistry.put("probe-purge-interval-hours", defaults.serviceProbePurgeIntervalHours());
         root.put("service-registry", serviceRegistry);
 
         Map<String, Object> platform = new LinkedHashMap<>();
@@ -138,6 +139,8 @@ final class DataRegistryConfigSchema {
         builder.append("  probe-timeout-millis: ").append(settings.serviceProbeTimeoutMillis()).append('\n');
         builder.append("  # Retention window for probe history cleanup (hours, 1-2160).\n");
         builder.append("  probe-retention-hours: ").append(settings.serviceProbeRetentionHours()).append('\n');
+        builder.append("  # How often stale probe history cleanup runs (hours, 1-2160).\n");
+        builder.append("  probe-purge-interval-hours: ").append(settings.serviceProbePurgeIntervalHours()).append('\n');
         builder.append('\n');
         builder.append("platform:\n");
         builder.append("  bukkit:\n");

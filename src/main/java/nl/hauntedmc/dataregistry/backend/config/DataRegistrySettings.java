@@ -20,6 +20,7 @@ public final class DataRegistrySettings {
     private static final int DEFAULT_SERVICE_PROBE_INTERVAL_SECONDS = 15;
     private static final int DEFAULT_SERVICE_PROBE_TIMEOUT_MILLIS = 1500;
     private static final int DEFAULT_SERVICE_PROBE_RETENTION_HOURS = 168;
+    private static final int DEFAULT_SERVICE_PROBE_PURGE_INTERVAL_HOURS = 12;
     private static final String DEFAULT_ORM_SCHEMA_MODE = "validate";
     private static final int DEFAULT_BUKKIT_JOIN_DELAY_TICKS = 4;
     private static final String DEFAULT_BUKKIT_SERVICE_NAME = "auto";
@@ -48,6 +49,7 @@ public final class DataRegistrySettings {
     private final int serviceProbeIntervalSeconds;
     private final int serviceProbeTimeoutMillis;
     private final int serviceProbeRetentionHours;
+    private final int serviceProbePurgeIntervalHours;
     private final Set<DataRegistryFeature> enabledFeatures;
 
     private DataRegistrySettings(Builder builder) {
@@ -122,6 +124,12 @@ public final class DataRegistrySettings {
         this.serviceProbeRetentionHours = validateRange(
                 builder.serviceProbeRetentionHours,
                 "serviceProbeRetentionHours",
+                1,
+                2160
+        );
+        this.serviceProbePurgeIntervalHours = validateRange(
+                builder.serviceProbePurgeIntervalHours,
+                "serviceProbePurgeIntervalHours",
                 1,
                 2160
         );
@@ -212,6 +220,10 @@ public final class DataRegistrySettings {
         return serviceProbeRetentionHours;
     }
 
+    public int serviceProbePurgeIntervalHours() {
+        return serviceProbePurgeIntervalHours;
+    }
+
     public Set<DataRegistryFeature> enabledFeatures() {
         return enabledFeatures;
     }
@@ -292,6 +304,7 @@ public final class DataRegistrySettings {
         private int serviceProbeIntervalSeconds = DEFAULT_SERVICE_PROBE_INTERVAL_SECONDS;
         private int serviceProbeTimeoutMillis = DEFAULT_SERVICE_PROBE_TIMEOUT_MILLIS;
         private int serviceProbeRetentionHours = DEFAULT_SERVICE_PROBE_RETENTION_HOURS;
+        private int serviceProbePurgeIntervalHours = DEFAULT_SERVICE_PROBE_PURGE_INTERVAL_HOURS;
         private EnumSet<DataRegistryFeature> enabledFeatures = EnumSet.allOf(DataRegistryFeature.class);
 
         private Builder() {
@@ -380,6 +393,11 @@ public final class DataRegistrySettings {
 
         public Builder serviceProbeRetentionHours(int value) {
             this.serviceProbeRetentionHours = value;
+            return this;
+        }
+
+        public Builder serviceProbePurgeIntervalHours(int value) {
+            this.serviceProbePurgeIntervalHours = value;
             return this;
         }
 

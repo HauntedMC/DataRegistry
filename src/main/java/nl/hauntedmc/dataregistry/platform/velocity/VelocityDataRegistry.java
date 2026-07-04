@@ -47,6 +47,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Plugin(
@@ -79,6 +80,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
     private PlayerStatusListener playerStatusListener;
     private ServiceRegistryService serviceRegistryService;
     private final AtomicReference<String> localServiceInstanceId = new AtomicReference<>();
+    private final AtomicLong nextProbePurgeAtEpochMillis = new AtomicLong(0L);
 
     @Inject
     public VelocityDataRegistry(ProxyServer proxyServer, Logger logger, @DataDirectory Path dataDirectory) {
@@ -273,9 +275,11 @@ public class VelocityDataRegistry implements PlatformPlugin {
         int probeIntervalSeconds = settings.serviceProbeIntervalSeconds();
         int probeTimeoutMillis = settings.serviceProbeTimeoutMillis();
         int probeRetentionHours = settings.serviceProbeRetentionHours();
+        int probePurgeIntervalHours = settings.serviceProbePurgeIntervalHours();
         Duration endpointCorrelationFreshness = Duration.ofSeconds(
                 Math.max(15L, Math.max(1L, heartbeatIntervalSeconds) * 3L)
         );
+        nextProbePurgeAtEpochMillis.set(0L);
 
         registryService.refreshRunningInstance(
                 ServiceKind.PROXY,
@@ -304,6 +308,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
                         instanceId,
                         probeTimeoutMillis,
                         probeRetentionHours,
+                        probePurgeIntervalHours,
                         endpointCorrelationFreshness
                 ),
                 probeIntervalSeconds,
@@ -326,6 +331,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
             String observerInstanceId,
             int timeoutMillis,
             int retentionHours,
+            int purgeIntervalHours,
             Duration endpointCorrelationFreshness
     ) {
         try {
@@ -376,12 +382,30 @@ public class VelocityDataRegistry implements PlatformPlugin {
                     );
                 }
             }
-            int deleted = registryService.purgeProbesOlderThan(Duration.ofHours(retentionHours), 500);
-            if (deleted > 0) {
-                logger.info("Purged {} stale service probe rows older than {} hours.", deleted, retentionHours);
-            }
+            purgeStaleProbesIfDue(registryService, retentionHours, purgeIntervalHours);
         } catch (RuntimeException exception) {
             logger.error("Service registry backend probe pass failed.", exception);
+        }
+    }
+
+    private void purgeStaleProbesIfDue(
+            ServiceRegistryService registryService,
+            int retentionHours,
+            int purgeIntervalHours
+    ) {
+        long nowEpochMillis = System.currentTimeMillis();
+        long nextPurgeAt = nextProbePurgeAtEpochMillis.get();
+        if (nextPurgeAt > nowEpochMillis) {
+            return;
+        }
+        long purgeIntervalMillis = TimeUnit.HOURS.toMillis(Math.max(1L, purgeIntervalHours));
+        if (!nextProbePurgeAtEpochMillis.compareAndSet(nextPurgeAt, nowEpochMillis + purgeIntervalMillis)) {
+            return;
+        }
+
+        int deleted = registryService.purgeProbesOlderThan(Duration.ofHours(retentionHours), 500);
+        if (deleted > 0) {
+            logger.info("Purged {} stale service probe rows older than {} hours.", deleted, retentionHours);
         }
     }
 
@@ -506,6 +530,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
         ServiceRegistryService registryService = serviceRegistryService;
         serviceRegistryService = null;
         String instanceId = localServiceInstanceId.getAndSet(null);
+        nextProbePurgeAtEpochMillis.set(0L);
         if (registryService == null || instanceId == null) {
             return;
         }
