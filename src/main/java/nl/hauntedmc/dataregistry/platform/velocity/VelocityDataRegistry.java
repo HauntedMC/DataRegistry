@@ -53,7 +53,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @Plugin(
         id = "dataregistry",
         name = "DataRegistry",
-        version = "1.9.2",
+        version = "1.9.3",
         description = "DataRegistry for cross-platform data handling.",
         authors = {"HauntedMC"},
         dependencies = @Dependency(id = "dataprovider")
