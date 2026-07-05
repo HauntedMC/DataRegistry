@@ -82,6 +82,19 @@ class PlayerServiceTest {
     }
 
     @Test
+    void getActivePlayerReturnsEmptyWhenRepositoryReturnsNullOptional() {
+        PlayerRepository repository = mock(PlayerRepository.class);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        PlayerService service = new PlayerService(repository, logger);
+        when(repository.getActivePlayer("uuid-123")).thenReturn(null);
+
+        Optional<PlayerEntity> result = service.getActivePlayer("uuid-123");
+
+        assertEquals(Optional.empty(), result);
+        verify(repository).getActivePlayer("uuid-123");
+    }
+
+    @Test
     void findKnownUsernamePrefersActiveCacheThenPersistence() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);

@@ -27,12 +27,17 @@ import org.junit.jupiter.api.Test;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.util.concurrent.Executor;
-import java.util.concurrent.TimeUnit;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 
 import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.executeTransactionsWithSession;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -40,6 +45,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -154,6 +160,7 @@ class PlayerStatusListenerTest {
         TestContext context = createContext();
         String uuid = UUID.randomUUID().toString();
         PlayerEntity persistent = persistedPlayer(uuid, "Alice");
+        when(context.repository.getActivePlayer(uuid)).thenReturn(Optional.empty(), Optional.of(persistent));
         when(context.repository.getOrCreateActivePlayer(uuid, "Alice")).thenReturn(persistent);
 
         Player player = mock(Player.class);
@@ -176,7 +183,7 @@ class PlayerStatusListenerTest {
         String uuid = UUID.randomUUID().toString();
         PlayerEntity previous = persistedPlayer(uuid, "OldName");
         PlayerEntity persistent = persistedPlayer(uuid, "Alice");
-        when(context.repository.getActivePlayer(uuid)).thenReturn(Optional.empty());
+        when(context.repository.getActivePlayer(uuid)).thenReturn(Optional.empty(), Optional.of(persistent));
         when(context.repository.findByUUID(uuid)).thenReturn(Optional.of(previous));
         when(context.repository.getOrCreateActivePlayer(uuid, "Alice")).thenReturn(persistent);
 
@@ -325,6 +332,60 @@ class PlayerStatusListenerTest {
         context.listener.beginShutdown();
 
         assertFalse(context.listener.awaitPipelineDrain(1L, TimeUnit.MILLISECONDS));
+    }
+
+    @Test
+    void onPlayerJoinPersistsIdentityBeforeQueuedFollowUpRuns() {
+        TestContext context = createContext(runnable -> {
+        });
+        String uuid = UUID.randomUUID().toString();
+        PlayerEntity persistent = persistedPlayer(uuid, "Alice");
+        when(context.repository.getOrCreateActivePlayer(uuid, "Alice")).thenReturn(persistent);
+
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
+        when(player.getUsername()).thenReturn("Alice");
+
+        context.listener.onPlayerJoin(new PostLoginEvent(player));
+
+        verify(context.repository).getOrCreateActivePlayer(uuid, "Alice");
+        verify(context.ormContext, never()).runInTransaction(any());
+    }
+
+    @Test
+    void onPlayerJoinRestoresActiveCacheAfterQueuedQuitRemovesIt() {
+        Deque<Runnable> queuedTasks = new ArrayDeque<>();
+        TestContext context = createContext(queuedTasks::addLast);
+        String uuid = UUID.randomUUID().toString();
+        PlayerEntity persistent = persistedPlayer(uuid, "Alice");
+        Map<String, PlayerEntity> activePlayers = new ConcurrentHashMap<>();
+        when(context.repository.getActivePlayer(uuid)).thenAnswer(invocation ->
+                Optional.ofNullable(activePlayers.get(uuid))
+        );
+        when(context.repository.getOrCreateActivePlayer(uuid, "Alice")).thenAnswer(invocation -> {
+            activePlayers.put(uuid, persistent);
+            return persistent;
+        });
+        doAnswer(invocation -> {
+            activePlayers.remove(uuid);
+            return null;
+        }).when(context.repository).removeActivePlayer(uuid);
+
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
+        when(player.getUsername()).thenReturn("Alice");
+
+        context.listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN));
+        context.listener.onPlayerJoin(new PostLoginEvent(player));
+
+        assertEquals(1, queuedTasks.size());
+        queuedTasks.removeFirst().run();
+        assertTrue(activePlayers.isEmpty());
+
+        assertEquals(1, queuedTasks.size());
+        queuedTasks.removeFirst().run();
+        assertEquals(persistent, activePlayers.get(uuid));
+        verify(context.repository, times(2)).getOrCreateActivePlayer(uuid, "Alice");
     }
 
     private static TestContext createContext() {

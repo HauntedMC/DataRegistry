@@ -57,7 +57,8 @@ public final class PlayerService {
      * @return an Optional containing the PlayerEntity.
      */
     public Optional<PlayerEntity> getActivePlayer(String uuid) {
-        return playerRepository.getActivePlayer(uuid);
+        Optional<PlayerEntity> activePlayer = playerRepository.getActivePlayer(uuid);
+        return activePlayer != null ? activePlayer : Optional.empty();
     }
 
     /**

@@ -64,13 +64,27 @@ public class PlayerStatusListener {
         String username = player.getUsername();
         String ip = extractIp(player);
         String vhost = extractVirtualHost(player);
+        if (!acceptingEvents.get()) {
+            return;
+        }
+
+        String knownUsername;
+        try {
+            knownUsername = playerService.findKnownUsername(uuid).orElse(null);
+            playerService.onPlayerJoin(VelocityPlayerAdapter.fromSnapshot(uuid, username));
+        } catch (RuntimeException exception) {
+            logger.error(
+                    "Failed to persist player identity on proxy login for uuid=" + safeForLog(uuid),
+                    exception
+            );
+            return;
+        }
 
         enqueuePlayerEvent(uuid, () -> {
-            String knownUsername = playerService.findKnownUsername(uuid).orElse(null);
-            PlayerEntity persistent = playerService.onPlayerJoin(VelocityPlayerAdapter.fromSnapshot(uuid, username));
-            nameHistoryService.recordUsernameChange(persistent, knownUsername, username);
-            connectionService.updateOnLogin(persistent, ip, vhost);
-            sessionService.openSessionOnLogin(persistent, ip, vhost);
+            PlayerEntity activePersistent = resolveOrRestorePlayer(uuid, username);
+            nameHistoryService.recordUsernameChange(activePersistent, knownUsername, username);
+            connectionService.updateOnLogin(activePersistent, ip, vhost);
+            sessionService.openSessionOnLogin(activePersistent, ip, vhost);
         });
     }
 
