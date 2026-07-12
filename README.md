@@ -32,7 +32,7 @@ Running only Bukkit/Paper without Velocity is not a supported deployment mode.
 - Java 25
 - Maven 3.8.6+
 - DataProvider `2.0.0`
-- Velocity `3.5.0-SNAPSHOT` and/or Paper `26.1.2+` (resolved via `paper-api` range)
+- Velocity `4.0.0-SNAPSHOT` and/or Paper `26.1.2+` (resolved via `paper-api` range)
 
 ## Install
 
