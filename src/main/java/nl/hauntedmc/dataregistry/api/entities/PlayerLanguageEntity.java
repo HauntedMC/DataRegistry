@@ -28,6 +28,9 @@ public class PlayerLanguageEntity {
     @Column(name = "language", nullable = false, length = 16)
     private String language;
 
+    @Column(name = "effective_language", length = 16)
+    private String effectiveLanguage;
+
     public PlayerLanguageEntity() {}
 
     public Long getPlayerId() { return playerId; }
@@ -38,4 +41,7 @@ public class PlayerLanguageEntity {
 
     public String getLanguage() { return language; }
     public void setLanguage(String language) { this.language = language; }
+
+    public String getEffectiveLanguage() { return effectiveLanguage; }
+    public void setEffectiveLanguage(String effectiveLanguage) { this.effectiveLanguage = effectiveLanguage; }
 }
