@@ -13,6 +13,7 @@ import nl.hauntedmc.dataregistry.api.entities.PlayerNameHistoryEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerOnlineStatusEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerPlaytimeEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerPlaytimeSegmentEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerPlaytimeSegmentCloseReason;
 import nl.hauntedmc.dataregistry.api.entities.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.backend.config.PlaytimeTrackingSettings;
@@ -29,6 +30,7 @@ import org.hibernate.Session;
 import org.hibernate.query.MutationQuery;
 import org.hibernate.query.Query;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -51,6 +53,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -274,6 +277,97 @@ class PlayerStatusListenerTest {
     }
 
     @Test
+    void onServerSwitchInvokesPlaytimeAfterStatusAndSessionUpdate() {
+        PlayerRepository repository = mock(PlayerRepository.class);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataRegistry registry = mock(DataRegistry.class);
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerSessionEntity> sessionUpdateQuery = mock(Query.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerSessionEntity> playtimeSessionQuery = mock(Query.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerPlaytimeSegmentEntity> playtimeSegmentQuery = mock(Query.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerPlaytimeEntity> playtimeAggregateQuery = mock(Query.class);
+        when(registry.getORM()).thenReturn(ormContext);
+        executeTransactionsWithSession(ormContext, session);
+        when(session.merge(any(PlayerEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(session.find(eq(PlayerOnlineStatusEntity.class), any())).thenReturn(null);
+        when(session.createQuery(
+                "SELECT s FROM PlayerSessionEntity s " +
+                        "WHERE s.player.id = :playerId AND s.endedAt IS NULL " +
+                        "ORDER BY s.startedAt DESC, s.id DESC",
+                PlayerSessionEntity.class
+        )).thenReturn(sessionUpdateQuery, playtimeSessionQuery);
+        when(sessionUpdateQuery.setParameter(anyString(), any())).thenReturn(sessionUpdateQuery);
+        when(sessionUpdateQuery.setMaxResults(1)).thenReturn(sessionUpdateQuery);
+        when(playtimeSessionQuery.setParameter(anyString(), any())).thenReturn(playtimeSessionQuery);
+        when(playtimeSessionQuery.setMaxResults(1)).thenReturn(playtimeSessionQuery);
+        PlayerSessionEntity openSession = new PlayerSessionEntity();
+        when(sessionUpdateQuery.uniqueResultOptional()).thenReturn(Optional.of(openSession));
+        when(playtimeSessionQuery.uniqueResultOptional()).thenReturn(Optional.of(openSession));
+        when(session.createQuery(
+                "SELECT s FROM PlayerPlaytimeSegmentEntity s " +
+                        "WHERE s.player.id = :playerId AND s.endedAt IS NULL " +
+                        "ORDER BY s.startedAt DESC, s.id DESC",
+                PlayerPlaytimeSegmentEntity.class
+        )).thenReturn(playtimeSegmentQuery);
+        when(playtimeSegmentQuery.setParameter(anyString(), any())).thenReturn(playtimeSegmentQuery);
+        when(playtimeSegmentQuery.setMaxResults(1)).thenReturn(playtimeSegmentQuery);
+        when(playtimeSegmentQuery.uniqueResultOptional()).thenReturn(Optional.empty());
+        when(session.createQuery(
+                "SELECT p FROM PlayerPlaytimeEntity p " +
+                        "WHERE p.player.id = :playerId AND p.gamemodeKey = :gamemodeKey",
+                PlayerPlaytimeEntity.class
+        )).thenReturn(playtimeAggregateQuery);
+        when(playtimeAggregateQuery.setParameter(anyString(), any())).thenReturn(playtimeAggregateQuery);
+        when(playtimeAggregateQuery.setMaxResults(1)).thenReturn(playtimeAggregateQuery);
+        when(playtimeAggregateQuery.uniqueResultOptional()).thenReturn(Optional.empty());
+
+        PlayerService playerService = new PlayerService(repository, logger);
+        PlayerNameHistoryService nameHistoryService = new PlayerNameHistoryService(registry, logger, 32, true);
+        PlayerStatusService statusService = new PlayerStatusService(registry, logger, 64);
+        PlayerConnectionInfoService connectionService = new PlayerConnectionInfoService(registry, logger, true, true, 45, 255);
+        PlayerSessionService sessionService = new PlayerSessionService(registry, logger, true, true, 45, 255, 64);
+        PlayerPlaytimeService playtimeService = new PlayerPlaytimeService(
+                registry,
+                logger,
+                new PlaytimeGamemodeResolver(PlaytimeTrackingSettings.defaults()),
+                64
+        );
+        PlayerStatusListener listener = new PlayerStatusListener(
+                playerService,
+                nameHistoryService,
+                statusService,
+                connectionService,
+                sessionService,
+                playtimeService,
+                logger,
+                Runnable::run
+        );
+
+        String uuid = UUID.randomUUID().toString();
+        PlayerEntity persistent = persistedPlayer(uuid, "Alice");
+        when(repository.getActivePlayer(uuid)).thenReturn(Optional.of(persistent));
+
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
+        when(player.getUsername()).thenReturn("Alice");
+        RegisteredServer server = mock(RegisteredServer.class);
+        when(server.getServerInfo()).thenReturn(new ServerInfo("lobby-1", new InetSocketAddress("127.0.0.1", 25567)));
+
+        listener.onServerSwitch(new ServerConnectedEvent(player, server, null));
+
+        InOrder inOrder = inOrder(session, sessionUpdateQuery, playtimeSessionQuery, playtimeSegmentQuery);
+        inOrder.verify(session).find(PlayerOnlineStatusEntity.class, persistent.getId());
+        inOrder.verify(sessionUpdateQuery).uniqueResultOptional();
+        inOrder.verify(playtimeSessionQuery).uniqueResultOptional();
+        inOrder.verify(playtimeSegmentQuery).uniqueResultOptional();
+    }
+
+    @Test
     void onPlayerQuitRunsStatusConnectionAndSessionForActivePlayerAndRemovesCache() {
         TestContext context = createContext();
         String uuid = UUID.randomUUID().toString();
@@ -311,6 +405,120 @@ class PlayerStatusListenerTest {
         verify(context.repository).getOrCreateActivePlayer(uuid, "Alice");
         verify(context.ormContext, times(4)).runInTransaction(any());
         verify(context.repository).removeActivePlayer(uuid);
+    }
+
+    @Test
+    void onPlayerQuitClosesPlaytimeBeforeClosingSessionAndRemovesCacheLast() {
+        PlayerRepository repository = mock(PlayerRepository.class);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataRegistry registry = mock(DataRegistry.class);
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerPlaytimeSegmentEntity> playtimeSegmentQuery = mock(Query.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerSessionEntity> playtimeSessionQuery = mock(Query.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerSessionEntity> closeSessionQuery = mock(Query.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerPlaytimeEntity> playtimeAggregateQuery = mock(Query.class);
+        when(registry.getORM()).thenReturn(ormContext);
+        executeTransactionsWithSession(ormContext, session);
+        when(session.merge(any(PlayerEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        PlayerOnlineStatusEntity onlineStatus = new PlayerOnlineStatusEntity();
+        onlineStatus.setCurrentServer("lobby-1");
+        when(session.find(eq(PlayerOnlineStatusEntity.class), any())).thenReturn(onlineStatus);
+        when(session.find(eq(PlayerConnectionInfoEntity.class), any())).thenReturn(new PlayerConnectionInfoEntity());
+        when(session.createQuery(
+                "SELECT s FROM PlayerPlaytimeSegmentEntity s " +
+                        "WHERE s.player.id = :playerId AND s.endedAt IS NULL " +
+                        "ORDER BY s.startedAt DESC, s.id DESC",
+                PlayerPlaytimeSegmentEntity.class
+        )).thenReturn(playtimeSegmentQuery);
+        when(playtimeSegmentQuery.setParameter(anyString(), any())).thenReturn(playtimeSegmentQuery);
+        when(playtimeSegmentQuery.setMaxResults(1)).thenReturn(playtimeSegmentQuery);
+        PlayerEntity persistent = persistedPlayer(UUID.randomUUID().toString(), "Alice");
+        PlayerSessionEntity openSession = new PlayerSessionEntity();
+        openSession.setId(15L);
+        openSession.setPlayer(persistent);
+        PlayerPlaytimeSegmentEntity openSegment = new PlayerPlaytimeSegmentEntity();
+        openSegment.setId(16L);
+        openSegment.setPlayer(persistent);
+        openSegment.setSession(openSession);
+        openSegment.setGamemodeKey("lobby");
+        openSegment.setEntryServer("lobby-1");
+        openSegment.setLastServer("lobby-1");
+        openSegment.setStartedAt(java.time.Instant.now().minusSeconds(30));
+        openSegment.setLastAccruedAt(java.time.Instant.now().minusSeconds(5));
+        openSegment.setCloseReason(PlayerPlaytimeSegmentCloseReason.DISCONNECT);
+        when(playtimeSegmentQuery.uniqueResultOptional()).thenReturn(Optional.of(openSegment));
+        when(session.createQuery(
+                "SELECT s FROM PlayerSessionEntity s " +
+                        "WHERE s.player.id = :playerId AND s.endedAt IS NULL " +
+                        "ORDER BY s.startedAt DESC, s.id DESC",
+                PlayerSessionEntity.class
+        )).thenReturn(playtimeSessionQuery, closeSessionQuery);
+        when(playtimeSessionQuery.setParameter(anyString(), any())).thenReturn(playtimeSessionQuery);
+        when(playtimeSessionQuery.setMaxResults(1)).thenReturn(playtimeSessionQuery);
+        when(playtimeSessionQuery.uniqueResultOptional()).thenReturn(Optional.of(openSession));
+        when(closeSessionQuery.setParameter(anyString(), any())).thenReturn(closeSessionQuery);
+        when(closeSessionQuery.setMaxResults(1)).thenReturn(closeSessionQuery);
+        when(closeSessionQuery.uniqueResultOptional()).thenReturn(Optional.of(openSession));
+        when(session.createQuery(
+                "SELECT p FROM PlayerPlaytimeEntity p " +
+                        "WHERE p.player.id = :playerId AND p.gamemodeKey = :gamemodeKey",
+                PlayerPlaytimeEntity.class
+        )).thenReturn(playtimeAggregateQuery);
+        when(playtimeAggregateQuery.setParameter(anyString(), any())).thenReturn(playtimeAggregateQuery);
+        when(playtimeAggregateQuery.setMaxResults(1)).thenReturn(playtimeAggregateQuery);
+        PlayerPlaytimeEntity aggregate = new PlayerPlaytimeEntity();
+        aggregate.setPlayer(persistent);
+        aggregate.setGamemodeKey("lobby");
+        aggregate.setTrackedMillis(0L);
+        aggregate.setSegmentCount(1L);
+        aggregate.setFirstTrackedAt(openSegment.getStartedAt());
+        aggregate.setLastTrackedAt(openSegment.getLastAccruedAt());
+        when(playtimeAggregateQuery.uniqueResultOptional()).thenReturn(Optional.of(aggregate));
+
+        PlayerService playerService = new PlayerService(repository, logger);
+        PlayerNameHistoryService nameHistoryService = new PlayerNameHistoryService(registry, logger, 32, true);
+        PlayerStatusService statusService = new PlayerStatusService(registry, logger, 64);
+        PlayerConnectionInfoService connectionService = new PlayerConnectionInfoService(registry, logger, true, true, 45, 255);
+        PlayerSessionService sessionService = new PlayerSessionService(registry, logger, true, true, 45, 255, 64);
+        PlayerPlaytimeService playtimeService = new PlayerPlaytimeService(
+                registry,
+                logger,
+                new PlaytimeGamemodeResolver(PlaytimeTrackingSettings.defaults()),
+                64
+        );
+        PlayerStatusListener listener = new PlayerStatusListener(
+                playerService,
+                nameHistoryService,
+                statusService,
+                connectionService,
+                sessionService,
+                playtimeService,
+                logger,
+                Runnable::run
+        );
+
+        String uuid = persistent.getUuid();
+        when(repository.getActivePlayer(uuid)).thenReturn(Optional.of(persistent));
+
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
+        when(player.getUsername()).thenReturn("Alice");
+
+        listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN));
+
+        InOrder inOrder = inOrder(session, playtimeSegmentQuery, playtimeSessionQuery, playtimeAggregateQuery, closeSessionQuery, repository);
+        inOrder.verify(session).find(PlayerOnlineStatusEntity.class, persistent.getId());
+        inOrder.verify(session).find(PlayerConnectionInfoEntity.class, persistent.getId());
+        inOrder.verify(playtimeSegmentQuery).uniqueResultOptional();
+        inOrder.verify(playtimeSessionQuery).uniqueResultOptional();
+        inOrder.verify(playtimeAggregateQuery).uniqueResultOptional();
+        inOrder.verify(closeSessionQuery).uniqueResultOptional();
+        inOrder.verify(repository).removeActivePlayer(uuid);
     }
 
     @Test
