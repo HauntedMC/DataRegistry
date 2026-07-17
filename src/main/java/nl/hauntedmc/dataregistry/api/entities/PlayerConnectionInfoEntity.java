@@ -14,6 +14,7 @@ import java.time.Instant;
 @Entity
 @Table(name = "player_connection_info",
         indexes = {
+                @Index(name = "idx_pci_ip_address", columnList = "ip_address"),
                 @Index(name = "idx_pci_last_conn_at", columnList = "last_connection_at"),
                 @Index(name = "idx_pci_last_disc_at", columnList = "last_disconnect_at")
         })

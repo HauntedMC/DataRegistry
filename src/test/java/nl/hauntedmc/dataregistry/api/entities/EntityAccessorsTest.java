@@ -1,11 +1,16 @@
 package nl.hauntedmc.dataregistry.api.entities;
 
+import jakarta.persistence.Table;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EntityAccessorsTest {
 
@@ -62,6 +67,18 @@ class EntityAccessorsTest {
         assertEquals(last, info.getLastConnectionAt());
         assertEquals(disconnect, info.getLastDisconnectAt());
         assertEquals("mc.example.org:25565", info.getVirtualHost());
+    }
+
+    @Test
+    void playerConnectionInfoEntityDeclaresIpLookupIndex() {
+        Table table = PlayerConnectionInfoEntity.class.getAnnotation(Table.class);
+
+        assertNotNull(table);
+        Set<String> indexNames = Arrays.stream(table.indexes())
+                .map(index -> index.name() + ":" + index.columnList())
+                .collect(java.util.stream.Collectors.toSet());
+
+        assertTrue(indexNames.contains("idx_pci_ip_address:ip_address"));
     }
 
     @Test
