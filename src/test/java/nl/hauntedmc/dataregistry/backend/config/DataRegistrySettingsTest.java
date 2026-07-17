@@ -39,7 +39,9 @@ class DataRegistrySettingsTest {
         assertTrue(settings.playtimeTrackingSettings().resolveUnknownServersAsGamemode());
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO));
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.NICKNAMES));
@@ -135,16 +137,24 @@ class DataRegistrySettingsTest {
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO));
+        assertFalse(settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.NICKNAMES));
+        assertFalse(settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS));
     }
 
     @Test
-    void builderRejectsPlaytimeWithoutSessions() {
+    void builderRejectsSessionVisitsOrPlaytimeWithoutSessions() {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> DataRegistrySettings.builder()
                         .enabledFeatures(EnumSet.of(DataRegistryFeature.PLAYTIME))
+                        .build()
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DataRegistrySettings.builder()
+                        .enabledFeatures(EnumSet.of(DataRegistryFeature.SESSION_VISITS))
                         .build()
         );
     }

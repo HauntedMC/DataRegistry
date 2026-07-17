@@ -3,6 +3,7 @@ package nl.hauntedmc.dataregistry.backend.service;
 import nl.hauntedmc.dataregistry.api.DataRegistry;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerSessionEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerSessionVisitEntity;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import org.hibernate.Session;
@@ -54,7 +55,7 @@ class PlayerSessionServiceTest {
         MutationQuery mutationQuery = mock(MutationQuery.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
         PlayerSessionService service = new PlayerSessionService(
-                registry, logger, true, false, 12, 255, 64
+                registry, logger, true, false, 12, 255, 64, true, true
         );
         PlayerEntity player = persistedPlayer();
         PlayerEntity managed = persistedPlayer();
@@ -62,9 +63,7 @@ class PlayerSessionServiceTest {
         when(registry.getORM()).thenReturn(ormContext);
         executeTransactionsWithSession(ormContext, session);
         when(session.merge(player)).thenReturn(managed);
-        when(session.createMutationQuery(
-                "UPDATE PlayerSessionEntity s SET s.endedAt = :end WHERE s.player.id = :playerId AND s.endedAt IS NULL"
-        )).thenReturn(mutationQuery);
+        when(session.createMutationQuery(any(String.class))).thenReturn(mutationQuery);
         when(mutationQuery.setParameter("playerId", managed.getId())).thenReturn(mutationQuery);
         when(mutationQuery.setParameter(any(String.class), any())).thenReturn(mutationQuery);
         when(mutationQuery.executeUpdate()).thenReturn(1);
@@ -88,12 +87,16 @@ class PlayerSessionServiceTest {
         Session session = mock(Session.class);
         @SuppressWarnings("unchecked")
         Query<PlayerSessionEntity> query = mock(Query.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerSessionVisitEntity> visitQuery = mock(Query.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
         PlayerSessionService service = new PlayerSessionService(
-                registry, logger, true, true, 45, 255, 8
+                registry, logger, true, true, 45, 255, 8, true, true
         );
         PlayerEntity player = persistedPlayer();
         PlayerSessionEntity openSession = new PlayerSessionEntity();
+        openSession.setId(5L);
+        openSession.setPlayer(player);
 
         when(registry.getORM()).thenReturn(ormContext);
         executeTransactionsWithSession(ormContext, session);
@@ -104,11 +107,22 @@ class PlayerSessionServiceTest {
         when(query.setParameter("playerId", player.getId())).thenReturn(query);
         when(query.setMaxResults(1)).thenReturn(query);
         when(query.uniqueResultOptional()).thenReturn(Optional.of(openSession));
+        when(session.createQuery(
+                "SELECT v FROM PlayerSessionVisitEntity v WHERE v.player.id = :playerId AND v.leftAt IS NULL ORDER BY v.enteredAt DESC, v.id DESC",
+                PlayerSessionVisitEntity.class
+        )).thenReturn(visitQuery);
+        when(visitQuery.setParameter("playerId", player.getId())).thenReturn(visitQuery);
+        when(visitQuery.setMaxResults(1)).thenReturn(visitQuery);
+        when(visitQuery.uniqueResultOptional()).thenReturn(Optional.empty());
 
         service.updateServerOnSwitch(player, "  minigames-01  ");
 
         assertEquals("minigame", openSession.getFirstServer());
         assertEquals("minigame", openSession.getLastServer());
+        ArgumentCaptor<PlayerSessionVisitEntity> captor = ArgumentCaptor.forClass(PlayerSessionVisitEntity.class);
+        verify(session).persist(captor.capture());
+        assertEquals("minigame", captor.getValue().getServerName());
+        assertEquals(openSession, captor.getValue().getSession());
     }
 
     @Test
@@ -118,15 +132,26 @@ class PlayerSessionServiceTest {
         Session session = mock(Session.class);
         @SuppressWarnings("unchecked")
         Query<PlayerSessionEntity> query = mock(Query.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerSessionVisitEntity> visitQuery = mock(Query.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
         PlayerSessionService service = new PlayerSessionService(
-                registry, logger, true, true, 45, 255, 64
+                registry, logger, true, true, 45, 255, 64, true, true
         );
         PlayerEntity player = persistedPlayer();
         PlayerSessionEntity openSession = new PlayerSessionEntity();
+        PlayerSessionVisitEntity openVisit = new PlayerSessionVisitEntity();
+        openVisit.setEnteredAt(java.time.Instant.now().minusSeconds(3L));
 
         when(registry.getORM()).thenReturn(ormContext);
         executeTransactionsWithSession(ormContext, session);
+        when(session.createQuery(
+                "SELECT v FROM PlayerSessionVisitEntity v WHERE v.player.id = :playerId AND v.leftAt IS NULL ORDER BY v.enteredAt DESC, v.id DESC",
+                PlayerSessionVisitEntity.class
+        )).thenReturn(visitQuery);
+        when(visitQuery.setParameter("playerId", player.getId())).thenReturn(visitQuery);
+        when(visitQuery.setMaxResults(1)).thenReturn(visitQuery);
+        when(visitQuery.uniqueResultOptional()).thenReturn(Optional.of(openVisit));
         when(session.createQuery(
                 "SELECT s FROM PlayerSessionEntity s WHERE s.player.id = :playerId AND s.endedAt IS NULL ORDER BY s.startedAt DESC, s.id DESC",
                 PlayerSessionEntity.class
@@ -138,6 +163,7 @@ class PlayerSessionServiceTest {
         service.closeSessionOnDisconnect(player);
 
         assertNotNull(openSession.getEndedAt());
+        assertNotNull(openVisit.getLeftAt());
         verify(logger).info(contains("Closed session for"));
     }
 

@@ -17,6 +17,7 @@ import nl.hauntedmc.dataregistry.api.DataRegistry;
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.api.entities.ServiceKind;
 import nl.hauntedmc.dataregistry.api.entities.ServiceProbeStatus;
+import nl.hauntedmc.dataregistry.backend.service.PlayerActivitySummaryService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerConnectionInfoService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerNameHistoryService;
 import nl.hauntedmc.dataregistry.backend.playtime.PlaytimeGamemodeResolver;
@@ -116,10 +117,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
             startPlaytimeFlushLifecycle();
             startServiceRegistryLifecycle();
         } catch (RuntimeException | Error startupFailure) {
-            shutdownPlayerEventExecutor();
-            shutdownPlayerPlaytimeFlushExecutor();
-            shutdownServiceRegistryHeartbeatExecutor();
-            shutdownServiceRegistryProbeExecutor();
+            rollbackFailedStartup();
             logger.error("DataRegistry startup failed on Velocity.", startupFailure);
             return;
         }
@@ -198,6 +196,11 @@ public class VelocityDataRegistry implements PlatformPlugin {
                 settings.usernameMaxLength(),
                 settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY)
         );
+        PlayerActivitySummaryService activitySummaryService = new PlayerActivitySummaryService(
+                registry,
+                getPlatformLogger(),
+                settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)
+        );
         PlayerStatusService statusService = new PlayerStatusService(
                 registry,
                 getPlatformLogger(),
@@ -221,7 +224,8 @@ public class VelocityDataRegistry implements PlatformPlugin {
                 settings.ipAddressMaxLength(),
                 settings.virtualHostMaxLength(),
                 settings.serverNameMaxLength(),
-                settings.isFeatureEnabled(DataRegistryFeature.SESSIONS)
+                settings.isFeatureEnabled(DataRegistryFeature.SESSIONS),
+                settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS)
         );
         PlayerPlaytimeService playtimeService = new PlayerPlaytimeService(
                 registry,
@@ -234,6 +238,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
         PlayerStatusListener listener = new PlayerStatusListener(
                 playerService,
                 nameHistoryService,
+                activitySummaryService,
                 statusService,
                 connectionService,
                 sessionService,
@@ -284,6 +289,17 @@ public class VelocityDataRegistry implements PlatformPlugin {
         if (!registry.initialize()) {
             throw new IllegalStateException("Database connection not established.");
         }
+    }
+
+    private void rollbackFailedStartup() {
+        stopPlaytimeFlushLifecycle();
+        stopAcceptingAndDrainPlayerEvents();
+        stopServiceRegistryLifecycle();
+        runtime.stop(getPlatformLogger());
+        shutdownPlayerEventExecutor();
+        shutdownPlayerPlaytimeFlushExecutor();
+        shutdownServiceRegistryHeartbeatExecutor();
+        shutdownServiceRegistryProbeExecutor();
     }
 
     private void startServiceRegistryLifecycle() {

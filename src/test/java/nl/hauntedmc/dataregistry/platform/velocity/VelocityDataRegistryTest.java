@@ -21,6 +21,7 @@ import org.slf4j.Logger;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
 
@@ -207,6 +208,7 @@ class VelocityDataRegistryTest {
         Logger logger = mock(Logger.class);
         DataProviderAPI api = mock(DataProviderAPI.class);
         DataRegistry registry = mock(DataRegistry.class);
+        writeTestConfig("features:\n  service-registry: false\n");
         when(proxyServer.getPluginManager()).thenReturn(pluginManager);
         when(pluginManager.fromInstance(any())).thenReturn(Optional.empty());
         when(registry.initialize()).thenReturn(true);
@@ -252,12 +254,35 @@ class VelocityDataRegistryTest {
     }
 
     @Test
+    void onProxyInitializeRollsBackIfStartupFailsAfterListenerRegistration() {
+        ProxyServer proxyServer = mock(ProxyServer.class);
+        PluginManager pluginManager = mock(PluginManager.class);
+        Logger logger = mock(Logger.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+        DataRegistry registry = mock(DataRegistry.class);
+        when(proxyServer.getPluginManager()).thenReturn(pluginManager);
+        when(pluginManager.fromInstance(any())).thenReturn(Optional.empty());
+        when(registry.initialize()).thenReturn(true);
+
+        TestVelocityDataRegistry plugin = new TestVelocityDataRegistry(proxyServer, logger, api, registry);
+        plugin.failDuringPlaytimeRecovery = true;
+
+        plugin.onProxyInitialize(null);
+
+        assertTrue(plugin.listenerRegistered);
+        assertTrue(plugin.playerEventsDrained);
+        verify(registry).shutdown();
+        assertThrows(IllegalStateException.class, plugin::getDataRegistry);
+    }
+
+    @Test
     void onProxyShutdownStopsRuntimeAndShutsDownRegistry() {
         ProxyServer proxyServer = mock(ProxyServer.class);
         PluginManager pluginManager = mock(PluginManager.class);
         Logger logger = mock(Logger.class);
         DataProviderAPI api = mock(DataProviderAPI.class);
         DataRegistry registry = mock(DataRegistry.class);
+        writeTestConfig("features:\n  service-registry: false\n");
         when(proxyServer.getPluginManager()).thenReturn(pluginManager);
         when(pluginManager.fromInstance(any())).thenReturn(Optional.empty());
         when(registry.initialize()).thenReturn(true);
@@ -307,6 +332,7 @@ class VelocityDataRegistryTest {
         private DataProviderAPI createdWithApi;
         private boolean playerEventsDrained;
         private boolean playtimeRecoveryInvoked;
+        private boolean failDuringPlaytimeRecovery;
 
         private TestVelocityDataRegistry(
                 ProxyServer proxyServer,
@@ -343,6 +369,9 @@ class VelocityDataRegistryTest {
         @Override
         void recoverPlaytimeStateOnStartup() {
             this.playtimeRecoveryInvoked = true;
+            if (failDuringPlaytimeRecovery) {
+                throw new IllegalStateException("playtime recovery failed");
+            }
         }
     }
 
@@ -368,6 +397,15 @@ class VelocityDataRegistryTest {
             } catch (ReflectiveOperationException exception) {
                 throw new IllegalStateException(exception);
             }
+        }
+    }
+
+    private static void writeTestConfig(String configContent) {
+        try {
+            Files.createDirectories(TEST_DATA_DIRECTORY);
+            Files.writeString(TEST_DATA_DIRECTORY.resolve("config.yml"), configContent);
+        } catch (Exception exception) {
+            throw new IllegalStateException(exception);
         }
     }
 }

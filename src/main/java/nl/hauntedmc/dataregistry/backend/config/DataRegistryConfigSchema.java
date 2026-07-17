@@ -44,7 +44,9 @@ final class DataRegistryConfigSchema {
         Map<String, Object> features = new LinkedHashMap<>();
         features.put("online-status", defaults.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS));
         features.put("connection-info", defaults.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO));
+        features.put("activity-summary", defaults.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY));
         features.put("sessions", defaults.isFeatureEnabled(DataRegistryFeature.SESSIONS));
+        features.put("session-visits", defaults.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS));
         features.put("playtime", defaults.isFeatureEnabled(DataRegistryFeature.PLAYTIME));
         features.put("language", defaults.isFeatureEnabled(DataRegistryFeature.LANGUAGE));
         features.put("nicknames", defaults.isFeatureEnabled(DataRegistryFeature.NICKNAMES));
@@ -149,7 +151,9 @@ final class DataRegistryConfigSchema {
         builder.append("  # Disabled domains are not registered in ORM and will not receive writes.\n");
         builder.append("  online-status: ").append(settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)).append('\n');
         builder.append("  connection-info: ").append(settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO)).append('\n');
+        builder.append("  activity-summary: ").append(settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)).append('\n');
         builder.append("  sessions: ").append(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS)).append('\n');
+        builder.append("  session-visits: ").append(settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS)).append('\n');
         builder.append("  playtime: ").append(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)).append('\n');
         builder.append("  language: ").append(settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE)).append('\n');
         builder.append("  nicknames: ").append(settings.isFeatureEnabled(DataRegistryFeature.NICKNAMES)).append('\n');

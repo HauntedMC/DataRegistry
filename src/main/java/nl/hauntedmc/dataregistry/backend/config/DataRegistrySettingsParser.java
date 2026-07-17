@@ -27,7 +27,9 @@ final class DataRegistrySettingsParser {
     private static final String PRIVACY_PERSIST_VHOST_KEY = "privacy.persist-virtual-host";
     private static final String FEATURE_ONLINE_STATUS_KEY = "features.online-status";
     private static final String FEATURE_CONNECTION_INFO_KEY = "features.connection-info";
+    private static final String FEATURE_ACTIVITY_SUMMARY_KEY = "features.activity-summary";
     private static final String FEATURE_SESSIONS_KEY = "features.sessions";
+    private static final String FEATURE_SESSION_VISITS_KEY = "features.session-visits";
     private static final String FEATURE_PLAYTIME_KEY = "features.playtime";
     private static final String FEATURE_LANGUAGE_KEY = "features.language";
     private static final String FEATURE_NICKNAMES_KEY = "features.nicknames";
@@ -409,11 +411,28 @@ final class DataRegistrySettingsParser {
         }
         if (parseBoolean(
                 configRoot,
+                FEATURE_ACTIVITY_SUMMARY_KEY,
+                defaults.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY),
+                logger
+        )) {
+            enabledFeatures.add(DataRegistryFeature.ACTIVITY_SUMMARY);
+        }
+        boolean sessionsEnabled = parseBoolean(
+                configRoot,
                 FEATURE_SESSIONS_KEY,
                 defaults.isFeatureEnabled(DataRegistryFeature.SESSIONS),
                 logger
-        )) {
+        );
+        if (sessionsEnabled) {
             enabledFeatures.add(DataRegistryFeature.SESSIONS);
+        }
+        if (parseBoolean(
+                configRoot,
+                FEATURE_SESSION_VISITS_KEY,
+                sessionsEnabled && defaults.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS),
+                logger
+        )) {
+            enabledFeatures.add(DataRegistryFeature.SESSION_VISITS);
         }
         if (parseBoolean(
                 configRoot,
@@ -450,14 +469,15 @@ final class DataRegistrySettingsParser {
         if (parseBoolean(
                 configRoot,
                 FEATURE_PLAYTIME_KEY,
-                defaults.isFeatureEnabled(DataRegistryFeature.PLAYTIME),
+                sessionsEnabled && defaults.isFeatureEnabled(DataRegistryFeature.PLAYTIME),
                 logger
         )) {
             enabledFeatures.add(DataRegistryFeature.PLAYTIME);
         }
-        if (enabledFeatures.contains(DataRegistryFeature.PLAYTIME)
-                && !enabledFeatures.contains(DataRegistryFeature.SESSIONS)) {
-            logger.warn("Feature 'playtime' requires 'sessions'. Enabling 'sessions' automatically.");
+        if (!enabledFeatures.contains(DataRegistryFeature.SESSIONS)
+                && (enabledFeatures.contains(DataRegistryFeature.PLAYTIME)
+                || enabledFeatures.contains(DataRegistryFeature.SESSION_VISITS))) {
+            logger.warn("Features 'playtime' and 'session-visits' require 'sessions'. Enabling 'sessions' automatically.");
             enabledFeatures.add(DataRegistryFeature.SESSIONS);
         }
         return enabledFeatures;

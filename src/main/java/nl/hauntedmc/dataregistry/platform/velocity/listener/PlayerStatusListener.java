@@ -6,6 +6,7 @@ import com.velocitypowered.api.event.connection.PostLoginEvent;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.proxy.Player;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
+import nl.hauntedmc.dataregistry.backend.service.PlayerActivitySummaryService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerConnectionInfoService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerNameHistoryService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerPlaytimeService;
@@ -35,6 +36,7 @@ public class PlayerStatusListener {
 
     private final PlayerService playerService;
     private final PlayerNameHistoryService nameHistoryService;
+    private final PlayerActivitySummaryService activitySummaryService;
     private final PlayerStatusService statusService;
     private final PlayerConnectionInfoService connectionService;
     private final PlayerSessionService sessionService;
@@ -46,6 +48,7 @@ public class PlayerStatusListener {
 
     public PlayerStatusListener(PlayerService playerService,
                                 PlayerNameHistoryService nameHistoryService,
+                                PlayerActivitySummaryService activitySummaryService,
                                 PlayerStatusService statusService,
                                 PlayerConnectionInfoService connectionService,
                                 PlayerSessionService sessionService,
@@ -54,6 +57,7 @@ public class PlayerStatusListener {
                                 Executor eventExecutor) {
         this.playerService = Objects.requireNonNull(playerService, "playerService must not be null");
         this.nameHistoryService = Objects.requireNonNull(nameHistoryService, "nameHistoryService must not be null");
+        this.activitySummaryService = Objects.requireNonNull(activitySummaryService, "activitySummaryService must not be null");
         this.statusService = Objects.requireNonNull(statusService, "statusService must not be null");
         this.connectionService = Objects.requireNonNull(connectionService, "connectionService must not be null");
         this.sessionService = Objects.requireNonNull(sessionService, "sessionService must not be null");
@@ -88,6 +92,7 @@ public class PlayerStatusListener {
         enqueuePlayerEvent(uuid, () -> {
             PlayerEntity activePersistent = resolveOrRestorePlayer(uuid, username);
             nameHistoryService.recordUsernameChange(activePersistent, knownUsername, username);
+            activitySummaryService.recordLogin(activePersistent);
             connectionService.updateOnLogin(activePersistent, ip, vhost);
             sessionService.openSessionOnLogin(activePersistent, ip, vhost);
         });
@@ -102,6 +107,7 @@ public class PlayerStatusListener {
 
         enqueuePlayerEvent(uuid, () -> {
             PlayerEntity persistent = resolveOrRestorePlayer(uuid, username);
+            activitySummaryService.recordSeen(persistent);
             statusService.updateStatus(persistent, serverName);
             sessionService.updateServerOnSwitch(persistent, serverName);
             playtimeService.onServerSwitch(persistent, serverName);
@@ -122,6 +128,7 @@ public class PlayerStatusListener {
             try {
                 PlayerEntity persistent = resolveOrRestorePlayer(uuid, username);
                 statusService.updateStatusOnQuit(persistent);
+                activitySummaryService.recordDisconnect(persistent);
                 connectionService.updateOnDisconnect(persistent);
                 playtimeService.closeActivePlaytimeOnDisconnect(persistent);
                 sessionService.closeSessionOnDisconnect(persistent);

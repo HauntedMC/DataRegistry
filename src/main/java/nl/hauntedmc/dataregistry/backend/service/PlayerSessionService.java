@@ -3,7 +3,9 @@ package nl.hauntedmc.dataregistry.backend.service;
 import nl.hauntedmc.dataregistry.api.DataRegistry;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerSessionEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerSessionVisitEntity;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
+import org.hibernate.Session;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -22,6 +24,7 @@ public final class PlayerSessionService {
     private final int virtualHostMaxLength;
     private final int serverNameMaxLength;
     private final boolean featureEnabled;
+    private final boolean sessionVisitsEnabled;
 
     public PlayerSessionService(
             DataRegistry dataRegistry,
@@ -40,6 +43,7 @@ public final class PlayerSessionService {
                 ipAddressMaxLength,
                 virtualHostMaxLength,
                 serverNameMaxLength,
+                true,
                 true
         );
     }
@@ -53,6 +57,30 @@ public final class PlayerSessionService {
             int virtualHostMaxLength,
             int serverNameMaxLength,
             boolean featureEnabled
+    ) {
+        this(
+                dataRegistry,
+                logger,
+                persistIpAddress,
+                persistVirtualHost,
+                ipAddressMaxLength,
+                virtualHostMaxLength,
+                serverNameMaxLength,
+                featureEnabled,
+                true
+        );
+    }
+
+    public PlayerSessionService(
+            DataRegistry dataRegistry,
+            ILoggerAdapter logger,
+            boolean persistIpAddress,
+            boolean persistVirtualHost,
+            int ipAddressMaxLength,
+            int virtualHostMaxLength,
+            int serverNameMaxLength,
+            boolean featureEnabled,
+            boolean sessionVisitsEnabled
     ) {
         this.dataRegistry = Objects.requireNonNull(dataRegistry, "dataRegistry must not be null");
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
@@ -71,6 +99,7 @@ public final class PlayerSessionService {
         this.virtualHostMaxLength = virtualHostMaxLength;
         this.serverNameMaxLength = serverNameMaxLength;
         this.featureEnabled = featureEnabled;
+        this.sessionVisitsEnabled = sessionVisitsEnabled;
     }
 
     /**
@@ -103,6 +132,15 @@ public final class PlayerSessionService {
                         .setParameter("playerId", managed.getId())
                         .setParameter("end", now)
                         .executeUpdate();
+                if (sessionVisitsEnabled) {
+                    session.createMutationQuery(
+                                    "UPDATE PlayerSessionVisitEntity v SET v.leftAt = :end " +
+                                            "WHERE v.player.id = :playerId AND v.leftAt IS NULL"
+                            )
+                            .setParameter("playerId", managed.getId())
+                            .setParameter("end", now)
+                            .executeUpdate();
+                }
 
                 PlayerSessionEntity sessionEntity = new PlayerSessionEntity();
                 sessionEntity.setPlayer(managed);
@@ -138,6 +176,7 @@ public final class PlayerSessionService {
             return;
         }
 
+        final Instant now = Instant.now();
         try {
             dataRegistry.getORM().runInTransaction(session -> {
                 Optional<PlayerSessionEntity> openSession = session.createQuery(
@@ -158,6 +197,9 @@ public final class PlayerSessionService {
                     sessionEntity.setFirstServer(sanitizedServer);
                 }
                 sessionEntity.setLastServer(sanitizedServer);
+                if (sessionVisitsEnabled) {
+                    updateSessionVisitOnSwitch(sessionEntity, sanitizedServer, now, session);
+                }
                 return null;
             });
         } catch (RuntimeException exception) {
@@ -181,6 +223,9 @@ public final class PlayerSessionService {
         final Instant now = Instant.now();
         try {
             dataRegistry.getORM().runInTransaction(session -> {
+                if (sessionVisitsEnabled) {
+                    closeOpenVisit(playerEntity.getId(), now, session);
+                }
                 Optional<PlayerSessionEntity> openSession = session.createQuery(
                                 "SELECT s FROM PlayerSessionEntity s " +
                                         "WHERE s.player.id = :playerId AND s.endedAt IS NULL " +
@@ -190,11 +235,7 @@ public final class PlayerSessionService {
                         .setMaxResults(1)
                         .uniqueResultOptional();
 
-                if (openSession.isEmpty()) {
-                    return null;
-                }
-                PlayerSessionEntity sessionEntity = openSession.get();
-                sessionEntity.setEndedAt(now);
+                openSession.ifPresent(sessionEntity -> sessionEntity.setEndedAt(now));
                 return null;
             });
 
@@ -208,5 +249,69 @@ public final class PlayerSessionService {
 
     private static boolean isPersistedPlayer(PlayerEntity playerEntity) {
         return playerEntity != null && playerEntity.getId() != null;
+    }
+
+    private void updateSessionVisitOnSwitch(
+            PlayerSessionEntity sessionEntity,
+            String serverName,
+            Instant now,
+            Session session
+    ) {
+        Optional<PlayerSessionVisitEntity> openVisit = findOpenVisit(session, sessionEntity.getPlayer().getId());
+        if (openVisit.isPresent()) {
+            PlayerSessionVisitEntity currentVisit = openVisit.get();
+            if (!belongsToSession(currentVisit, sessionEntity)) {
+                currentVisit.setLeftAt(maxInstant(now, currentVisit.getEnteredAt()));
+                openVisit = Optional.empty();
+            }
+        }
+
+        if (openVisit.isPresent()) {
+            PlayerSessionVisitEntity currentVisit = openVisit.get();
+            if (serverName.equals(currentVisit.getServerName())) {
+                return;
+            }
+            currentVisit.setLeftAt(maxInstant(now, currentVisit.getEnteredAt()));
+        }
+
+        PlayerSessionVisitEntity visit = new PlayerSessionVisitEntity();
+        visit.setPlayer(sessionEntity.getPlayer());
+        visit.setSession(sessionEntity);
+        visit.setServerName(serverName);
+        visit.setEnteredAt(now);
+        session.persist(visit);
+    }
+
+    private static void closeOpenVisit(Long playerId, Instant now, Session session) {
+        findOpenVisit(session, playerId)
+                .ifPresent(visit -> visit.setLeftAt(maxInstant(now, visit.getEnteredAt())));
+    }
+
+    private static Optional<PlayerSessionVisitEntity> findOpenVisit(Session session, Long playerId) {
+        return session.createQuery(
+                        "SELECT v FROM PlayerSessionVisitEntity v " +
+                                "WHERE v.player.id = :playerId AND v.leftAt IS NULL " +
+                                "ORDER BY v.enteredAt DESC, v.id DESC",
+                        PlayerSessionVisitEntity.class
+                )
+                .setParameter("playerId", playerId)
+                .setMaxResults(1)
+                .uniqueResultOptional();
+    }
+
+    private static boolean belongsToSession(PlayerSessionVisitEntity visit, PlayerSessionEntity sessionEntity) {
+        return visit.getSession() != null
+                && sessionEntity != null
+                && Objects.equals(visit.getSession().getId(), sessionEntity.getId());
+    }
+
+    private static Instant maxInstant(Instant left, Instant right) {
+        if (left == null) {
+            return right;
+        }
+        if (right == null) {
+            return left;
+        }
+        return left.isAfter(right) ? left : right;
     }
 }

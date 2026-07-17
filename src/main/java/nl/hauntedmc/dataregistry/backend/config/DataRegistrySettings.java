@@ -142,9 +142,12 @@ public final class DataRegistrySettings {
                 "playtimeTrackingSettings must not be null"
         );
         this.enabledFeatures = Collections.unmodifiableSet(EnumSet.copyOf(builder.enabledFeatures));
-        if (enabledFeatures.contains(DataRegistryFeature.PLAYTIME)
-                && !enabledFeatures.contains(DataRegistryFeature.SESSIONS)) {
-            throw new IllegalArgumentException("PLAYTIME requires the SESSIONS feature to be enabled.");
+        if (!enabledFeatures.contains(DataRegistryFeature.SESSIONS)
+                && (enabledFeatures.contains(DataRegistryFeature.PLAYTIME)
+                || enabledFeatures.contains(DataRegistryFeature.SESSION_VISITS))) {
+            throw new IllegalArgumentException(
+                    "PLAYTIME and SESSION_VISITS require the SESSIONS feature to be enabled."
+            );
         }
     }
 

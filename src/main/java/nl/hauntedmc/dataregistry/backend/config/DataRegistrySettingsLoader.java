@@ -3,6 +3,7 @@ package nl.hauntedmc.dataregistry.backend.config;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
@@ -23,10 +24,11 @@ public final class DataRegistrySettingsLoader {
 
         Path configPath = DataRegistryConfigIO.ensureConfigFile(dataDirectory, resourceLoader, logger);
         Map<?, ?> rawRoot = DataRegistryConfigIO.readConfig(configPath, logger);
+        Map<String, Object> schemaRoot = buildSchemaDefaults(rawRoot);
 
         DataRegistryConfigReconciler.Result reconciliation = DataRegistryConfigReconciler.reconcile(
                 rawRoot,
-                DataRegistryConfigSchema.defaultsTree(DataRegistrySettings.defaults())
+                schemaRoot
         );
         if (reconciliation.changed()) {
             logger.info(
@@ -50,5 +52,31 @@ public final class DataRegistrySettingsLoader {
 
     DataRegistrySettings parse(Map<?, ?> configRoot, ILoggerAdapter logger) {
         return parser.parse(configRoot, logger);
+    }
+
+    private static Map<String, Object> buildSchemaDefaults(Map<?, ?> rawRoot) {
+        Map<String, Object> schemaRoot = new LinkedHashMap<>(
+                DataRegistryConfigSchema.defaultsTree(DataRegistrySettings.defaults())
+        );
+        Boolean sessionsEnabled = resolveBoolean(rawRoot, "features", "sessions");
+        if (Boolean.FALSE.equals(sessionsEnabled)) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> features = (Map<String, Object>) schemaRoot.get("features");
+            if (features != null) {
+                features.put("playtime", false);
+                features.put("session-visits", false);
+            }
+        }
+        return schemaRoot;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Boolean resolveBoolean(Map<?, ?> rawRoot, String sectionKey, String valueKey) {
+        Object section = rawRoot.get(sectionKey);
+        if (!(section instanceof Map<?, ?> sectionMap)) {
+            return null;
+        }
+        Object value = ((Map<?, ?>) sectionMap).get(valueKey);
+        return value instanceof Boolean booleanValue ? booleanValue : null;
     }
 }

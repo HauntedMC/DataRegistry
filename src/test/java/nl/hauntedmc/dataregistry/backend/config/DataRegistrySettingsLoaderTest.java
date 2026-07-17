@@ -47,7 +47,9 @@ class DataRegistrySettingsLoaderTest {
                 "features", Map.of(
                         "online-status", true,
                         "connection-info", false,
+                        "activity-summary", true,
                         "sessions", true,
+                        "session-visits", true,
                         "playtime", true,
                         "language", false,
                         "nicknames", true,
@@ -99,7 +101,9 @@ class DataRegistrySettingsLoaderTest {
         assertTrue(settings.persistVirtualHost());
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO));
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.NICKNAMES));

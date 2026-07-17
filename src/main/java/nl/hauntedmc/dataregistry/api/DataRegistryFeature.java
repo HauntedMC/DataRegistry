@@ -10,7 +10,9 @@ import java.util.Optional;
 public enum DataRegistryFeature {
     ONLINE_STATUS("online-status"),
     CONNECTION_INFO("connection-info"),
+    ACTIVITY_SUMMARY("activity-summary"),
     SESSIONS("sessions"),
+    SESSION_VISITS("session-visits"),
     PLAYTIME("playtime"),
     LANGUAGE("language"),
     NICKNAMES("nicknames"),
