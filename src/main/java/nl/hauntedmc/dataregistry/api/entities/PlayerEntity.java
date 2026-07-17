@@ -5,10 +5,16 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "player_entity")
+@Table(
+        name = "player_entity",
+        indexes = {
+                @Index(name = "idx_player_username", columnList = "username")
+        }
+)
 public class PlayerEntity {
 
     @Id

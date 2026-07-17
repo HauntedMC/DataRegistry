@@ -32,7 +32,7 @@ class PlayerSessionRepositoryTest {
 
         executeTransactionsWithSession(ormContext, session);
         when(session.createQuery(
-                "SELECT s FROM PlayerSessionEntity s WHERE s.player.id = :pid AND s.endedAt IS NULL ORDER BY s.startedAt DESC",
+                "SELECT s FROM PlayerSessionEntity s WHERE s.player.id = :pid AND s.endedAt IS NULL ORDER BY s.startedAt DESC, s.id DESC",
                 PlayerSessionEntity.class
         )).thenReturn(query);
         when(query.setParameter("pid", 12L)).thenReturn(query);
@@ -75,7 +75,7 @@ class PlayerSessionRepositoryTest {
 
         executeTransactionsWithSession(ormContext, session);
         when(session.createQuery(
-                "SELECT s FROM PlayerSessionEntity s WHERE s.player.id = :pid ORDER BY s.startedAt DESC",
+                "SELECT s FROM PlayerSessionEntity s WHERE s.player.id = :pid ORDER BY s.startedAt DESC, s.id DESC",
                 PlayerSessionEntity.class
         )).thenReturn(query);
         when(query.setParameter("pid", 15L)).thenReturn(query);
@@ -106,7 +106,7 @@ class PlayerSessionRepositoryTest {
 
         executeTransactionsWithSession(ormContext, session);
         when(session.createQuery(
-                "SELECT s FROM PlayerSessionEntity s WHERE s.player.id = :pid ORDER BY s.startedAt DESC",
+                "SELECT s FROM PlayerSessionEntity s WHERE s.player.id = :pid ORDER BY s.startedAt DESC, s.id DESC",
                 PlayerSessionEntity.class
         )).thenReturn(latestQuery);
         when(latestQuery.setParameter("pid", 9L)).thenReturn(latestQuery);
@@ -114,14 +114,14 @@ class PlayerSessionRepositoryTest {
         when(latestQuery.uniqueResultOptional()).thenReturn(Optional.of(sessionEntity));
 
         when(session.createQuery(
-                "SELECT s FROM PlayerSessionEntity s WHERE s.endedAt IS NULL ORDER BY s.startedAt DESC",
+                "SELECT s FROM PlayerSessionEntity s WHERE s.endedAt IS NULL ORDER BY s.startedAt DESC, s.id DESC",
                 PlayerSessionEntity.class
         )).thenReturn(openQuery);
         when(openQuery.setMaxResults(1)).thenReturn(openQuery);
         when(openQuery.list()).thenReturn(List.of(sessionEntity));
 
         when(session.createQuery(
-                "SELECT s FROM PlayerSessionEntity s WHERE s.startedAt >= :startedAfter ORDER BY s.startedAt DESC",
+                "SELECT s FROM PlayerSessionEntity s WHERE s.startedAt >= :startedAfter ORDER BY s.startedAt DESC, s.id DESC",
                 PlayerSessionEntity.class
         )).thenReturn(startedAfterQuery);
         when(startedAfterQuery.setParameter("startedAfter", threshold)).thenReturn(startedAfterQuery);

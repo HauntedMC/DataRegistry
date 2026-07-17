@@ -98,7 +98,7 @@ class PlayerSessionServiceTest {
         when(registry.getORM()).thenReturn(ormContext);
         executeTransactionsWithSession(ormContext, session);
         when(session.createQuery(
-                "SELECT s FROM PlayerSessionEntity s WHERE s.player.id = :playerId AND s.endedAt IS NULL ORDER BY s.startedAt DESC",
+                "SELECT s FROM PlayerSessionEntity s WHERE s.player.id = :playerId AND s.endedAt IS NULL ORDER BY s.startedAt DESC, s.id DESC",
                 PlayerSessionEntity.class
         )).thenReturn(query);
         when(query.setParameter("playerId", player.getId())).thenReturn(query);
@@ -128,7 +128,7 @@ class PlayerSessionServiceTest {
         when(registry.getORM()).thenReturn(ormContext);
         executeTransactionsWithSession(ormContext, session);
         when(session.createQuery(
-                "SELECT s FROM PlayerSessionEntity s WHERE s.player.id = :playerId AND s.endedAt IS NULL ORDER BY s.startedAt DESC",
+                "SELECT s FROM PlayerSessionEntity s WHERE s.player.id = :playerId AND s.endedAt IS NULL ORDER BY s.startedAt DESC, s.id DESC",
                 PlayerSessionEntity.class
         )).thenReturn(query);
         when(query.setParameter("playerId", player.getId())).thenReturn(query);

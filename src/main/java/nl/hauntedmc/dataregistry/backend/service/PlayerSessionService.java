@@ -143,7 +143,7 @@ public final class PlayerSessionService {
                 Optional<PlayerSessionEntity> openSession = session.createQuery(
                                 "SELECT s FROM PlayerSessionEntity s " +
                                         "WHERE s.player.id = :playerId AND s.endedAt IS NULL " +
-                                        "ORDER BY s.startedAt DESC",
+                                        "ORDER BY s.startedAt DESC, s.id DESC",
                                 PlayerSessionEntity.class)
                         .setParameter("playerId", playerEntity.getId())
                         .setMaxResults(1)
@@ -184,7 +184,7 @@ public final class PlayerSessionService {
                 Optional<PlayerSessionEntity> openSession = session.createQuery(
                                 "SELECT s FROM PlayerSessionEntity s " +
                                         "WHERE s.player.id = :playerId AND s.endedAt IS NULL " +
-                                        "ORDER BY s.startedAt DESC",
+                                        "ORDER BY s.startedAt DESC, s.id DESC",
                                 PlayerSessionEntity.class)
                         .setParameter("playerId", playerEntity.getId())
                         .setMaxResults(1)

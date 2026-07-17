@@ -20,7 +20,8 @@ import java.time.Instant;
                 @UniqueConstraint(name = "uk_ns_kind_name", columnNames = {"service_kind", "service_name"})
         },
         indexes = {
-                @Index(name = "idx_ns_last_seen_at", columnList = "last_seen_at")
+                @Index(name = "idx_ns_last_seen_at", columnList = "last_seen_at"),
+                @Index(name = "idx_ns_service_name", columnList = "service_name")
         }
 )
 public class NetworkServiceEntity {

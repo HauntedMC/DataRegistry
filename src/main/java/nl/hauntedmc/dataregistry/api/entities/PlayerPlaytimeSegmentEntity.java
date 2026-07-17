@@ -22,7 +22,8 @@ import java.time.Instant;
                 @Index(name = "idx_ppts_player_open", columnList = "player_id, ended_at"),
                 @Index(name = "idx_ppts_player_started", columnList = "player_id, started_at"),
                 @Index(name = "idx_ppts_gamemode_started", columnList = "gamemode_key, started_at"),
-                @Index(name = "idx_ppts_session_open", columnList = "session_id, ended_at")
+                @Index(name = "idx_ppts_session_open", columnList = "session_id, ended_at"),
+                @Index(name = "idx_ppts_open_started", columnList = "ended_at, started_at")
         }
 )
 public class PlayerPlaytimeSegmentEntity {

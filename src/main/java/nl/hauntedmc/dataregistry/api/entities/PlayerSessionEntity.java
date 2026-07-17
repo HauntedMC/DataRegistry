@@ -17,7 +17,8 @@ import java.time.Instant;
         name = "player_sessions",
         indexes = {
                 @Index(name = "idx_psi_player_started", columnList = "player_id, started_at"),
-                @Index(name = "idx_psi_player_open", columnList = "player_id, ended_at")
+                @Index(name = "idx_psi_player_open", columnList = "player_id, ended_at"),
+                @Index(name = "idx_psi_open_started", columnList = "ended_at, started_at")
         }
 )
 public class PlayerSessionEntity {

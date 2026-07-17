@@ -23,7 +23,7 @@ public class PlayerSessionRepository extends AbstractRepository<PlayerSessionEnt
                 session.createQuery(
                                 "SELECT s FROM PlayerSessionEntity s " +
                                         "WHERE s.player.id = :pid AND s.endedAt IS NULL " +
-                                        "ORDER BY s.startedAt DESC", PlayerSessionEntity.class)
+                                        "ORDER BY s.startedAt DESC, s.id DESC", PlayerSessionEntity.class)
                         .setParameter("pid", playerId)
                         .setMaxResults(1)
                         .uniqueResultOptional()
@@ -54,7 +54,7 @@ public class PlayerSessionRepository extends AbstractRepository<PlayerSessionEnt
         return ormContext.runInTransaction(session ->
                 session.createQuery(
                                 "SELECT s FROM PlayerSessionEntity s " +
-                                        "WHERE s.player.id = :pid ORDER BY s.startedAt DESC",
+                                        "WHERE s.player.id = :pid ORDER BY s.startedAt DESC, s.id DESC",
                                 PlayerSessionEntity.class)
                         .setParameter("pid", playerId)
                         .setMaxResults(Math.max(1, limit))
@@ -70,7 +70,7 @@ public class PlayerSessionRepository extends AbstractRepository<PlayerSessionEnt
         return ormContext.runInTransaction(session ->
                 session.createQuery(
                                 "SELECT s FROM PlayerSessionEntity s " +
-                                        "WHERE s.player.id = :pid ORDER BY s.startedAt DESC",
+                                        "WHERE s.player.id = :pid ORDER BY s.startedAt DESC, s.id DESC",
                                 PlayerSessionEntity.class
                         )
                         .setParameter("pid", playerId)
@@ -86,7 +86,7 @@ public class PlayerSessionRepository extends AbstractRepository<PlayerSessionEnt
         return ormContext.runInTransaction(session ->
                 session.createQuery(
                                 "SELECT s FROM PlayerSessionEntity s " +
-                                        "WHERE s.endedAt IS NULL ORDER BY s.startedAt DESC",
+                                        "WHERE s.endedAt IS NULL ORDER BY s.startedAt DESC, s.id DESC",
                                 PlayerSessionEntity.class
                         )
                         .setMaxResults(Math.max(1, limit))
@@ -102,7 +102,7 @@ public class PlayerSessionRepository extends AbstractRepository<PlayerSessionEnt
         return ormContext.runInTransaction(session ->
                 session.createQuery(
                                 "SELECT s FROM PlayerSessionEntity s " +
-                                        "WHERE s.startedAt >= :startedAfter ORDER BY s.startedAt DESC",
+                                        "WHERE s.startedAt >= :startedAfter ORDER BY s.startedAt DESC, s.id DESC",
                                 PlayerSessionEntity.class
                         )
                         .setParameter("startedAfter", startedAfter)
