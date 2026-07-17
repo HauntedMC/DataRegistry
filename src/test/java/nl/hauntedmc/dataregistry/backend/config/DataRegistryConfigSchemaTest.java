@@ -41,6 +41,9 @@ class DataRegistryConfigSchemaTest {
     void renderCanonicalConfigDocumentsSchemaModesAndValidationRanges() {
         String rendered = DataRegistryConfigSchema.renderCanonicalConfig(DataRegistrySettings.defaults());
 
+        assertTrue(rendered.contains("Applies to: Both."));
+        assertTrue(rendered.contains("Applies to: Velocity."));
+        assertTrue(rendered.contains("Applies to: Bukkit."));
         assertTrue(rendered.contains("schema-mode: validate"));
         assertTrue(rendered.contains("validate: verify schema only (recommended for production)"));
         assertTrue(rendered.contains("update: auto-apply additive changes (development/staging)"));
@@ -55,6 +58,7 @@ class DataRegistryConfigSchemaTest {
         assertTrue(rendered.contains("session-visits: true"));
         assertTrue(rendered.contains("language: true"));
         assertTrue(rendered.contains("nicknames: true"));
+        assertTrue(rendered.contains("Player lifecycle domains are written on Velocity; Bukkit still needs these toggles"));
         assertTrue(rendered.contains("heartbeat-interval-seconds: 30"));
         assertTrue(rendered.contains("probe-interval-seconds: 15"));
         assertTrue(rendered.contains("probe-timeout-millis: 1500"));

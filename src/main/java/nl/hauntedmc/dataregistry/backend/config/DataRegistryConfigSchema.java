@@ -119,6 +119,7 @@ final class DataRegistryConfigSchema {
         builder.append("# DataRegistry runtime settings\n");
         builder.append("# Do not store raw personal connection metadata unless explicitly needed.\n\n");
         builder.append("database:\n");
+        builder.append("  # Applies to: Both.\n");
         builder.append("  # DataProvider database type (for example MYSQL).\n");
         builder.append("  type: ").append(settings.databaseType().name()).append('\n');
         builder.append("  profiles:\n");
@@ -132,6 +133,7 @@ final class DataRegistryConfigSchema {
         builder.append("      connection-id: ").append(settings.serviceDatabaseConnectionId()).append('\n');
         builder.append('\n');
         builder.append("orm:\n");
+        builder.append("  # Applies to: Both.\n");
         builder.append("  # Schema mode controls ORM DDL behavior:\n");
         builder.append("  # validate: verify schema only (recommended for production)\n");
         builder.append("  # update: auto-apply additive changes (development/staging)\n");
@@ -141,12 +143,16 @@ final class DataRegistryConfigSchema {
         builder.append("  schema-mode: ").append(settings.ormSchemaMode()).append('\n');
         builder.append('\n');
         builder.append("privacy:\n");
+        builder.append("  # Applies to: Velocity lifecycle writes.\n");
+        builder.append("  # Bukkit loads the same file but does not currently persist connection metadata itself.\n");
         builder.append("  # Persist player IP addresses in connection info.\n");
         builder.append("  persist-ip-address: ").append(settings.persistIpAddress()).append('\n');
         builder.append("  # Persist player virtual host values in connection info.\n");
         builder.append("  persist-virtual-host: ").append(settings.persistVirtualHost()).append('\n');
         builder.append('\n');
         builder.append("features:\n");
+        builder.append("  # Applies to: Both.\n");
+        builder.append("  # Player lifecycle domains are written on Velocity; Bukkit still needs these toggles for schema/repository availability.\n");
         builder.append("  # Toggle built-in data domains.\n");
         builder.append("  # Disabled domains are not registered in ORM and will not receive writes.\n");
         builder.append("  online-status: ").append(settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)).append('\n');
@@ -162,6 +168,7 @@ final class DataRegistryConfigSchema {
         builder.append('\n');
         PlaytimeTrackingSettings playtimeSettings = settings.playtimeTrackingSettings();
         builder.append("playtime:\n");
+        builder.append("  # Applies to: Velocity.\n");
         builder.append("  # Periodic flush cadence for active online playtime (seconds, 5-300).\n");
         builder.append("  flush-interval-seconds: ").append(playtimeSettings.flushIntervalSeconds()).append('\n');
         builder.append("  # When true, unknown server names fall back to their normalized server name as gamemode key.\n");
@@ -180,6 +187,9 @@ final class DataRegistryConfigSchema {
         builder.append("  server-gamemode-rules: []\n");
         builder.append('\n');
         builder.append("service-registry:\n");
+        builder.append("  # Applies to: Both.\n");
+        builder.append("  # Heartbeat settings affect both platforms when service-registry is enabled.\n");
+        builder.append("  # Probe settings below are Velocity-only.\n");
         builder.append("  # Heartbeat write interval for service instances (seconds, 5-300).\n");
         builder.append("  heartbeat-interval-seconds: ").append(settings.serviceHeartbeatIntervalSeconds()).append('\n');
         builder.append("  # Velocity backend-probe interval (seconds, 5-300).\n");
@@ -193,6 +203,7 @@ final class DataRegistryConfigSchema {
         builder.append('\n');
         builder.append("platform:\n");
         builder.append("  bukkit:\n");
+        builder.append("    # Applies to: Bukkit.\n");
         builder.append("    # Delay after join event before snapshotting status (ticks, 0-200).\n");
         builder.append("    join-delay-ticks: ").append(settings.bukkitJoinDelayTicks()).append('\n');
         builder.append("    # Register Paper backend heartbeats in the service registry.\n");
@@ -202,10 +213,13 @@ final class DataRegistryConfigSchema {
         builder.append("    # Required when register-service-instance is true; 'auto' is only a placeholder default.\n");
         builder.append("    service-name: ").append(settings.bukkitServiceName()).append('\n');
         builder.append("  velocity:\n");
+        builder.append("    # Applies to: Velocity.\n");
         builder.append("    # Proxy logical service name; set to 'auto' to derive from host:port fallback naming.\n");
         builder.append("    service-name: ").append(settings.velocityServiceName()).append('\n');
         builder.append('\n');
         builder.append("validation:\n");
+        builder.append("  # Applies to: Both.\n");
+        builder.append("  # These limits are shared by the schema and repository validation across both runtimes.\n");
         builder.append("  username:\n");
         builder.append("    # Max persisted username length (1-32).\n");
         builder.append("    max-length: ").append(settings.usernameMaxLength()).append('\n');

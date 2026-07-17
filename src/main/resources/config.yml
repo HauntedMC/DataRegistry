@@ -2,6 +2,7 @@
 # Do not store raw personal connection metadata unless explicitly needed.
 
 database:
+  # Applies to: Both.
   # DataProvider database type (for example MYSQL).
   type: MYSQL
   profiles:
@@ -15,6 +16,7 @@ database:
       connection-id: player_data_rw
 
 orm:
+  # Applies to: Both.
   # Schema mode controls ORM DDL behavior:
   # validate: verify schema only (recommended for production)
   # update: auto-apply additive changes (development/staging)
@@ -24,22 +26,31 @@ orm:
   schema-mode: validate
 
 privacy:
+  # Applies to: Velocity lifecycle writes.
+  # Bukkit loads the same file but does not currently persist connection metadata itself.
   # Persist player IP addresses in connection info.
   persist-ip-address: false
   # Persist player virtual host values in connection info.
   persist-virtual-host: false
 
 features:
+  # Applies to: Both.
+  # Player lifecycle domains are written on Velocity; Bukkit still needs these toggles for schema/repository availability.
   # Toggle built-in data domains.
   # Disabled domains are not registered in ORM and will not receive writes.
   online-status: true
   connection-info: true
+  activity-summary: true
   sessions: true
+  session-visits: true
   playtime: true
+  language: true
+  nicknames: true
   name-history: true
   service-registry: true
 
 playtime:
+  # Applies to: Velocity.
   # Periodic flush cadence for active online playtime (seconds, 5-300).
   flush-interval-seconds: 30
   # When true, unknown server names fall back to their normalized server name as gamemode key.
@@ -56,19 +67,23 @@ playtime:
   server-gamemode-rules: []
 
 service-registry:
+  # Applies to: Both.
+  # Heartbeat settings affect both platforms when service-registry is enabled.
+  # Probe settings below are Velocity-only.
   # Heartbeat write interval for service instances (seconds, 5-300).
   heartbeat-interval-seconds: 30
   # Velocity backend-probe interval (seconds, 5-300).
-  probe-interval-seconds: 30
+  probe-interval-seconds: 15
   # Velocity backend-probe timeout (milliseconds, 200-10000).
   probe-timeout-millis: 1500
   # Retention window for probe history cleanup (hours, 1-2160).
-  probe-retention-hours: 72
+  probe-retention-hours: 168
   # How often stale probe history cleanup runs (hours, 1-2160).
   probe-purge-interval-hours: 12
 
 platform:
   bukkit:
+    # Applies to: Bukkit.
     # Delay after join event before snapshotting status (ticks, 0-200).
     join-delay-ticks: 4
     # Register Paper backend heartbeats in the service registry.
@@ -78,10 +93,13 @@ platform:
     # Required when register-service-instance is true; 'auto' is only a placeholder default.
     service-name: auto
   velocity:
+    # Applies to: Velocity.
     # Proxy logical service name; set to 'auto' to derive from host:port fallback naming.
     service-name: auto
 
 validation:
+  # Applies to: Both.
+  # These limits are shared by the schema and repository validation across both runtimes.
   username:
     # Max persisted username length (1-32).
     max-length: 32
