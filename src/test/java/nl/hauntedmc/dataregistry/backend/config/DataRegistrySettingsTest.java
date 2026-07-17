@@ -34,9 +34,13 @@ class DataRegistrySettingsTest {
         assertEquals(1500, settings.serviceProbeTimeoutMillis());
         assertEquals(168, settings.serviceProbeRetentionHours());
         assertEquals(12, settings.serviceProbePurgeIntervalHours());
+        assertEquals(30, settings.playtimeTrackingSettings().flushIntervalSeconds());
+        assertEquals(64, settings.playtimeTrackingSettings().gamemodeKeyMaxLength());
+        assertTrue(settings.playtimeTrackingSettings().resolveUnknownServersAsGamemode());
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
     }
@@ -129,5 +133,15 @@ class DataRegistrySettingsTest {
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO));
+    }
+
+    @Test
+    void builderRejectsPlaytimeWithoutSessions() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DataRegistrySettings.builder()
+                        .enabledFeatures(EnumSet.of(DataRegistryFeature.PLAYTIME))
+                        .build()
+        );
     }
 }

@@ -19,6 +19,7 @@ class DataRegistryConfigSchemaTest {
         assertTrue(tree.containsKey("orm"));
         assertTrue(tree.containsKey("privacy"));
         assertTrue(tree.containsKey("features"));
+        assertTrue(tree.containsKey("playtime"));
         assertTrue(tree.containsKey("service-registry"));
         assertTrue(tree.containsKey("platform"));
         assertTrue(tree.containsKey("validation"));
@@ -46,6 +47,10 @@ class DataRegistryConfigSchemaTest {
         assertTrue(rendered.contains("create: drop and recreate schema at startup (ephemeral/local only)"));
         assertTrue(rendered.contains("create-drop: create at startup, drop at shutdown (tests/local only)"));
         assertTrue(rendered.contains("none: disable ORM schema management (use external migrations)"));
+        assertTrue(rendered.contains("playtime:"));
+        assertTrue(rendered.contains("flush-interval-seconds: 30"));
+        assertTrue(rendered.contains("resolve-unknown-servers-as-gamemode: true"));
+        assertTrue(rendered.contains("server-gamemode-rules: []"));
         assertTrue(rendered.contains("heartbeat-interval-seconds: 30"));
         assertTrue(rendered.contains("probe-interval-seconds: 15"));
         assertTrue(rendered.contains("probe-timeout-millis: 1500"));

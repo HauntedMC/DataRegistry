@@ -8,6 +8,7 @@ import com.velocitypowered.api.proxy.Player;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.backend.service.PlayerConnectionInfoService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerNameHistoryService;
+import nl.hauntedmc.dataregistry.backend.service.PlayerPlaytimeService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerSessionService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerStatusService;
@@ -16,6 +17,7 @@ import nl.hauntedmc.dataregistry.platform.velocity.util.VelocityPlayerAdapter;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -36,6 +38,7 @@ public class PlayerStatusListener {
     private final PlayerStatusService statusService;
     private final PlayerConnectionInfoService connectionService;
     private final PlayerSessionService sessionService;
+    private final PlayerPlaytimeService playtimeService;
     private final ILoggerAdapter logger;
     private final Executor eventExecutor;
     private final ConcurrentMap<String, CompletableFuture<Void>> playerEventPipelines = new ConcurrentHashMap<>();
@@ -46,6 +49,7 @@ public class PlayerStatusListener {
                                 PlayerStatusService statusService,
                                 PlayerConnectionInfoService connectionService,
                                 PlayerSessionService sessionService,
+                                PlayerPlaytimeService playtimeService,
                                 ILoggerAdapter logger,
                                 Executor eventExecutor) {
         this.playerService = Objects.requireNonNull(playerService, "playerService must not be null");
@@ -53,6 +57,7 @@ public class PlayerStatusListener {
         this.statusService = Objects.requireNonNull(statusService, "statusService must not be null");
         this.connectionService = Objects.requireNonNull(connectionService, "connectionService must not be null");
         this.sessionService = Objects.requireNonNull(sessionService, "sessionService must not be null");
+        this.playtimeService = Objects.requireNonNull(playtimeService, "playtimeService must not be null");
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
         this.eventExecutor = Objects.requireNonNull(eventExecutor, "eventExecutor must not be null");
     }
@@ -99,6 +104,7 @@ public class PlayerStatusListener {
             PlayerEntity persistent = resolveOrRestorePlayer(uuid, username);
             statusService.updateStatus(persistent, serverName);
             sessionService.updateServerOnSwitch(persistent, serverName);
+            playtimeService.onServerSwitch(persistent, serverName);
         });
     }
 
@@ -117,6 +123,7 @@ public class PlayerStatusListener {
                 PlayerEntity persistent = resolveOrRestorePlayer(uuid, username);
                 statusService.updateStatusOnQuit(persistent);
                 connectionService.updateOnDisconnect(persistent);
+                playtimeService.closeActivePlaytimeOnDisconnect(persistent);
                 sessionService.closeSessionOnDisconnect(persistent);
             } finally {
                 playerService.onPlayerQuit(username, uuid);
@@ -153,6 +160,16 @@ public class PlayerStatusListener {
 
     public void beginShutdown() {
         acceptingEvents.set(false);
+    }
+
+    public void flushActivePlaytime() {
+        for (Map.Entry<String, PlayerEntity> entry : playerService.snapshotActivePlayers().entrySet()) {
+            PlayerEntity player = entry.getValue();
+            if (player == null) {
+                continue;
+            }
+            enqueuePlayerEvent(entry.getKey(), () -> playtimeService.flushActivePlaytime(player));
+        }
     }
 
     public boolean awaitPipelineDrain(long timeout, TimeUnit unit) {

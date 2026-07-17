@@ -35,8 +35,25 @@ features:
   online-status: true
   connection-info: true
   sessions: true
+  playtime: true
   name-history: true
   service-registry: true
+
+playtime:
+  # Periodic flush cadence for active online playtime (seconds, 5-300).
+  flush-interval-seconds: 30
+  # When true, unknown server names fall back to their normalized server name as gamemode key.
+  resolve-unknown-servers-as-gamemode: true
+  # Gamemode keys that should never accrue tracked playtime.
+  ignored-gamemodes: []
+  # Gamemode keys that should track individually but not count toward network totals.
+  excluded-from-network-total-gamemodes: []
+  # Ordered first-match server mapping rules. Supports '*' and '?' wildcards.
+  # Example:
+  # server-gamemode-rules:
+  #   - match: "lobby-*"
+  #     gamemode: lobby
+  server-gamemode-rules: []
 
 service-registry:
   # Heartbeat write interval for service instances (seconds, 5-300).
@@ -70,6 +87,9 @@ validation:
     max-length: 32
   server:
     # Max persisted server name length (1-64).
+    max-length: 64
+  gamemode:
+    # Max persisted gamemode key length (1-64).
     max-length: 64
   virtual-host:
     # Max persisted virtual host length (1-255).

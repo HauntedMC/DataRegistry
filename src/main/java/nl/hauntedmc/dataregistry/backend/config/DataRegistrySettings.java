@@ -52,6 +52,7 @@ public final class DataRegistrySettings {
     private final int serviceProbeTimeoutMillis;
     private final int serviceProbeRetentionHours;
     private final int serviceProbePurgeIntervalHours;
+    private final PlaytimeTrackingSettings playtimeTrackingSettings;
     private final Set<DataRegistryFeature> enabledFeatures;
 
     private DataRegistrySettings(Builder builder) {
@@ -136,7 +137,15 @@ public final class DataRegistrySettings {
                 1,
                 2160
         );
+        this.playtimeTrackingSettings = Objects.requireNonNull(
+                builder.playtimeTrackingSettings,
+                "playtimeTrackingSettings must not be null"
+        );
         this.enabledFeatures = Collections.unmodifiableSet(EnumSet.copyOf(builder.enabledFeatures));
+        if (enabledFeatures.contains(DataRegistryFeature.PLAYTIME)
+                && !enabledFeatures.contains(DataRegistryFeature.SESSIONS)) {
+            throw new IllegalArgumentException("PLAYTIME requires the SESSIONS feature to be enabled.");
+        }
     }
 
     public static Builder builder() {
@@ -231,6 +240,10 @@ public final class DataRegistrySettings {
         return serviceProbePurgeIntervalHours;
     }
 
+    public PlaytimeTrackingSettings playtimeTrackingSettings() {
+        return playtimeTrackingSettings;
+    }
+
     public Set<DataRegistryFeature> enabledFeatures() {
         return enabledFeatures;
     }
@@ -313,6 +326,7 @@ public final class DataRegistrySettings {
         private int serviceProbeTimeoutMillis = DEFAULT_SERVICE_PROBE_TIMEOUT_MILLIS;
         private int serviceProbeRetentionHours = DEFAULT_SERVICE_PROBE_RETENTION_HOURS;
         private int serviceProbePurgeIntervalHours = DEFAULT_SERVICE_PROBE_PURGE_INTERVAL_HOURS;
+        private PlaytimeTrackingSettings playtimeTrackingSettings = PlaytimeTrackingSettings.defaults();
         private EnumSet<DataRegistryFeature> enabledFeatures = EnumSet.allOf(DataRegistryFeature.class);
 
         private Builder() {
@@ -411,6 +425,14 @@ public final class DataRegistrySettings {
 
         public Builder serviceProbePurgeIntervalHours(int value) {
             this.serviceProbePurgeIntervalHours = value;
+            return this;
+        }
+
+        public Builder playtimeTrackingSettings(PlaytimeTrackingSettings value) {
+            this.playtimeTrackingSettings = Objects.requireNonNull(
+                    value,
+                    "playtimeTrackingSettings must not be null"
+            );
             return this;
         }
 

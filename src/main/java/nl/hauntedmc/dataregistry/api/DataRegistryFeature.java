@@ -11,6 +11,7 @@ public enum DataRegistryFeature {
     ONLINE_STATUS("online-status"),
     CONNECTION_INFO("connection-info"),
     SESSIONS("sessions"),
+    PLAYTIME("playtime"),
     NAME_HISTORY("name-history"),
     SERVICE_REGISTRY("service-registry");
 

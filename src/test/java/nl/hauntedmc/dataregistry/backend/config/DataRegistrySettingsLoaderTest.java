@@ -48,8 +48,19 @@ class DataRegistrySettingsLoaderTest {
                         "online-status", true,
                         "connection-info", false,
                         "sessions", true,
+                        "playtime", true,
                         "name-history", true,
                         "service-registry", true
+                ),
+                "playtime", Map.of(
+                        "flush-interval-seconds", 45,
+                        "resolve-unknown-servers-as-gamemode", false,
+                        "ignored-gamemodes", List.of("queue", "limbo"),
+                        "excluded-from-network-total-gamemodes", List.of("lobby"),
+                        "server-gamemode-rules", List.of(
+                                Map.of("match", "lobby-*", "gamemode", "lobby"),
+                                Map.of("match", "skyblock-*", "gamemode", "skyblock")
+                        )
                 ),
                 "service-registry", Map.of(
                         "heartbeat-interval-seconds", 45,
@@ -87,8 +98,14 @@ class DataRegistrySettingsLoaderTest {
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
+        assertEquals(45, settings.playtimeTrackingSettings().flushIntervalSeconds());
+        assertFalse(settings.playtimeTrackingSettings().resolveUnknownServersAsGamemode());
+        assertTrue(settings.playtimeTrackingSettings().ignoredGamemodes().contains("queue"));
+        assertTrue(settings.playtimeTrackingSettings().excludedFromNetworkTotalGamemodes().contains("lobby"));
+        assertEquals(2, settings.playtimeTrackingSettings().serverGamemodeRules().size());
         assertEquals(45, settings.serviceHeartbeatIntervalSeconds());
         assertEquals(18, settings.serviceProbeIntervalSeconds());
         assertEquals(2200, settings.serviceProbeTimeoutMillis());
@@ -124,6 +141,7 @@ class DataRegistrySettingsLoaderTest {
                 ),
                 "features", Map.of(
                         "sessions", false,
+                        "playtime", false,
                         "service-registry", true
                 ),
                 "service-registry", Map.of(
@@ -143,6 +161,7 @@ class DataRegistrySettingsLoaderTest {
         assertTrue(settings.persistIpAddress());
         assertEquals(defaults.persistVirtualHost(), settings.persistVirtualHost());
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
+        assertFalse(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
         assertEquals(
                 defaults.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS),
@@ -250,6 +269,7 @@ class DataRegistrySettingsLoaderTest {
                   schema-mode: update
                 features:
                   sessions: false
+                  playtime: false
                 service-registry:
                   heartbeat-interval-seconds: 40
                   probe-interval-seconds: 20
@@ -280,6 +300,7 @@ class DataRegistrySettingsLoaderTest {
         assertEquals("services-main", settings.serviceDatabaseConnectionId());
         assertEquals("update", settings.ormSchemaMode());
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
+        assertFalse(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME));
         assertEquals(40, settings.serviceHeartbeatIntervalSeconds());
         assertEquals(20, settings.serviceProbeIntervalSeconds());
         assertEquals(1800, settings.serviceProbeTimeoutMillis());
@@ -334,6 +355,7 @@ class DataRegistrySettingsLoaderTest {
                   should-be-removed: true
                 features:
                   sessions: false
+                  playtime: false
                 """);
 
         DataRegistrySettingsLoader loader = new DataRegistrySettingsLoader();
@@ -345,6 +367,7 @@ class DataRegistrySettingsLoaderTest {
         assertEquals("players-main", settings.playerDatabaseConnectionId());
         assertEquals(DataRegistrySettings.defaults().serviceDatabaseConnectionId(), settings.serviceDatabaseConnectionId());
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
+        assertFalse(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME));
         assertTrue(reconciledConfig.contains("services:"));
         assertTrue(reconciledConfig.contains("connection-id: player_data_rw"));
         assertTrue(reconciledConfig.contains("privacy:"));

@@ -3,6 +3,7 @@ package nl.hauntedmc.dataregistry.backend.config;
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -44,9 +45,25 @@ final class DataRegistryConfigSchema {
         features.put("online-status", defaults.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS));
         features.put("connection-info", defaults.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO));
         features.put("sessions", defaults.isFeatureEnabled(DataRegistryFeature.SESSIONS));
+        features.put("playtime", defaults.isFeatureEnabled(DataRegistryFeature.PLAYTIME));
         features.put("name-history", defaults.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY));
         features.put("service-registry", defaults.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
         root.put("features", features);
+
+        PlaytimeTrackingSettings playtimeSettings = defaults.playtimeTrackingSettings();
+        Map<String, Object> playtime = new LinkedHashMap<>();
+        playtime.put("flush-interval-seconds", playtimeSettings.flushIntervalSeconds());
+        playtime.put(
+                "resolve-unknown-servers-as-gamemode",
+                playtimeSettings.resolveUnknownServersAsGamemode()
+        );
+        playtime.put("ignored-gamemodes", List.copyOf(playtimeSettings.ignoredGamemodes()));
+        playtime.put(
+                "excluded-from-network-total-gamemodes",
+                List.copyOf(playtimeSettings.excludedFromNetworkTotalGamemodes())
+        );
+        playtime.put("server-gamemode-rules", List.of());
+        root.put("playtime", playtime);
 
         Map<String, Object> serviceRegistry = new LinkedHashMap<>();
         serviceRegistry.put("heartbeat-interval-seconds", defaults.serviceHeartbeatIntervalSeconds());
@@ -72,12 +89,15 @@ final class DataRegistryConfigSchema {
         username.put("max-length", defaults.usernameMaxLength());
         Map<String, Object> server = new LinkedHashMap<>();
         server.put("max-length", defaults.serverNameMaxLength());
+        Map<String, Object> gamemode = new LinkedHashMap<>();
+        gamemode.put("max-length", playtimeSettings.gamemodeKeyMaxLength());
         Map<String, Object> virtualHost = new LinkedHashMap<>();
         virtualHost.put("max-length", defaults.virtualHostMaxLength());
         Map<String, Object> ip = new LinkedHashMap<>();
         ip.put("max-length", defaults.ipAddressMaxLength());
         validation.put("username", username);
         validation.put("server", server);
+        validation.put("gamemode", gamemode);
         validation.put("virtual-host", virtualHost);
         validation.put("ip", ip);
         root.put("validation", validation);
@@ -128,8 +148,28 @@ final class DataRegistryConfigSchema {
         builder.append("  online-status: ").append(settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)).append('\n');
         builder.append("  connection-info: ").append(settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO)).append('\n');
         builder.append("  sessions: ").append(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS)).append('\n');
+        builder.append("  playtime: ").append(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)).append('\n');
         builder.append("  name-history: ").append(settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY)).append('\n');
         builder.append("  service-registry: ").append(settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY)).append('\n');
+        builder.append('\n');
+        PlaytimeTrackingSettings playtimeSettings = settings.playtimeTrackingSettings();
+        builder.append("playtime:\n");
+        builder.append("  # Periodic flush cadence for active online playtime (seconds, 5-300).\n");
+        builder.append("  flush-interval-seconds: ").append(playtimeSettings.flushIntervalSeconds()).append('\n');
+        builder.append("  # When true, unknown server names fall back to their normalized server name as gamemode key.\n");
+        builder.append("  resolve-unknown-servers-as-gamemode: ")
+                .append(playtimeSettings.resolveUnknownServersAsGamemode())
+                .append('\n');
+        builder.append("  # Gamemode keys that should never accrue tracked playtime.\n");
+        builder.append("  ignored-gamemodes: []\n");
+        builder.append("  # Gamemode keys that should track individually but not count toward network totals.\n");
+        builder.append("  excluded-from-network-total-gamemodes: []\n");
+        builder.append("  # Ordered first-match server mapping rules. Supports '*' and '?' wildcards.\n");
+        builder.append("  # Example:\n");
+        builder.append("  # server-gamemode-rules:\n");
+        builder.append("  #   - match: \"lobby-*\"\n");
+        builder.append("  #     gamemode: lobby\n");
+        builder.append("  server-gamemode-rules: []\n");
         builder.append('\n');
         builder.append("service-registry:\n");
         builder.append("  # Heartbeat write interval for service instances (seconds, 5-300).\n");
@@ -164,6 +204,9 @@ final class DataRegistryConfigSchema {
         builder.append("  server:\n");
         builder.append("    # Max persisted server name length (1-64).\n");
         builder.append("    max-length: ").append(settings.serverNameMaxLength()).append('\n');
+        builder.append("  gamemode:\n");
+        builder.append("    # Max persisted gamemode key length (1-64).\n");
+        builder.append("    max-length: ").append(playtimeSettings.gamemodeKeyMaxLength()).append('\n');
         builder.append("  virtual-host:\n");
         builder.append("    # Max persisted virtual host length (1-255).\n");
         builder.append("    max-length: ").append(settings.virtualHostMaxLength()).append('\n');

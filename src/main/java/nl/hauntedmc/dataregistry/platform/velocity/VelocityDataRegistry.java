@@ -19,6 +19,8 @@ import nl.hauntedmc.dataregistry.api.entities.ServiceKind;
 import nl.hauntedmc.dataregistry.api.entities.ServiceProbeStatus;
 import nl.hauntedmc.dataregistry.backend.service.PlayerConnectionInfoService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerNameHistoryService;
+import nl.hauntedmc.dataregistry.backend.playtime.PlaytimeGamemodeResolver;
+import nl.hauntedmc.dataregistry.backend.service.PlayerPlaytimeService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerSessionService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerStatusService;
@@ -63,6 +65,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
     static final int INITIALIZE_EVENT_PRIORITY = 1000;
     static final int SHUTDOWN_EVENT_PRIORITY = -1000;
     static final long EVENT_PIPELINE_DRAIN_TIMEOUT_SECONDS = 5L;
+    static final long PLAYTIME_FLUSH_SHUTDOWN_TIMEOUT_SECONDS = 2L;
     static final long SERVICE_REGISTRY_SHUTDOWN_TIMEOUT_SECONDS = 2L;
     static final long SERVICE_PROBE_SHUTDOWN_TIMEOUT_SECONDS = 2L;
 
@@ -75,6 +78,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
     private SLF4JLoggerAdapter logInstance;
     private DataRegistrySettings settings = DataRegistrySettings.defaults();
     private ExecutorService playerEventExecutor;
+    private ScheduledExecutorService playerPlaytimeFlushExecutor;
     private ScheduledExecutorService serviceRegistryHeartbeatExecutor;
     private ScheduledExecutorService serviceRegistryProbeExecutor;
     private PlayerStatusListener playerStatusListener;
@@ -108,9 +112,12 @@ public class VelocityDataRegistry implements PlatformPlugin {
                     getPlatformLogger()
             );
             registerPlayerStatusListener();
+            recoverPlaytimeStateOnStartup();
+            startPlaytimeFlushLifecycle();
             startServiceRegistryLifecycle();
         } catch (RuntimeException | Error startupFailure) {
             shutdownPlayerEventExecutor();
+            shutdownPlayerPlaytimeFlushExecutor();
             shutdownServiceRegistryHeartbeatExecutor();
             shutdownServiceRegistryProbeExecutor();
             logger.error("DataRegistry startup failed on Velocity.", startupFailure);
@@ -123,10 +130,12 @@ public class VelocityDataRegistry implements PlatformPlugin {
 
     @Subscribe(priority = SHUTDOWN_EVENT_PRIORITY)
     public void onProxyShutdown(ProxyShutdownEvent event) {
+        stopPlaytimeFlushLifecycle();
         stopAcceptingAndDrainPlayerEvents();
         stopServiceRegistryLifecycle();
         runtime.stop(getPlatformLogger());
         shutdownPlayerEventExecutor();
+        shutdownPlayerPlaytimeFlushExecutor();
         shutdownServiceRegistryHeartbeatExecutor();
         shutdownServiceRegistryProbeExecutor();
         logger.info("DataRegistry disabled on Velocity.");
@@ -214,6 +223,13 @@ public class VelocityDataRegistry implements PlatformPlugin {
                 settings.serverNameMaxLength(),
                 settings.isFeatureEnabled(DataRegistryFeature.SESSIONS)
         );
+        PlayerPlaytimeService playtimeService = new PlayerPlaytimeService(
+                registry,
+                getPlatformLogger(),
+                new PlaytimeGamemodeResolver(settings.playtimeTrackingSettings()),
+                settings.serverNameMaxLength(),
+                settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
+        );
 
         PlayerStatusListener listener = new PlayerStatusListener(
                 playerService,
@@ -221,6 +237,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
                 statusService,
                 connectionService,
                 sessionService,
+                playtimeService,
                 getPlatformLogger(),
                 playerEventExecutor
         );
@@ -234,10 +251,32 @@ public class VelocityDataRegistry implements PlatformPlugin {
         if (listener == null) {
             return;
         }
+        listener.flushActivePlaytime();
         listener.beginShutdown();
         boolean drained = listener.awaitPipelineDrain(EVENT_PIPELINE_DRAIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         if (!drained) {
             logger.warn("Timed out waiting for queued player lifecycle events to drain before shutdown.");
+        }
+    }
+
+    void recoverPlaytimeStateOnStartup() {
+        if (!settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)) {
+            return;
+        }
+        DataRegistry registry = getDataRegistry();
+        PlayerPlaytimeService playtimeService = new PlayerPlaytimeService(
+                registry,
+                getPlatformLogger(),
+                new PlaytimeGamemodeResolver(settings.playtimeTrackingSettings()),
+                settings.serverNameMaxLength(),
+                true
+        );
+        int recoveredSegments = playtimeService.recoverOpenSegmentsOnStartup();
+        if (recoveredSegments > 0) {
+            logger.warn(
+                    "Recovered {} stale open playtime segment(s) left by a previous unclean shutdown.",
+                    recoveredSegments
+            );
         }
     }
 
@@ -315,6 +354,31 @@ public class VelocityDataRegistry implements PlatformPlugin {
                 probeIntervalSeconds,
                 TimeUnit.SECONDS
         );
+    }
+
+    private void startPlaytimeFlushLifecycle() {
+        if (!settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)) {
+            return;
+        }
+        ensurePlayerPlaytimeFlushExecutor();
+        PlayerStatusListener listener = playerStatusListener;
+        if (listener == null) {
+            return;
+        }
+        int flushIntervalSeconds = settings.playtimeTrackingSettings().flushIntervalSeconds();
+        playerPlaytimeFlushExecutor.scheduleAtFixedRate(
+                listener::flushActivePlaytime,
+                flushIntervalSeconds,
+                flushIntervalSeconds,
+                TimeUnit.SECONDS
+        );
+    }
+
+    private void stopPlaytimeFlushLifecycle() {
+        ScheduledExecutorService executor = playerPlaytimeFlushExecutor;
+        if (executor != null) {
+            executor.shutdown();
+        }
     }
 
     private static String resolveProxyServiceName(String configuredServiceName, String host, Integer port) {
@@ -582,6 +646,19 @@ public class VelocityDataRegistry implements PlatformPlugin {
         serviceRegistryProbeExecutor = Executors.newSingleThreadScheduledExecutor(threadFactory);
     }
 
+    private void ensurePlayerPlaytimeFlushExecutor() {
+        if (playerPlaytimeFlushExecutor != null && !playerPlaytimeFlushExecutor.isShutdown()) {
+            return;
+        }
+        ThreadFactory threadFactory = runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("DataRegistry-velocity-playtime-flush");
+            thread.setDaemon(true);
+            return thread;
+        };
+        playerPlaytimeFlushExecutor = Executors.newSingleThreadScheduledExecutor(threadFactory);
+    }
+
     private void shutdownPlayerEventExecutor() {
         ExecutorService executor = playerEventExecutor;
         playerEventExecutor = null;
@@ -608,6 +685,23 @@ public class VelocityDataRegistry implements PlatformPlugin {
         executor.shutdown();
         try {
             if (!executor.awaitTermination(SERVICE_REGISTRY_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            executor.shutdownNow();
+        }
+    }
+
+    private void shutdownPlayerPlaytimeFlushExecutor() {
+        ScheduledExecutorService executor = playerPlaytimeFlushExecutor;
+        playerPlaytimeFlushExecutor = null;
+        if (executor == null) {
+            return;
+        }
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(PLAYTIME_FLUSH_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 executor.shutdownNow();
             }
         } catch (InterruptedException interruptedException) {

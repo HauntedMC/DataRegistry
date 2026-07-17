@@ -6,6 +6,7 @@ import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Map;
 
 /**
  * Backend service for player identity lifecycle and active cache access.
@@ -74,5 +75,12 @@ public final class PlayerService {
             return Optional.empty();
         }
         return persistedPlayer.map(PlayerEntity::getUsername);
+    }
+
+    /**
+     * Returns an immutable snapshot of active players keyed by normalized UUID.
+     */
+    public Map<String, PlayerEntity> snapshotActivePlayers() {
+        return playerRepository.snapshotActivePlayers();
     }
 }

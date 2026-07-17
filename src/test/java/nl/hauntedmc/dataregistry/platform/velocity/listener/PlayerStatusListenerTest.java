@@ -11,10 +11,15 @@ import nl.hauntedmc.dataregistry.api.entities.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerNameHistoryEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerOnlineStatusEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerPlaytimeEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerPlaytimeSegmentEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
+import nl.hauntedmc.dataregistry.backend.config.PlaytimeTrackingSettings;
+import nl.hauntedmc.dataregistry.backend.playtime.PlaytimeGamemodeResolver;
 import nl.hauntedmc.dataregistry.backend.service.PlayerConnectionInfoService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerNameHistoryService;
+import nl.hauntedmc.dataregistry.backend.service.PlayerPlaytimeService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerSessionService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerStatusService;
@@ -67,6 +72,12 @@ class PlayerStatusListenerTest {
         PlayerStatusService statusService = new PlayerStatusService(registry, logger, 64);
         PlayerConnectionInfoService connectionService = new PlayerConnectionInfoService(registry, logger, true, true, 45, 255);
         PlayerSessionService sessionService = new PlayerSessionService(registry, logger, true, true, 45, 255, 64);
+        PlayerPlaytimeService playtimeService = new PlayerPlaytimeService(
+                registry,
+                logger,
+                new PlaytimeGamemodeResolver(PlaytimeTrackingSettings.defaults()),
+                64
+        );
         Executor directExecutor = Runnable::run;
 
         assertThrows(
@@ -77,6 +88,7 @@ class PlayerStatusListenerTest {
                         statusService,
                         connectionService,
                         sessionService,
+                        playtimeService,
                         logger,
                         directExecutor
                 )
@@ -89,6 +101,7 @@ class PlayerStatusListenerTest {
                         statusService,
                         connectionService,
                         sessionService,
+                        playtimeService,
                         logger,
                         directExecutor
                 )
@@ -101,6 +114,7 @@ class PlayerStatusListenerTest {
                         null,
                         connectionService,
                         sessionService,
+                        playtimeService,
                         logger,
                         directExecutor
                 )
@@ -113,6 +127,7 @@ class PlayerStatusListenerTest {
                         statusService,
                         null,
                         sessionService,
+                        playtimeService,
                         logger,
                         directExecutor
                 )
@@ -125,6 +140,7 @@ class PlayerStatusListenerTest {
                         statusService,
                         connectionService,
                         null,
+                        playtimeService,
                         logger,
                         directExecutor
                 )
@@ -138,6 +154,7 @@ class PlayerStatusListenerTest {
                         connectionService,
                         sessionService,
                         null,
+                        logger,
                         directExecutor
                 )
         );
@@ -149,6 +166,20 @@ class PlayerStatusListenerTest {
                         statusService,
                         connectionService,
                         sessionService,
+                        playtimeService,
+                        null,
+                        directExecutor
+                )
+        );
+        assertThrows(
+                NullPointerException.class,
+                () -> new PlayerStatusListener(
+                        playerService,
+                        nameHistoryService,
+                        statusService,
+                        connectionService,
+                        sessionService,
+                        playtimeService,
                         logger,
                         null
                 )
@@ -217,7 +248,7 @@ class PlayerStatusListenerTest {
 
         context.listener.onServerSwitch(new ServerConnectedEvent(player, server, null));
 
-        verify(context.ormContext, times(2)).runInTransaction(any());
+        verify(context.ormContext, times(3)).runInTransaction(any());
     }
 
     @Test
@@ -239,7 +270,7 @@ class PlayerStatusListenerTest {
         context.listener.onServerSwitch(new ServerConnectedEvent(player, server, null));
 
         verify(context.repository).getOrCreateActivePlayer(uuid, "Alice");
-        verify(context.ormContext, times(2)).runInTransaction(any());
+        verify(context.ormContext, times(3)).runInTransaction(any());
     }
 
     @Test
@@ -257,7 +288,7 @@ class PlayerStatusListenerTest {
 
         context.listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN));
 
-        verify(context.ormContext, times(3)).runInTransaction(any());
+        verify(context.ormContext, times(4)).runInTransaction(any());
         verify(context.repository).removeActivePlayer(uuid);
     }
 
@@ -278,7 +309,7 @@ class PlayerStatusListenerTest {
         context.listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN));
 
         verify(context.repository).getOrCreateActivePlayer(uuid, "Alice");
-        verify(context.ormContext, times(3)).runInTransaction(any());
+        verify(context.ormContext, times(4)).runInTransaction(any());
         verify(context.repository).removeActivePlayer(uuid);
     }
 
@@ -388,6 +419,17 @@ class PlayerStatusListenerTest {
         verify(context.repository, times(2)).getOrCreateActivePlayer(uuid, "Alice");
     }
 
+    @Test
+    void flushActivePlaytimeQueuesOneTaskPerActivePlayer() {
+        TestContext context = createContext();
+        String uuid = UUID.randomUUID().toString();
+        when(context.repository.snapshotActivePlayers()).thenReturn(Map.of(uuid, persistedPlayer(uuid, "Alice")));
+
+        context.listener.flushActivePlaytime();
+
+        verify(context.ormContext).runInTransaction(any());
+    }
+
     private static TestContext createContext() {
         return createContext(Runnable::run);
     }
@@ -403,6 +445,10 @@ class PlayerStatusListenerTest {
         Query<PlayerSessionEntity> sessionQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
         Query<PlayerNameHistoryEntity> nameHistoryQuery = mock(Query.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerPlaytimeSegmentEntity> playtimeSegmentQuery = mock(Query.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerPlaytimeEntity> playtimeAggregateQuery = mock(Query.class);
 
         when(registry.getORM()).thenReturn(ormContext);
         executeTransactionsWithSession(ormContext, session);
@@ -422,6 +468,14 @@ class PlayerStatusListenerTest {
         when(nameHistoryQuery.setParameter(anyString(), any())).thenReturn(nameHistoryQuery);
         when(nameHistoryQuery.setMaxResults(anyInt())).thenReturn(nameHistoryQuery);
         when(nameHistoryQuery.uniqueResultOptional()).thenReturn(Optional.empty());
+        when(session.createQuery(anyString(), eq(PlayerPlaytimeSegmentEntity.class))).thenReturn(playtimeSegmentQuery);
+        when(playtimeSegmentQuery.setParameter(anyString(), any())).thenReturn(playtimeSegmentQuery);
+        when(playtimeSegmentQuery.setMaxResults(anyInt())).thenReturn(playtimeSegmentQuery);
+        when(playtimeSegmentQuery.uniqueResultOptional()).thenReturn(Optional.empty());
+        when(session.createQuery(anyString(), eq(PlayerPlaytimeEntity.class))).thenReturn(playtimeAggregateQuery);
+        when(playtimeAggregateQuery.setParameter(anyString(), any())).thenReturn(playtimeAggregateQuery);
+        when(playtimeAggregateQuery.setMaxResults(anyInt())).thenReturn(playtimeAggregateQuery);
+        when(playtimeAggregateQuery.uniqueResultOptional()).thenReturn(Optional.empty());
 
         PlayerService playerService = new PlayerService(repository, logger);
         PlayerNameHistoryService nameHistoryService = new PlayerNameHistoryService(registry, logger, 32, true);
@@ -443,6 +497,12 @@ class PlayerStatusListenerTest {
                 255,
                 64
         );
+        PlayerPlaytimeService playtimeService = new PlayerPlaytimeService(
+                registry,
+                logger,
+                new PlaytimeGamemodeResolver(PlaytimeTrackingSettings.defaults()),
+                64
+        );
 
         PlayerStatusListener listener = new PlayerStatusListener(
                 playerService,
@@ -450,6 +510,7 @@ class PlayerStatusListenerTest {
                 statusService,
                 connectionService,
                 sessionService,
+                playtimeService,
                 logger,
                 eventExecutor
         );

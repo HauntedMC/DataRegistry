@@ -217,6 +217,7 @@ class VelocityDataRegistryTest {
 
         assertSame(registry, plugin.getDataRegistry());
         assertTrue(plugin.listenerRegistered);
+        assertTrue(plugin.playtimeRecoveryInvoked);
         assertSame(api, plugin.createdWithApi);
         verify(registry).initialize();
     }
@@ -305,6 +306,7 @@ class VelocityDataRegistryTest {
         private boolean listenerRegistered;
         private DataProviderAPI createdWithApi;
         private boolean playerEventsDrained;
+        private boolean playtimeRecoveryInvoked;
 
         private TestVelocityDataRegistry(
                 ProxyServer proxyServer,
@@ -336,6 +338,11 @@ class VelocityDataRegistryTest {
         @Override
         void stopAcceptingAndDrainPlayerEvents() {
             this.playerEventsDrained = true;
+        }
+
+        @Override
+        void recoverPlaytimeStateOnStartup() {
+            this.playtimeRecoveryInvoked = true;
         }
     }
 

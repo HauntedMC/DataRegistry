@@ -15,6 +15,7 @@ Shared player and service-state storage for HauntedMC across Velocity and Paper.
 - Stores player identity by UUID
 - Tracks online status and current server
 - Records session open and close events
+- Tracks playtime per logical gamemode with rule-based server mapping
 - Optionally stores IP address and virtual host data
 - Preserves former usernames in a dedicated history table
 - Tracks services, running instances, and backend probe results
@@ -56,6 +57,7 @@ The config is intentionally small. Most deployments only need to review:
 - `privacy.persist-ip-address`
 - `privacy.persist-virtual-host`
 - `features.*`
+- `playtime.*`
 - `service-registry.*`
 - `platform.bukkit.service-name`
 - `platform.velocity.service-name`
@@ -115,7 +117,10 @@ Optional<PlayerEntity> player = registry.getPlayerRepository().findByUUID(uuid);
 Primary entry points:
 
 - `DataRegistry#getPlayerRepository()`
+- `DataRegistry#getPlayerSessionRepository()`
 - `DataRegistry#getPlayerNameHistoryRepository()`
+- `DataRegistry#getPlayerPlaytimeRepository()`
+- `DataRegistry#getPlayerPlaytimeSegmentRepository()`
 - `DataRegistry#getNetworkServiceRepository()`
 - `DataRegistry#getServiceInstanceRepository()`
 - `DataRegistry#getServiceProbeRepository()`

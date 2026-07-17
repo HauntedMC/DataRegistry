@@ -7,13 +7,18 @@ import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerNameHistoryEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerOnlineStatusEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerPlaytimeEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerPlaytimeSegmentEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.api.entities.NetworkServiceEntity;
 import nl.hauntedmc.dataregistry.api.entities.ServiceInstanceEntity;
 import nl.hauntedmc.dataregistry.api.entities.ServiceProbeEntity;
 import nl.hauntedmc.dataregistry.api.repository.NetworkServiceRepository;
+import nl.hauntedmc.dataregistry.api.repository.PlayerPlaytimeRepository;
+import nl.hauntedmc.dataregistry.api.repository.PlayerPlaytimeSegmentRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerNameHistoryRepository;
+import nl.hauntedmc.dataregistry.api.repository.PlayerSessionRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceInstanceRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceProbeRepository;
 import nl.hauntedmc.dataregistry.backend.config.DataRegistrySettings;
@@ -42,6 +47,9 @@ public class DataRegistry {
 
     private PlayerRepository playerRepository;
     private PlayerNameHistoryRepository playerNameHistoryRepository;
+    private PlayerSessionRepository playerSessionRepository;
+    private PlayerPlaytimeRepository playerPlaytimeRepository;
+    private PlayerPlaytimeSegmentRepository playerPlaytimeSegmentRepository;
     private NetworkServiceRepository networkServiceRepository;
     private ServiceInstanceRepository serviceInstanceRepository;
     private ServiceProbeRepository serviceProbeRepository;
@@ -90,6 +98,15 @@ public class DataRegistry {
             this.playerNameHistoryRepository = settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY)
                     ? newPlayerNameHistoryRepository(ormContext)
                     : null;
+            this.playerSessionRepository = settings.isFeatureEnabled(DataRegistryFeature.SESSIONS)
+                    ? newPlayerSessionRepository(ormContext)
+                    : null;
+            this.playerPlaytimeRepository = settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
+                    ? newPlayerPlaytimeRepository(ormContext)
+                    : null;
+            this.playerPlaytimeSegmentRepository = settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
+                    ? newPlayerPlaytimeSegmentRepository(ormContext)
+                    : null;
             this.networkServiceRepository = null;
             this.serviceInstanceRepository = null;
             this.serviceProbeRepository = null;
@@ -117,6 +134,9 @@ public class DataRegistry {
         serviceOrmContext = null;
         playerRepository = null;
         playerNameHistoryRepository = null;
+        playerSessionRepository = null;
+        playerPlaytimeRepository = null;
+        playerPlaytimeSegmentRepository = null;
         networkServiceRepository = null;
         serviceInstanceRepository = null;
         serviceProbeRepository = null;
@@ -183,6 +203,27 @@ public class DataRegistry {
             throw new IllegalStateException("Player name history repository is unavailable.");
         }
         return playerNameHistoryRepository;
+    }
+
+    public synchronized PlayerSessionRepository getPlayerSessionRepository() {
+        if (playerSessionRepository == null) {
+            throw new IllegalStateException("Player session repository is unavailable.");
+        }
+        return playerSessionRepository;
+    }
+
+    public synchronized PlayerPlaytimeRepository getPlayerPlaytimeRepository() {
+        if (playerPlaytimeRepository == null) {
+            throw new IllegalStateException("Player playtime repository is unavailable.");
+        }
+        return playerPlaytimeRepository;
+    }
+
+    public synchronized PlayerPlaytimeSegmentRepository getPlayerPlaytimeSegmentRepository() {
+        if (playerPlaytimeSegmentRepository == null) {
+            throw new IllegalStateException("Player playtime segment repository is unavailable.");
+        }
+        return playerPlaytimeSegmentRepository;
     }
 
     public synchronized ORMContext getServiceORM() {
@@ -266,6 +307,21 @@ public class DataRegistry {
         return new PlayerNameHistoryRepository(context);
     }
 
+    PlayerSessionRepository newPlayerSessionRepository(ORMContext context) {
+        return new PlayerSessionRepository(context);
+    }
+
+    PlayerPlaytimeRepository newPlayerPlaytimeRepository(ORMContext context) {
+        return new PlayerPlaytimeRepository(
+                context,
+                settings.playtimeTrackingSettings().excludedFromNetworkTotalGamemodes()
+        );
+    }
+
+    PlayerPlaytimeSegmentRepository newPlayerPlaytimeSegmentRepository(ORMContext context) {
+        return new PlayerPlaytimeSegmentRepository(context);
+    }
+
     NetworkServiceRepository newNetworkServiceRepository(ORMContext context) {
         return new NetworkServiceRepository(context);
     }
@@ -299,6 +355,10 @@ public class DataRegistry {
         }
         if (settings.isFeatureEnabled(DataRegistryFeature.SESSIONS)) {
             entityClasses.add(PlayerSessionEntity.class);
+        }
+        if (settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)) {
+            entityClasses.add(PlayerPlaytimeEntity.class);
+            entityClasses.add(PlayerPlaytimeSegmentEntity.class);
         }
         if (settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY)) {
             entityClasses.add(PlayerNameHistoryEntity.class);
@@ -349,6 +409,9 @@ public class DataRegistry {
                 || serviceOrmContext != null
                 || playerRepository != null
                 || playerNameHistoryRepository != null
+                || playerSessionRepository != null
+                || playerPlaytimeRepository != null
+                || playerPlaytimeSegmentRepository != null
                 || networkServiceRepository != null
                 || serviceInstanceRepository != null
                 || serviceProbeRepository != null;
@@ -359,6 +422,13 @@ public class DataRegistry {
             return false;
         }
         if (settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY) && playerNameHistoryRepository == null) {
+            return false;
+        }
+        if (settings.isFeatureEnabled(DataRegistryFeature.SESSIONS) && playerSessionRepository == null) {
+            return false;
+        }
+        if (settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
+                && (playerPlaytimeRepository == null || playerPlaytimeSegmentRepository == null)) {
             return false;
         }
         if (settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY)) {

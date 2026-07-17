@@ -84,6 +84,9 @@ final class DataRegistryConfigReconciler {
         if (expectedValue instanceof Number) {
             return rawValue instanceof Number;
         }
+        if (expectedValue instanceof java.util.List<?>) {
+            return rawValue instanceof java.util.List<?>;
+        }
         return rawValue != null && expectedValue.getClass().isInstance(rawValue);
     }
 

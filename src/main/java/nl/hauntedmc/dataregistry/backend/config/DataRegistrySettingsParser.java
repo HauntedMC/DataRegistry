@@ -4,10 +4,14 @@ import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import nl.hauntedmc.dataprovider.database.DatabaseType;
 
+import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.BiConsumer;
 
 /**
@@ -24,6 +28,7 @@ final class DataRegistrySettingsParser {
     private static final String FEATURE_ONLINE_STATUS_KEY = "features.online-status";
     private static final String FEATURE_CONNECTION_INFO_KEY = "features.connection-info";
     private static final String FEATURE_SESSIONS_KEY = "features.sessions";
+    private static final String FEATURE_PLAYTIME_KEY = "features.playtime";
     private static final String FEATURE_NAME_HISTORY_KEY = "features.name-history";
     private static final String FEATURE_SERVICE_REGISTRY_KEY = "features.service-registry";
     private static final String SERVICE_HEARTBEAT_INTERVAL_SECONDS_KEY = "service-registry.heartbeat-interval-seconds";
@@ -37,8 +42,16 @@ final class DataRegistrySettingsParser {
     private static final String VELOCITY_SERVICE_NAME_KEY = "platform.velocity.service-name";
     private static final String USERNAME_MAX_LENGTH_KEY = "validation.username.max-length";
     private static final String SERVER_NAME_MAX_LENGTH_KEY = "validation.server.max-length";
+    private static final String GAMEMODE_MAX_LENGTH_KEY = "validation.gamemode.max-length";
     private static final String VIRTUAL_HOST_MAX_LENGTH_KEY = "validation.virtual-host.max-length";
     private static final String IP_ADDRESS_MAX_LENGTH_KEY = "validation.ip.max-length";
+    private static final String PLAYTIME_FLUSH_INTERVAL_SECONDS_KEY = "playtime.flush-interval-seconds";
+    private static final String PLAYTIME_RESOLVE_UNKNOWN_SERVERS_KEY =
+            "playtime.resolve-unknown-servers-as-gamemode";
+    private static final String PLAYTIME_IGNORED_GAMEMODES_KEY = "playtime.ignored-gamemodes";
+    private static final String PLAYTIME_EXCLUDED_GAMEMODES_KEY =
+            "playtime.excluded-from-network-total-gamemodes";
+    private static final String PLAYTIME_SERVER_GAMEMODE_RULES_KEY = "playtime.server-gamemode-rules";
 
     DataRegistrySettings parse(Map<?, ?> configRoot, ILoggerAdapter logger) {
         Objects.requireNonNull(configRoot, "configRoot must not be null");
@@ -235,6 +248,18 @@ final class DataRegistrySettingsParser {
                 logger,
                 DataRegistrySettings.Builder::serverNameMaxLength
         ));
+        PlaytimeTrackingSettings defaultPlaytimeSettings = defaults.playtimeTrackingSettings();
+        builder.playtimeTrackingSettings(validateWithBuilder(
+                "playtime",
+                parsePlaytimeSettings(
+                        configRoot,
+                        defaultPlaytimeSettings,
+                        logger
+                ),
+                defaultPlaytimeSettings,
+                logger,
+                DataRegistrySettings.Builder::playtimeTrackingSettings
+        ));
         builder.virtualHostMaxLength(validateWithBuilder(
                 VIRTUAL_HOST_MAX_LENGTH_KEY,
                 parseInteger(
@@ -404,7 +429,181 @@ final class DataRegistrySettingsParser {
         )) {
             enabledFeatures.add(DataRegistryFeature.SERVICE_REGISTRY);
         }
+        if (parseBoolean(
+                configRoot,
+                FEATURE_PLAYTIME_KEY,
+                defaults.isFeatureEnabled(DataRegistryFeature.PLAYTIME),
+                logger
+        )) {
+            enabledFeatures.add(DataRegistryFeature.PLAYTIME);
+        }
+        if (enabledFeatures.contains(DataRegistryFeature.PLAYTIME)
+                && !enabledFeatures.contains(DataRegistryFeature.SESSIONS)) {
+            logger.warn("Feature 'playtime' requires 'sessions'. Enabling 'sessions' automatically.");
+            enabledFeatures.add(DataRegistryFeature.SESSIONS);
+        }
         return enabledFeatures;
+    }
+
+    private static PlaytimeTrackingSettings parsePlaytimeSettings(
+            Map<?, ?> configRoot,
+            PlaytimeTrackingSettings defaults,
+            ILoggerAdapter logger
+    ) {
+        PlaytimeTrackingSettings.Builder builder = PlaytimeTrackingSettings.builder();
+        int gamemodeKeyMaxLength = validatePlaytimeWithBuilder(
+                GAMEMODE_MAX_LENGTH_KEY,
+                parseInteger(
+                        configRoot,
+                        GAMEMODE_MAX_LENGTH_KEY,
+                        defaults.gamemodeKeyMaxLength(),
+                        logger
+                ),
+                defaults.gamemodeKeyMaxLength(),
+                logger,
+                PlaytimeTrackingSettings.Builder::gamemodeKeyMaxLength
+        );
+        builder.flushIntervalSeconds(validatePlaytimeWithBuilder(
+                PLAYTIME_FLUSH_INTERVAL_SECONDS_KEY,
+                parseInteger(
+                        configRoot,
+                        PLAYTIME_FLUSH_INTERVAL_SECONDS_KEY,
+                        defaults.flushIntervalSeconds(),
+                        logger
+                ),
+                defaults.flushIntervalSeconds(),
+                logger,
+                PlaytimeTrackingSettings.Builder::flushIntervalSeconds
+        ));
+        builder.resolveUnknownServersAsGamemode(parseBoolean(
+                configRoot,
+                PLAYTIME_RESOLVE_UNKNOWN_SERVERS_KEY,
+                defaults.resolveUnknownServersAsGamemode(),
+                logger
+        ));
+        builder.gamemodeKeyMaxLength(gamemodeKeyMaxLength);
+        builder.ignoredGamemodes(parseGamemodeKeySet(
+                configRoot,
+                PLAYTIME_IGNORED_GAMEMODES_KEY,
+                gamemodeKeyMaxLength,
+                defaults.ignoredGamemodes(),
+                logger
+        ));
+        builder.excludedFromNetworkTotalGamemodes(parseGamemodeKeySet(
+                configRoot,
+                PLAYTIME_EXCLUDED_GAMEMODES_KEY,
+                gamemodeKeyMaxLength,
+                defaults.excludedFromNetworkTotalGamemodes(),
+                logger
+        ));
+        builder.serverGamemodeRules(parseServerGamemodeRules(
+                configRoot,
+                PLAYTIME_SERVER_GAMEMODE_RULES_KEY,
+                gamemodeKeyMaxLength,
+                defaults.serverGamemodeRules(),
+                logger
+        ));
+        try {
+            return builder.build();
+        } catch (IllegalArgumentException exception) {
+            logger.warn("Unexpected playtime settings validation failure; falling back to defaults.", exception);
+            return defaults;
+        }
+    }
+
+    private static <T> T validatePlaytimeWithBuilder(
+            String key,
+            T candidateValue,
+            T defaultValue,
+            ILoggerAdapter logger,
+            BiConsumer<PlaytimeTrackingSettings.Builder, T> settingApplier
+    ) {
+        try {
+            PlaytimeTrackingSettings.Builder validationBuilder = PlaytimeTrackingSettings.builder();
+            settingApplier.accept(validationBuilder, candidateValue);
+            validationBuilder.build();
+            return candidateValue;
+        } catch (IllegalArgumentException exception) {
+            logger.warn(
+                    "Invalid value for key '" + key + "': '" + candidateValue + "'. Using default '" + defaultValue + "'."
+            );
+            return defaultValue;
+        }
+    }
+
+    private static Set<String> parseGamemodeKeySet(
+            Map<?, ?> configRoot,
+            String key,
+            int maxLength,
+            Set<String> defaultValue,
+            ILoggerAdapter logger
+    ) {
+        Object value = getValue(configRoot, key);
+        if (value == null) {
+            return defaultValue;
+        }
+        if (!(value instanceof List<?> listValue)) {
+            logger.warn("Invalid list for key '" + key + "'. Using default '" + defaultValue + "'.");
+            return defaultValue;
+        }
+        LinkedHashSet<String> parsed = new LinkedHashSet<>();
+        for (Object item : listValue) {
+            String rawValue = item == null ? null : item.toString();
+            String normalized = PlaytimeTrackingSettings.normalizeGamemodeKeyOrNull(rawValue, maxLength);
+            if (normalized == null) {
+                logger.warn(
+                        "Invalid gamemode key for key '" + key + "': '" + rawValue + "'. Skipping entry."
+                );
+                continue;
+            }
+            parsed.add(normalized);
+        }
+        return parsed;
+    }
+
+    private static List<PlaytimeTrackingSettings.ServerGamemodeRule> parseServerGamemodeRules(
+            Map<?, ?> configRoot,
+            String key,
+            int maxLength,
+            List<PlaytimeTrackingSettings.ServerGamemodeRule> defaultValue,
+            ILoggerAdapter logger
+    ) {
+        Object value = getValue(configRoot, key);
+        if (value == null) {
+            return defaultValue;
+        }
+        if (!(value instanceof List<?> listValue)) {
+            logger.warn("Invalid list for key '" + key + "'. Using default '" + defaultValue + "'.");
+            return defaultValue;
+        }
+        List<PlaytimeTrackingSettings.ServerGamemodeRule> parsed = new ArrayList<>();
+        for (Object item : listValue) {
+            if (!(item instanceof Map<?, ?> ruleMap)) {
+                logger.warn("Invalid rule entry for key '" + key + "'. Skipping entry.");
+                continue;
+            }
+            Object matchValue = ruleMap.get("match");
+            Object gamemodeValue = ruleMap.get("gamemode");
+            String normalizedGamemode = PlaytimeTrackingSettings.normalizeGamemodeKeyOrNull(
+                    gamemodeValue == null ? null : gamemodeValue.toString(),
+                    maxLength
+            );
+            if (matchValue == null || normalizedGamemode == null) {
+                logger.warn("Playtime rule for key '" + key + "' requires both match and gamemode. Skipping entry.");
+                continue;
+            }
+            try {
+                parsed.add(new PlaytimeTrackingSettings.ServerGamemodeRule(
+                        matchValue.toString(),
+                        normalizedGamemode
+                ));
+            } catch (IllegalArgumentException exception) {
+                logger.warn(
+                        "Invalid playtime rule for key '" + key + "': '" + item + "'. Skipping entry."
+                );
+            }
+        }
+        return parsed;
     }
 
     private static Object getValue(Map<?, ?> configRoot, String dottedKey) {
