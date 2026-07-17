@@ -7,12 +7,16 @@ import nl.hauntedmc.dataprovider.database.relational.RelationalDatabaseProvider;
 import nl.hauntedmc.dataprovider.logging.LogLevel;
 import nl.hauntedmc.dataregistry.api.entities.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerLanguageEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerNameHistoryEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerNicknameEntity;
 import nl.hauntedmc.dataregistry.api.entities.NetworkServiceEntity;
 import nl.hauntedmc.dataregistry.api.entities.ServiceInstanceEntity;
 import nl.hauntedmc.dataregistry.api.entities.ServiceProbeEntity;
 import nl.hauntedmc.dataregistry.api.repository.NetworkServiceRepository;
+import nl.hauntedmc.dataregistry.api.repository.PlayerLanguageRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerNameHistoryRepository;
+import nl.hauntedmc.dataregistry.api.repository.PlayerNicknameRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceInstanceRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceProbeRepository;
@@ -75,12 +79,16 @@ class DataRegistryTest {
         assertTrue(registry.initialize());
         assertSame(ormContext, registry.getORM());
         assertSame(repository, registry.getPlayerRepository());
+        assertSame(registry.testPlayerLanguageRepository(), registry.getPlayerLanguageRepository());
+        assertSame(registry.testPlayerNicknameRepository(), registry.getPlayerNicknameRepository());
         assertSame(dataSource, registry.lastPlayerDataSource);
         assertSame(registry.testPlayerNameHistoryRepository(), registry.getPlayerNameHistoryRepository());
         assertSame(registry.testServiceOrmContext(), registry.getServiceORM());
         assertSame(registry.testNetworkServiceRepository(), registry.getNetworkServiceRepository());
         assertSame(registry.testServiceInstanceRepository(), registry.getServiceInstanceRepository());
         assertSame(registry.testServiceProbeRepository(), registry.getServiceProbeRepository());
+        assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerLanguageEntity.class));
+        assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerNicknameEntity.class));
         assertEquals(3, registry.lastServiceEntityClasses.length);
         assertTrue(Arrays.asList(registry.lastServiceEntityClasses).contains(NetworkServiceEntity.class));
         assertTrue(Arrays.asList(registry.lastServiceEntityClasses).contains(ServiceInstanceEntity.class));
@@ -119,6 +127,8 @@ class DataRegistryTest {
         assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerEntity.class));
         assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerConnectionInfoEntity.class));
         assertFalse(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerNameHistoryEntity.class));
+        assertFalse(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerLanguageEntity.class));
+        assertFalse(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerNicknameEntity.class));
         assertEquals(0, registry.lastServiceEntityClasses.length);
         assertFalse(registry.isFeatureEnabled(DataRegistryFeature.SESSIONS));
         assertFalse(registry.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS));
@@ -276,6 +286,8 @@ class DataRegistryTest {
 
         assertThrows(IllegalStateException.class, registry::getORM);
         assertThrows(IllegalStateException.class, registry::getPlayerRepository);
+        assertThrows(IllegalStateException.class, registry::getPlayerLanguageRepository);
+        assertThrows(IllegalStateException.class, registry::getPlayerNicknameRepository);
         assertThrows(IllegalStateException.class, registry::getPlayerNameHistoryRepository);
         assertThrows(IllegalStateException.class, registry::getServiceProbeRepository);
         assertFalse(registry.isInitialized());
@@ -295,6 +307,8 @@ class DataRegistryTest {
                         DataRegistryFeature.ONLINE_STATUS,
                         DataRegistryFeature.CONNECTION_INFO,
                         DataRegistryFeature.SESSIONS,
+                        DataRegistryFeature.LANGUAGE,
+                        DataRegistryFeature.NICKNAMES,
                         DataRegistryFeature.NAME_HISTORY
                 ))
                 .build();
@@ -397,6 +411,8 @@ class DataRegistryTest {
         private final ORMContext playerOrmContext;
         private final ORMContext serviceOrmContext;
         private final PlayerRepository playerRepository;
+        private final PlayerLanguageRepository playerLanguageRepository;
+        private final PlayerNicknameRepository playerNicknameRepository;
         private final PlayerNameHistoryRepository playerNameHistoryRepository;
         private final NetworkServiceRepository networkServiceRepository;
         private final ServiceInstanceRepository serviceInstanceRepository;
@@ -416,6 +432,8 @@ class DataRegistryTest {
             super(logger, pluginName, dataProviderAPI);
             this.playerOrmContext = ormContext;
             this.playerRepository = repository;
+            this.playerLanguageRepository = mock(PlayerLanguageRepository.class);
+            this.playerNicknameRepository = mock(PlayerNicknameRepository.class);
             this.serviceOrmContext = mock(ORMContext.class);
             this.playerNameHistoryRepository = mock(PlayerNameHistoryRepository.class);
             this.networkServiceRepository = mock(NetworkServiceRepository.class);
@@ -434,6 +452,8 @@ class DataRegistryTest {
             super(logger, pluginName, dataProviderAPI, settings);
             this.playerOrmContext = ormContext;
             this.playerRepository = repository;
+            this.playerLanguageRepository = mock(PlayerLanguageRepository.class);
+            this.playerNicknameRepository = mock(PlayerNicknameRepository.class);
             this.serviceOrmContext = mock(ORMContext.class);
             this.playerNameHistoryRepository = mock(PlayerNameHistoryRepository.class);
             this.networkServiceRepository = mock(NetworkServiceRepository.class);
@@ -458,6 +478,16 @@ class DataRegistryTest {
         @Override
         PlayerRepository newPlayerRepository(ORMContext context) {
             return playerRepository;
+        }
+
+        @Override
+        PlayerLanguageRepository newPlayerLanguageRepository(ORMContext context) {
+            return playerLanguageRepository;
+        }
+
+        @Override
+        PlayerNicknameRepository newPlayerNicknameRepository(ORMContext context) {
+            return playerNicknameRepository;
         }
 
         @Override
@@ -486,6 +516,14 @@ class DataRegistryTest {
 
         private PlayerNameHistoryRepository testPlayerNameHistoryRepository() {
             return playerNameHistoryRepository;
+        }
+
+        private PlayerLanguageRepository testPlayerLanguageRepository() {
+            return playerLanguageRepository;
+        }
+
+        private PlayerNicknameRepository testPlayerNicknameRepository() {
+            return playerNicknameRepository;
         }
 
         private NetworkServiceRepository testNetworkServiceRepository() {

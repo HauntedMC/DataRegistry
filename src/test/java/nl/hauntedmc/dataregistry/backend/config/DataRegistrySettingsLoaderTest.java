@@ -49,6 +49,8 @@ class DataRegistrySettingsLoaderTest {
                         "connection-info", false,
                         "sessions", true,
                         "playtime", true,
+                        "language", false,
+                        "nicknames", true,
                         "name-history", true,
                         "service-registry", true
                 ),
@@ -99,6 +101,8 @@ class DataRegistrySettingsLoaderTest {
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME));
+        assertFalse(settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE));
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.NICKNAMES));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
         assertEquals(45, settings.playtimeTrackingSettings().flushIntervalSeconds());

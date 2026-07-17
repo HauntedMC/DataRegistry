@@ -80,6 +80,8 @@ class PlayerRepositoryTest {
         @SuppressWarnings("unchecked")
         Query<PlayerEntity> exactQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
+        Query<PlayerEntity> ignoreCaseQuery = mock(Query.class);
+        @SuppressWarnings("unchecked")
         Query<PlayerEntity> prefixQuery = mock(Query.class);
         PlayerRepository repository = new PlayerRepository(ormContext);
         PlayerEntity player = new PlayerEntity();
@@ -96,6 +98,14 @@ class PlayerRepositoryTest {
         when(exactQuery.uniqueResult()).thenReturn(player);
 
         when(session.createQuery(
+                "SELECT p FROM PlayerEntity p WHERE LOWER(p.username) = :username",
+                PlayerEntity.class
+        )).thenReturn(ignoreCaseQuery);
+        when(ignoreCaseQuery.setParameter("username", "alice")).thenReturn(ignoreCaseQuery);
+        when(ignoreCaseQuery.setMaxResults(1)).thenReturn(ignoreCaseQuery);
+        when(ignoreCaseQuery.uniqueResult()).thenReturn(player);
+
+        when(session.createQuery(
                 "SELECT p FROM PlayerEntity p WHERE LOWER(p.username) LIKE :prefix ORDER BY p.username ASC",
                 PlayerEntity.class
         )).thenReturn(prefixQuery);
@@ -104,6 +114,7 @@ class PlayerRepositoryTest {
         when(prefixQuery.list()).thenReturn(List.of(player));
 
         assertEquals(Optional.of(player), repository.findByUsername("  Alice "));
+        assertEquals(Optional.of(player), repository.findByUsernameIgnoreCase("  aLiCe "));
         assertEquals(List.of(player), repository.findByUsernamePrefix("Ali", 0));
     }
 

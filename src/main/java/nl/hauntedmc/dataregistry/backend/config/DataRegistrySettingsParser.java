@@ -29,6 +29,8 @@ final class DataRegistrySettingsParser {
     private static final String FEATURE_CONNECTION_INFO_KEY = "features.connection-info";
     private static final String FEATURE_SESSIONS_KEY = "features.sessions";
     private static final String FEATURE_PLAYTIME_KEY = "features.playtime";
+    private static final String FEATURE_LANGUAGE_KEY = "features.language";
+    private static final String FEATURE_NICKNAMES_KEY = "features.nicknames";
     private static final String FEATURE_NAME_HISTORY_KEY = "features.name-history";
     private static final String FEATURE_SERVICE_REGISTRY_KEY = "features.service-registry";
     private static final String SERVICE_HEARTBEAT_INTERVAL_SECONDS_KEY = "service-registry.heartbeat-interval-seconds";
@@ -420,6 +422,22 @@ final class DataRegistrySettingsParser {
                 logger
         )) {
             enabledFeatures.add(DataRegistryFeature.NAME_HISTORY);
+        }
+        if (parseBoolean(
+                configRoot,
+                FEATURE_LANGUAGE_KEY,
+                defaults.isFeatureEnabled(DataRegistryFeature.LANGUAGE),
+                logger
+        )) {
+            enabledFeatures.add(DataRegistryFeature.LANGUAGE);
+        }
+        if (parseBoolean(
+                configRoot,
+                FEATURE_NICKNAMES_KEY,
+                defaults.isFeatureEnabled(DataRegistryFeature.NICKNAMES),
+                logger
+        )) {
+            enabledFeatures.add(DataRegistryFeature.NICKNAMES);
         }
         if (parseBoolean(
                 configRoot,

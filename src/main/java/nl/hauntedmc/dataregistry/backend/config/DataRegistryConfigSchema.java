@@ -46,6 +46,8 @@ final class DataRegistryConfigSchema {
         features.put("connection-info", defaults.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO));
         features.put("sessions", defaults.isFeatureEnabled(DataRegistryFeature.SESSIONS));
         features.put("playtime", defaults.isFeatureEnabled(DataRegistryFeature.PLAYTIME));
+        features.put("language", defaults.isFeatureEnabled(DataRegistryFeature.LANGUAGE));
+        features.put("nicknames", defaults.isFeatureEnabled(DataRegistryFeature.NICKNAMES));
         features.put("name-history", defaults.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY));
         features.put("service-registry", defaults.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
         root.put("features", features);
@@ -149,6 +151,8 @@ final class DataRegistryConfigSchema {
         builder.append("  connection-info: ").append(settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO)).append('\n');
         builder.append("  sessions: ").append(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS)).append('\n');
         builder.append("  playtime: ").append(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)).append('\n');
+        builder.append("  language: ").append(settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE)).append('\n');
+        builder.append("  nicknames: ").append(settings.isFeatureEnabled(DataRegistryFeature.NICKNAMES)).append('\n');
         builder.append("  name-history: ").append(settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY)).append('\n');
         builder.append("  service-registry: ").append(settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY)).append('\n');
         builder.append('\n');

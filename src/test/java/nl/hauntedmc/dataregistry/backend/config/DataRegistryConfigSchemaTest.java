@@ -51,6 +51,8 @@ class DataRegistryConfigSchemaTest {
         assertTrue(rendered.contains("flush-interval-seconds: 30"));
         assertTrue(rendered.contains("resolve-unknown-servers-as-gamemode: true"));
         assertTrue(rendered.contains("server-gamemode-rules: []"));
+        assertTrue(rendered.contains("language: true"));
+        assertTrue(rendered.contains("nicknames: true"));
         assertTrue(rendered.contains("heartbeat-interval-seconds: 30"));
         assertTrue(rendered.contains("probe-interval-seconds: 15"));
         assertTrue(rendered.contains("probe-timeout-millis: 1500"));

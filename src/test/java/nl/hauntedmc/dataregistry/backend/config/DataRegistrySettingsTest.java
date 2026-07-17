@@ -41,6 +41,8 @@ class DataRegistrySettingsTest {
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME));
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE));
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.NICKNAMES));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
     }
@@ -133,6 +135,8 @@ class DataRegistrySettingsTest {
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO));
+        assertFalse(settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE));
+        assertFalse(settings.isFeatureEnabled(DataRegistryFeature.NICKNAMES));
     }
 
     @Test

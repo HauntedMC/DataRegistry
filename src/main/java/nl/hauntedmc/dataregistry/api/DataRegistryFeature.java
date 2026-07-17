@@ -12,6 +12,8 @@ public enum DataRegistryFeature {
     CONNECTION_INFO("connection-info"),
     SESSIONS("sessions"),
     PLAYTIME("playtime"),
+    LANGUAGE("language"),
+    NICKNAMES("nicknames"),
     NAME_HISTORY("name-history"),
     SERVICE_REGISTRY("service-registry");
 

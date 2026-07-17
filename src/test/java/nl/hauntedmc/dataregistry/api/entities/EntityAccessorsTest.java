@@ -98,16 +98,32 @@ class EntityAccessorsTest {
         language.setPlayerId(5L);
         language.setPlayer(player);
         language.setLanguage("NL");
+        language.setEffectiveLanguage("NL");
 
         assertEquals(5L, language.getPlayerId());
         assertSame(player, language.getPlayer());
         assertEquals("NL", language.getLanguage());
+        assertEquals("NL", language.getEffectiveLanguage());
+    }
+
+    @Test
+    void playerNicknameEntityAccessorsRoundTripValues() {
+        PlayerEntity player = new PlayerEntity();
+        player.setId(6L);
+        PlayerNicknameEntity nickname = new PlayerNicknameEntity();
+        nickname.setPlayerId(6L);
+        nickname.setPlayer(player);
+        nickname.setNickname("Ghost");
+
+        assertEquals(6L, nickname.getPlayerId());
+        assertSame(player, nickname.getPlayer());
+        assertEquals("Ghost", nickname.getNickname());
     }
 
     @Test
     void playerNameHistoryEntityAccessorsRoundTripValues() {
         PlayerEntity player = new PlayerEntity();
-        player.setId(6L);
+        player.setId(7L);
         PlayerNameHistoryEntity history = new PlayerNameHistoryEntity();
         Instant lastSeen = Instant.now();
         history.setId(11L);

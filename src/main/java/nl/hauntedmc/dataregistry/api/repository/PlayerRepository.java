@@ -4,6 +4,7 @@ import jakarta.persistence.PersistenceException;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 
+import java.util.Locale;
 import java.util.Map;
 import java.util.LinkedHashSet;
 import java.util.Collection;
@@ -55,6 +56,22 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
                                 PlayerEntity.class
                         )
                         .setParameter("username", normalizedUsername)
+                        .setMaxResults(1)
+                        .uniqueResult()
+        ));
+    }
+
+    public Optional<PlayerEntity> findByUsernameIgnoreCase(String username) {
+        String normalizedUsername = normalizeUsername(username);
+        if (normalizedUsername == null) {
+            return Optional.empty();
+        }
+        return ormContext.runInTransaction(session -> Optional.ofNullable(
+                session.createQuery(
+                                "SELECT p FROM PlayerEntity p WHERE LOWER(p.username) = :username",
+                                PlayerEntity.class
+                        )
+                        .setParameter("username", normalizedUsername.toLowerCase(Locale.ROOT))
                         .setMaxResults(1)
                         .uniqueResult()
         ));

@@ -5,15 +5,19 @@ import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import nl.hauntedmc.dataprovider.database.relational.RelationalDatabaseProvider;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerConnectionInfoEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerNicknameEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerNameHistoryEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerOnlineStatusEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerPlaytimeEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerPlaytimeSegmentEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerSessionEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerLanguageEntity;
 import nl.hauntedmc.dataregistry.api.entities.NetworkServiceEntity;
 import nl.hauntedmc.dataregistry.api.entities.ServiceInstanceEntity;
 import nl.hauntedmc.dataregistry.api.entities.ServiceProbeEntity;
 import nl.hauntedmc.dataregistry.api.repository.NetworkServiceRepository;
+import nl.hauntedmc.dataregistry.api.repository.PlayerLanguageRepository;
+import nl.hauntedmc.dataregistry.api.repository.PlayerNicknameRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerPlaytimeRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerPlaytimeSegmentRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
@@ -46,6 +50,8 @@ public class DataRegistry {
     private final nl.hauntedmc.dataprovider.logging.LoggerAdapter ormLogger;
 
     private PlayerRepository playerRepository;
+    private PlayerLanguageRepository playerLanguageRepository;
+    private PlayerNicknameRepository playerNicknameRepository;
     private PlayerNameHistoryRepository playerNameHistoryRepository;
     private PlayerSessionRepository playerSessionRepository;
     private PlayerPlaytimeRepository playerPlaytimeRepository;
@@ -95,6 +101,12 @@ public class DataRegistry {
             serviceOrmContext = null;
 
             this.playerRepository = newPlayerRepository(ormContext);
+            this.playerLanguageRepository = settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE)
+                    ? newPlayerLanguageRepository(ormContext)
+                    : null;
+            this.playerNicknameRepository = settings.isFeatureEnabled(DataRegistryFeature.NICKNAMES)
+                    ? newPlayerNicknameRepository(ormContext)
+                    : null;
             this.playerNameHistoryRepository = settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY)
                     ? newPlayerNameHistoryRepository(ormContext)
                     : null;
@@ -133,6 +145,8 @@ public class DataRegistry {
         ormContext = null;
         serviceOrmContext = null;
         playerRepository = null;
+        playerLanguageRepository = null;
+        playerNicknameRepository = null;
         playerNameHistoryRepository = null;
         playerSessionRepository = null;
         playerPlaytimeRepository = null;
@@ -196,6 +210,20 @@ public class DataRegistry {
             throw new IllegalStateException("DataRegistry is not initialized.");
         }
         return playerRepository;
+    }
+
+    public synchronized PlayerLanguageRepository getPlayerLanguageRepository() {
+        if (playerLanguageRepository == null) {
+            throw new IllegalStateException("Player language repository is unavailable.");
+        }
+        return playerLanguageRepository;
+    }
+
+    public synchronized PlayerNicknameRepository getPlayerNicknameRepository() {
+        if (playerNicknameRepository == null) {
+            throw new IllegalStateException("Player nickname repository is unavailable.");
+        }
+        return playerNicknameRepository;
     }
 
     public synchronized PlayerNameHistoryRepository getPlayerNameHistoryRepository() {
@@ -303,6 +331,14 @@ public class DataRegistry {
         return new PlayerRepository(context, settings.usernameMaxLength());
     }
 
+    PlayerLanguageRepository newPlayerLanguageRepository(ORMContext context) {
+        return new PlayerLanguageRepository(context);
+    }
+
+    PlayerNicknameRepository newPlayerNicknameRepository(ORMContext context) {
+        return new PlayerNicknameRepository(context);
+    }
+
     PlayerNameHistoryRepository newPlayerNameHistoryRepository(ORMContext context) {
         return new PlayerNameHistoryRepository(context);
     }
@@ -360,6 +396,12 @@ public class DataRegistry {
             entityClasses.add(PlayerPlaytimeEntity.class);
             entityClasses.add(PlayerPlaytimeSegmentEntity.class);
         }
+        if (settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE)) {
+            entityClasses.add(PlayerLanguageEntity.class);
+        }
+        if (settings.isFeatureEnabled(DataRegistryFeature.NICKNAMES)) {
+            entityClasses.add(PlayerNicknameEntity.class);
+        }
         if (settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY)) {
             entityClasses.add(PlayerNameHistoryEntity.class);
         }
@@ -408,6 +450,8 @@ public class DataRegistry {
         return ormContext != null
                 || serviceOrmContext != null
                 || playerRepository != null
+                || playerLanguageRepository != null
+                || playerNicknameRepository != null
                 || playerNameHistoryRepository != null
                 || playerSessionRepository != null
                 || playerPlaytimeRepository != null
@@ -419,6 +463,12 @@ public class DataRegistry {
 
     private boolean isRuntimeFullyInitialized() {
         if (ormContext == null || playerRepository == null) {
+            return false;
+        }
+        if (settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE) && playerLanguageRepository == null) {
+            return false;
+        }
+        if (settings.isFeatureEnabled(DataRegistryFeature.NICKNAMES) && playerNicknameRepository == null) {
             return false;
         }
         if (settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY) && playerNameHistoryRepository == null) {
