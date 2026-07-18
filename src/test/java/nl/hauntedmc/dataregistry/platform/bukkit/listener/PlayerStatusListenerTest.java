@@ -8,14 +8,18 @@ import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import org.bukkit.entity.Player;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.bukkit.scheduler.BukkitTask;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -24,6 +28,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class PlayerStatusListenerTest {
+
+    @Test
+    void bukkitLifecycleHandlersStartAtLowestPriority() throws Exception {
+        assertLifecyclePriority("onPlayerJoin", PlayerJoinEvent.class);
+        assertLifecyclePriority("onPlayerQuit", PlayerQuitEvent.class);
+    }
 
     @Test
     void constructorRejectsNullDependencies() {
@@ -35,6 +45,12 @@ class PlayerStatusListenerTest {
 
         assertThrows(NullPointerException.class, () -> new PlayerStatusListener(null, playerService, 0));
         assertThrows(NullPointerException.class, () -> new PlayerStatusListener(plugin, null, 0));
+    }
+
+    private static void assertLifecyclePriority(String methodName, Class<?> eventType) throws Exception {
+        Method method = PlayerStatusListener.class.getDeclaredMethod(methodName, eventType);
+        EventHandler eventHandler = method.getAnnotation(EventHandler.class);
+        assertEquals(EventPriority.LOWEST, eventHandler.priority());
     }
 
     @Test

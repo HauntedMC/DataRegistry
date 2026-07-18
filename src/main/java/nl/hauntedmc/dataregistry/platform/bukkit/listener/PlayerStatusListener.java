@@ -7,6 +7,7 @@ import nl.hauntedmc.dataregistry.platform.bukkit.util.BukkitPlayerAdapter;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -46,7 +47,7 @@ public class PlayerStatusListener implements Listener {
         this.onlinePlayerLookup = Objects.requireNonNull(onlinePlayerLookup, "onlinePlayerLookup must not be null");
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerJoin(PlayerJoinEvent event) {
         UUID playerId = event.getPlayer().getUniqueId();
         long expectedGeneration = markJoinGeneration(playerId.toString());
@@ -58,7 +59,7 @@ public class PlayerStatusListener implements Listener {
         );
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerQuit(PlayerQuitEvent event) {
         String uuid = event.getPlayer().getUniqueId().toString();
         long expectedQuitGeneration = markQuitGeneration(uuid);

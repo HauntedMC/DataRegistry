@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class PlayerStatusListener {
 
     private static final int MAX_LOG_VALUE_LENGTH = 256;
+    public static final short PLAYER_LIFECYCLE_EVENT_PRIORITY = 1000;
 
     private final PlayerService playerService;
     private final PlayerNameHistoryService nameHistoryService;
@@ -66,7 +67,7 @@ public class PlayerStatusListener {
         this.eventExecutor = Objects.requireNonNull(eventExecutor, "eventExecutor must not be null");
     }
 
-    @Subscribe(priority = 10)
+    @Subscribe(priority = PLAYER_LIFECYCLE_EVENT_PRIORITY)
     public void onPlayerJoin(PostLoginEvent event) {
         Player player = event.getPlayer();
         String uuid = player.getUniqueId().toString();
@@ -98,7 +99,7 @@ public class PlayerStatusListener {
         });
     }
 
-    @Subscribe(priority = 10)
+    @Subscribe(priority = PLAYER_LIFECYCLE_EVENT_PRIORITY)
     public void onServerSwitch(ServerConnectedEvent event) {
         Player player = event.getPlayer();
         String uuid = player.getUniqueId().toString();
@@ -114,7 +115,7 @@ public class PlayerStatusListener {
         });
     }
 
-    @Subscribe(priority = 10)
+    @Subscribe(priority = PLAYER_LIFECYCLE_EVENT_PRIORITY)
     public void onPlayerQuit(DisconnectEvent event) {
         Player player = event.getPlayer();
         String uuid = player.getUniqueId().toString();

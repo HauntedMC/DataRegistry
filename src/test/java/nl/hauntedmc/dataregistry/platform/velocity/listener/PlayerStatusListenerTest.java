@@ -1,5 +1,6 @@
 package nl.hauntedmc.dataregistry.platform.velocity.listener;
 
+import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.connection.PostLoginEvent;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
@@ -37,6 +38,7 @@ import org.mockito.InOrder;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.lang.reflect.Method;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Map;
@@ -65,6 +67,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class PlayerStatusListenerTest {
+
+    @Test
+    void velocityLifecycleHandlersUseReservedEarlyPriority() throws Exception {
+        assertLifecyclePriority("onPlayerJoin", PostLoginEvent.class);
+        assertLifecyclePriority("onServerSwitch", ServerConnectedEvent.class);
+        assertLifecyclePriority("onPlayerQuit", DisconnectEvent.class);
+    }
 
     @Test
     void constructorRejectsNullDependencies() {
@@ -213,6 +222,12 @@ class PlayerStatusListenerTest {
                         null
                 )
         );
+    }
+
+    private static void assertLifecyclePriority(String methodName, Class<?> eventType) throws Exception {
+        Method method = PlayerStatusListener.class.getDeclaredMethod(methodName, eventType);
+        Subscribe subscribe = method.getAnnotation(Subscribe.class);
+        assertEquals(PlayerStatusListener.PLAYER_LIFECYCLE_EVENT_PRIORITY, subscribe.priority());
     }
 
     @Test
