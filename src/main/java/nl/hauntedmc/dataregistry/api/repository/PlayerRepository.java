@@ -202,10 +202,15 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
     }
 
     /**
-     * Retrieves or creates a persistent player record (upsert) and caches it.
+     * Retrieves or creates a persistent player record, updates the current username when it changed,
+     * and caches the player as active.
+     * <p>
+     * This is an authoritative player-lifecycle operation. It should be called by DataRegistry's
+     * platform join/status handling, not by feature-local persistence that merely wants to attach
+     * its own row to an existing canonical player.
      *
-     * @param uuid     the player's UUID.
-     * @param username the current username.
+     * @param uuid     the live player's UUID.
+     * @param username the live player's current username.
      * @return the persistent PlayerEntity.
      */
     public PlayerEntity getOrCreateActivePlayer(String uuid, String username) {
@@ -262,6 +267,10 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
         });
     }
 
+    /**
+     * ID-focused variant of {@link #getOrCreateActivePlayer(String, String)} for authoritative
+     * player-lifecycle flows that do not need a mutable entity instance.
+     */
     public PlayerIdentity getOrCreateActiveIdentity(String uuid, String username) {
         return toIdentity(getOrCreateActivePlayer(uuid, username));
     }
