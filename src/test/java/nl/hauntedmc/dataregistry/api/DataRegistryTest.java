@@ -17,9 +17,11 @@ import nl.hauntedmc.dataregistry.api.entities.ServiceInstanceEntity;
 import nl.hauntedmc.dataregistry.api.entities.ServiceProbeEntity;
 import nl.hauntedmc.dataregistry.api.repository.NetworkServiceRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerActivitySummaryRepository;
+import nl.hauntedmc.dataregistry.api.repository.PlayerConnectionInfoRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerLanguageRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerNameHistoryRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerNicknameRepository;
+import nl.hauntedmc.dataregistry.api.repository.PlayerOnlineStatusRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerSessionVisitRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceInstanceRepository;
@@ -84,6 +86,8 @@ class DataRegistryTest {
         assertSame(ormContext, registry.getORM());
         assertSame(repository, registry.getPlayerRepository());
         assertSame(registry.testPlayerActivitySummaryRepository(), registry.getPlayerActivitySummaryRepository());
+        assertSame(registry.testPlayerOnlineStatusRepository(), registry.getPlayerOnlineStatusRepository());
+        assertSame(registry.testPlayerConnectionInfoRepository(), registry.getPlayerConnectionInfoRepository());
         assertSame(registry.testPlayerLanguageRepository(), registry.getPlayerLanguageRepository());
         assertSame(registry.testPlayerNicknameRepository(), registry.getPlayerNicknameRepository());
         assertSame(dataSource, registry.lastPlayerDataSource);
@@ -297,10 +301,15 @@ class DataRegistryTest {
         assertThrows(IllegalStateException.class, registry::getORM);
         assertThrows(IllegalStateException.class, registry::getPlayerRepository);
         assertThrows(IllegalStateException.class, registry::getPlayerActivitySummaryRepository);
+        assertThrows(IllegalStateException.class, registry::getPlayerOnlineStatusRepository);
+        assertThrows(IllegalStateException.class, registry::getPlayerConnectionInfoRepository);
         assertThrows(IllegalStateException.class, registry::getPlayerLanguageRepository);
         assertThrows(IllegalStateException.class, registry::getPlayerNicknameRepository);
         assertThrows(IllegalStateException.class, registry::getPlayerNameHistoryRepository);
         assertThrows(IllegalStateException.class, registry::getPlayerSessionVisitRepository);
+        assertThrows(IllegalStateException.class, registry::getServiceORM);
+        assertThrows(IllegalStateException.class, registry::getNetworkServiceRepository);
+        assertThrows(IllegalStateException.class, registry::getServiceInstanceRepository);
         assertThrows(IllegalStateException.class, registry::getServiceProbeRepository);
         assertFalse(registry.isInitialized());
     }
@@ -425,6 +434,8 @@ class DataRegistryTest {
         private final ORMContext serviceOrmContext;
         private final PlayerRepository playerRepository;
         private final PlayerActivitySummaryRepository playerActivitySummaryRepository;
+        private final PlayerOnlineStatusRepository playerOnlineStatusRepository;
+        private final PlayerConnectionInfoRepository playerConnectionInfoRepository;
         private final PlayerLanguageRepository playerLanguageRepository;
         private final PlayerNicknameRepository playerNicknameRepository;
         private final PlayerNameHistoryRepository playerNameHistoryRepository;
@@ -448,6 +459,8 @@ class DataRegistryTest {
             this.playerOrmContext = ormContext;
             this.playerRepository = repository;
             this.playerActivitySummaryRepository = mock(PlayerActivitySummaryRepository.class);
+            this.playerOnlineStatusRepository = mock(PlayerOnlineStatusRepository.class);
+            this.playerConnectionInfoRepository = mock(PlayerConnectionInfoRepository.class);
             this.playerLanguageRepository = mock(PlayerLanguageRepository.class);
             this.playerNicknameRepository = mock(PlayerNicknameRepository.class);
             this.serviceOrmContext = mock(ORMContext.class);
@@ -470,6 +483,8 @@ class DataRegistryTest {
             this.playerOrmContext = ormContext;
             this.playerRepository = repository;
             this.playerActivitySummaryRepository = mock(PlayerActivitySummaryRepository.class);
+            this.playerOnlineStatusRepository = mock(PlayerOnlineStatusRepository.class);
+            this.playerConnectionInfoRepository = mock(PlayerConnectionInfoRepository.class);
             this.playerLanguageRepository = mock(PlayerLanguageRepository.class);
             this.playerNicknameRepository = mock(PlayerNicknameRepository.class);
             this.serviceOrmContext = mock(ORMContext.class);
@@ -502,6 +517,16 @@ class DataRegistryTest {
         @Override
         PlayerActivitySummaryRepository newPlayerActivitySummaryRepository(ORMContext context) {
             return playerActivitySummaryRepository;
+        }
+
+        @Override
+        PlayerOnlineStatusRepository newPlayerOnlineStatusRepository(ORMContext context) {
+            return playerOnlineStatusRepository;
+        }
+
+        @Override
+        PlayerConnectionInfoRepository newPlayerConnectionInfoRepository(ORMContext context) {
+            return playerConnectionInfoRepository;
         }
 
         @Override
@@ -549,6 +574,14 @@ class DataRegistryTest {
 
         private PlayerActivitySummaryRepository testPlayerActivitySummaryRepository() {
             return playerActivitySummaryRepository;
+        }
+
+        private PlayerOnlineStatusRepository testPlayerOnlineStatusRepository() {
+            return playerOnlineStatusRepository;
+        }
+
+        private PlayerConnectionInfoRepository testPlayerConnectionInfoRepository() {
+            return playerConnectionInfoRepository;
         }
 
         private PlayerLanguageRepository testPlayerLanguageRepository() {

@@ -74,6 +74,59 @@ class PlayerRepositoryTest {
     }
 
     @Test
+    void identityHelpersExposeIdsAndImmutableSnapshots() {
+        ORMContext ormContext = mock(ORMContext.class);
+        PlayerRepository repository = spy(new PlayerRepository(ormContext));
+        String uuid = UUID.randomUUID().toString();
+        PlayerEntity entity = new PlayerEntity();
+        entity.setId(77L);
+        entity.setUuid(uuid);
+        entity.setUsername("Alice");
+
+        doReturn(Optional.of(entity)).when(repository).findByUUID(uuid);
+        doReturn(Optional.of(new PlayerRepository.PlayerIdentity(77L, uuid, "Alice")))
+                .when(repository).findIdentityByUUID(uuid);
+
+        PlayerRepository.PlayerIdentity identity = repository.getOrCreateActiveIdentity(uuid, "Alice");
+
+        assertEquals(77L, identity.id());
+        assertEquals(Optional.of(77L), repository.findIdByUUID(uuid));
+        assertEquals(Optional.of(identity), repository.getActiveIdentity(uuid));
+        assertEquals(Optional.of(identity), repository.findIdentityByUUID(uuid));
+
+        Map<String, PlayerRepository.PlayerIdentity> snapshot = repository.snapshotActiveIdentities();
+        assertEquals(Map.of(uuid, identity), snapshot);
+        assertThrows(UnsupportedOperationException.class, snapshot::clear);
+    }
+
+    @Test
+    void findIdentityByUsernameIgnoreCaseReturnsMappedIdentity() {
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerEntity> query = mock(Query.class);
+        PlayerRepository repository = new PlayerRepository(ormContext);
+        PlayerEntity player = new PlayerEntity();
+        player.setId(15L);
+        player.setUuid(UUID.randomUUID().toString());
+        player.setUsername("Alice");
+
+        executeTransactionsWithSession(ormContext, session);
+        when(session.createQuery(
+                "SELECT p FROM PlayerEntity p WHERE LOWER(p.username) = :username",
+                PlayerEntity.class
+        )).thenReturn(query);
+        when(query.setParameter("username", "alice")).thenReturn(query);
+        when(query.setMaxResults(1)).thenReturn(query);
+        when(query.uniqueResult()).thenReturn(player);
+
+        Optional<PlayerRepository.PlayerIdentity> identity = repository.findIdentityByUsernameIgnoreCase("Alice");
+
+        assertEquals(Optional.of(new PlayerRepository.PlayerIdentity(15L, player.getUuid(), "Alice")), identity);
+        assertEquals(Optional.of(15L), repository.findIdByUsernameIgnoreCase("Alice"));
+    }
+
+    @Test
     void findByUsernameSupportsExactAndPrefixLookups() {
         ORMContext ormContext = mock(ORMContext.class);
         Session session = mock(Session.class);

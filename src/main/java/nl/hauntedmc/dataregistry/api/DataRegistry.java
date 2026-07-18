@@ -19,7 +19,9 @@ import nl.hauntedmc.dataregistry.api.entities.ServiceInstanceEntity;
 import nl.hauntedmc.dataregistry.api.entities.ServiceProbeEntity;
 import nl.hauntedmc.dataregistry.api.repository.NetworkServiceRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerActivitySummaryRepository;
+import nl.hauntedmc.dataregistry.api.repository.PlayerConnectionInfoRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerLanguageRepository;
+import nl.hauntedmc.dataregistry.api.repository.PlayerOnlineStatusRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerNicknameRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerPlaytimeRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerPlaytimeSegmentRepository;
@@ -55,6 +57,8 @@ public class DataRegistry {
 
     private PlayerRepository playerRepository;
     private PlayerActivitySummaryRepository playerActivitySummaryRepository;
+    private PlayerOnlineStatusRepository playerOnlineStatusRepository;
+    private PlayerConnectionInfoRepository playerConnectionInfoRepository;
     private PlayerLanguageRepository playerLanguageRepository;
     private PlayerNicknameRepository playerNicknameRepository;
     private PlayerNameHistoryRepository playerNameHistoryRepository;
@@ -110,6 +114,12 @@ public class DataRegistry {
             this.playerActivitySummaryRepository = settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)
                     ? newPlayerActivitySummaryRepository(ormContext)
                     : null;
+            this.playerOnlineStatusRepository = settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)
+                    ? newPlayerOnlineStatusRepository(ormContext)
+                    : null;
+            this.playerConnectionInfoRepository = settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO)
+                    ? newPlayerConnectionInfoRepository(ormContext)
+                    : null;
             this.playerLanguageRepository = settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE)
                     ? newPlayerLanguageRepository(ormContext)
                     : null;
@@ -158,6 +168,8 @@ public class DataRegistry {
         serviceOrmContext = null;
         playerRepository = null;
         playerActivitySummaryRepository = null;
+        playerOnlineStatusRepository = null;
+        playerConnectionInfoRepository = null;
         playerLanguageRepository = null;
         playerNicknameRepository = null;
         playerNameHistoryRepository = null;
@@ -231,6 +243,20 @@ public class DataRegistry {
             throw new IllegalStateException("Player activity summary repository is unavailable.");
         }
         return playerActivitySummaryRepository;
+    }
+
+    public synchronized PlayerOnlineStatusRepository getPlayerOnlineStatusRepository() {
+        if (playerOnlineStatusRepository == null) {
+            throw new IllegalStateException("Player online status repository is unavailable.");
+        }
+        return playerOnlineStatusRepository;
+    }
+
+    public synchronized PlayerConnectionInfoRepository getPlayerConnectionInfoRepository() {
+        if (playerConnectionInfoRepository == null) {
+            throw new IllegalStateException("Player connection info repository is unavailable.");
+        }
+        return playerConnectionInfoRepository;
     }
 
     public synchronized PlayerLanguageRepository getPlayerLanguageRepository() {
@@ -363,6 +389,14 @@ public class DataRegistry {
         return new PlayerActivitySummaryRepository(context);
     }
 
+    PlayerOnlineStatusRepository newPlayerOnlineStatusRepository(ORMContext context) {
+        return new PlayerOnlineStatusRepository(context);
+    }
+
+    PlayerConnectionInfoRepository newPlayerConnectionInfoRepository(ORMContext context) {
+        return new PlayerConnectionInfoRepository(context);
+    }
+
     PlayerLanguageRepository newPlayerLanguageRepository(ORMContext context) {
         return new PlayerLanguageRepository(context);
     }
@@ -493,6 +527,8 @@ public class DataRegistry {
                 || serviceOrmContext != null
                 || playerRepository != null
                 || playerActivitySummaryRepository != null
+                || playerOnlineStatusRepository != null
+                || playerConnectionInfoRepository != null
                 || playerLanguageRepository != null
                 || playerNicknameRepository != null
                 || playerNameHistoryRepository != null
@@ -511,6 +547,12 @@ public class DataRegistry {
         }
         if (settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)
                 && playerActivitySummaryRepository == null) {
+            return false;
+        }
+        if (settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS) && playerOnlineStatusRepository == null) {
+            return false;
+        }
+        if (settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO) && playerConnectionInfoRepository == null) {
             return false;
         }
         if (settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE) && playerLanguageRepository == null) {

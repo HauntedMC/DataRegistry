@@ -16,6 +16,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
 
+    public record PlayerIdentity(Long id, String uuid, String username) {
+    }
+
     // Cache active players keyed by their UUID.
     private final Map<String, PlayerEntity> activePlayers = new ConcurrentHashMap<>();
     private final int usernameMaxLength;
@@ -45,6 +48,10 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
         ));
     }
 
+    public Optional<Long> findIdByUUID(String uuid) {
+        return findIdentityByUUID(uuid).map(PlayerIdentity::id);
+    }
+
     public Optional<PlayerEntity> findByUsername(String username) {
         String normalizedUsername = normalizeUsername(username);
         if (normalizedUsername == null) {
@@ -61,6 +68,39 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
         ));
     }
 
+    public Optional<PlayerIdentity> findIdentityByUUID(String uuid) {
+        String normalizedUuid = normalizeUuid(uuid);
+        if (normalizedUuid == null) {
+            return Optional.empty();
+        }
+
+        return ormContext.runInTransaction(session -> Optional.ofNullable(
+                session.createQuery(
+                                "SELECT p FROM PlayerEntity p WHERE p.uuid = :uuid",
+                                PlayerEntity.class
+                        )
+                        .setParameter("uuid", normalizedUuid)
+                        .setMaxResults(1)
+                        .uniqueResult()
+        ).map(PlayerRepository::toIdentity));
+    }
+
+    public Optional<PlayerIdentity> findIdentityByUsername(String username) {
+        String normalizedUsername = normalizeUsername(username);
+        if (normalizedUsername == null) {
+            return Optional.empty();
+        }
+        return ormContext.runInTransaction(session -> Optional.ofNullable(
+                session.createQuery(
+                                "SELECT p FROM PlayerEntity p WHERE p.username = :username",
+                                PlayerEntity.class
+                        )
+                        .setParameter("username", normalizedUsername)
+                        .setMaxResults(1)
+                        .uniqueResult()
+        ).map(PlayerRepository::toIdentity));
+    }
+
     public Optional<PlayerEntity> findByUsernameIgnoreCase(String username) {
         String normalizedUsername = normalizeUsername(username);
         if (normalizedUsername == null) {
@@ -75,6 +115,26 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
                         .setMaxResults(1)
                         .uniqueResult()
         ));
+    }
+
+    public Optional<Long> findIdByUsernameIgnoreCase(String username) {
+        return findIdentityByUsernameIgnoreCase(username).map(PlayerIdentity::id);
+    }
+
+    public Optional<PlayerIdentity> findIdentityByUsernameIgnoreCase(String username) {
+        String normalizedUsername = normalizeUsername(username);
+        if (normalizedUsername == null) {
+            return Optional.empty();
+        }
+        return ormContext.runInTransaction(session -> Optional.ofNullable(
+                session.createQuery(
+                                "SELECT p FROM PlayerEntity p WHERE LOWER(p.username) = :username",
+                                PlayerEntity.class
+                        )
+                        .setParameter("username", normalizedUsername.toLowerCase(Locale.ROOT))
+                        .setMaxResults(1)
+                        .uniqueResult()
+        ).map(PlayerRepository::toIdentity));
     }
 
     /**
@@ -135,6 +195,10 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
             return Optional.empty();
         }
         return Optional.ofNullable(activePlayers.get(normalizedUuid));
+    }
+
+    public Optional<PlayerIdentity> getActiveIdentity(String uuid) {
+        return getActivePlayer(uuid).map(PlayerRepository::toIdentity);
     }
 
     /**
@@ -198,6 +262,10 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
         });
     }
 
+    public PlayerIdentity getOrCreateActiveIdentity(String uuid, String username) {
+        return toIdentity(getOrCreateActivePlayer(uuid, username));
+    }
+
     public void removeActivePlayer(String uuid) {
         String normalizedUuid = normalizeUuid(uuid);
         if (normalizedUuid != null) {
@@ -224,6 +292,18 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
      */
     public Map<String, PlayerEntity> snapshotActivePlayers() {
         return Map.copyOf(activePlayers);
+    }
+
+    public Map<String, PlayerIdentity> snapshotActiveIdentities() {
+        return activePlayers.entrySet().stream()
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(
+                        Map.Entry::getKey,
+                        entry -> toIdentity(entry.getValue())
+                ));
+    }
+
+    private static PlayerIdentity toIdentity(PlayerEntity entity) {
+        return new PlayerIdentity(entity.getId(), entity.getUuid(), entity.getUsername());
     }
 
     private static String normalizeUuid(String uuid) {
