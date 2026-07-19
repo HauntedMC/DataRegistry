@@ -13,7 +13,10 @@ import nl.hauntedmc.dataregistry.api.repository.PlayerNameHistoryRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerNicknameRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerOnlineStatusRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerPlaytimeRepository;
+import nl.hauntedmc.dataregistry.backend.player.DataRegistryQueryExecutor;
 import nl.hauntedmc.dataregistry.backend.player.RepositoryPlayerData;
+import nl.hauntedmc.dataprovider.api.orm.ORMContext;
+import org.hibernate.Session;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -21,7 +24,11 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 
+import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.executeTransactionsWithSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -43,13 +50,14 @@ class PlayerDataTest {
         entity.setLanguage("AUTO");
         entity.setEffectiveLanguage("EN");
 
-        when(directory.getActiveIdentity(uuid)).thenReturn(Optional.empty());
-        when(directory.findByUuid(uuid)).thenReturn(Optional.of(new PlayerIdentity(42L, uuid, "Alice")));
+        when(directory.findActiveIdentityCached(uuid)).thenReturn(Optional.empty());
+        when(directory.findByUuid(uuid))
+                .thenReturn(CompletableFuture.completedFuture(Optional.of(new PlayerIdentity(42L, uuid, "Alice"))));
         when(languageRepository.findByPlayerId(42L)).thenReturn(Optional.of(entity));
 
         PlayerData playerData = playerData(directory, null, null, null, languageRepository, null, null, null);
 
-        Optional<PlayerLanguageSettings> settings = playerData.findLanguage(uuid);
+        Optional<PlayerLanguageSettings> settings = join(playerData.findLanguage(uuid));
 
         assertTrue(settings.isPresent());
         assertEquals("AUTO", settings.get().language());
@@ -61,12 +69,12 @@ class PlayerDataTest {
         UUID uuid = UUID.randomUUID();
         PlayerDirectory directory = mock(PlayerDirectory.class);
         PlayerNicknameRepository nicknameRepository = mock(PlayerNicknameRepository.class);
-        when(directory.getActiveIdentity(uuid)).thenReturn(Optional.empty());
-        when(directory.findByUuid(uuid)).thenReturn(Optional.empty());
+        when(directory.findActiveIdentityCached(uuid)).thenReturn(Optional.empty());
+        when(directory.findByUuid(uuid)).thenReturn(CompletableFuture.completedFuture(Optional.empty()));
 
         PlayerData playerData = playerData(directory, null, null, null, null, nicknameRepository, null, null);
 
-        assertFalse(playerData.saveNickname(uuid, "Ghost"));
+        assertFalse(join(playerData.saveNickname(uuid, "Ghost")));
         verifyNoInteractions(nicknameRepository);
     }
 
@@ -74,7 +82,11 @@ class PlayerDataTest {
     void saveLanguageFailsClearlyWhenFeatureIsDisabled() {
         PlayerData playerData = playerData(mock(PlayerDirectory.class), null, null, null, null, null, null, null);
 
-        assertThrows(IllegalStateException.class, () -> playerData.saveLanguage(1L, "EN", "EN"));
+        CompletionException exception = assertThrows(
+                CompletionException.class,
+                () -> join(playerData.saveLanguage(1L, "EN", "EN"))
+        );
+        assertTrue(exception.getCause() instanceof IllegalStateException);
     }
 
     @Test
@@ -115,8 +127,8 @@ class PlayerDataTest {
                 null
         );
 
-        Optional<PlayerConnectionSnapshot> connectionSnapshot = playerData.findConnection(7L);
-        List<PlayerNameHistoryEntry> nameHistory = playerData.findNameHistory(7L, 10);
+        Optional<PlayerConnectionSnapshot> connectionSnapshot = join(playerData.findConnection(7L));
+        List<PlayerNameHistoryEntry> nameHistory = join(playerData.findNameHistory(7L, 10));
 
         assertEquals("1.2.3.4", connectionSnapshot.orElseThrow().ipAddress());
         assertEquals("play.example.net", connectionSnapshot.orElseThrow().virtualHost());
@@ -132,7 +144,7 @@ class PlayerDataTest {
 
         PlayerData playerData = playerData(directory, null, null, connectionRepository, null, null, null, null);
 
-        assertEquals(List.of(identity), playerData.findIdentitiesByLastIpAddress("1.2.3.4", 5L));
+        assertEquals(List.of(identity), join(playerData.findIdentitiesByLastIpAddress("1.2.3.4", 5L)));
         verify(connectionRepository).findIdentitiesByLastIpAddress("1.2.3.4", 5L);
     }
 
@@ -153,14 +165,15 @@ class PlayerDataTest {
         history.setUsername("Alpha");
         history.setLastSeenAt(now);
 
-        when(directory.findByUsernameIgnoreCase("Alice")).thenReturn(Optional.of(new PlayerIdentity(7L, uuid, "Alice")));
+        when(directory.findByUsernameIgnoreCase("Alice"))
+                .thenReturn(CompletableFuture.completedFuture(Optional.of(new PlayerIdentity(7L, uuid, "Alice"))));
         when(nameHistoryRepository.findChronologicalByPlayer(7L, 3)).thenReturn(List.of(history));
 
         PlayerData playerData = playerData(directory, null, null, null, null, null, nameHistoryRepository, null);
 
         assertEquals(
                 List.of(new PlayerNameHistoryEntry(9L, 7L, "Alpha", now)),
-                playerData.findNameHistoryByCurrentUsername("Alice", 3)
+                join(playerData.findNameHistoryByCurrentUsername("Alice", 3))
         );
     }
 
@@ -198,9 +211,11 @@ class PlayerDataTest {
         history.setUsername("Alpha");
         history.setLastSeenAt(now);
 
-        when(directory.findByIdentifier("Alice")).thenReturn(Optional.of(identity));
-        when(directory.findByUsernamePrefix("Al", 5)).thenReturn(List.of(identity));
-        when(directory.findByPlayerId(7L)).thenReturn(Optional.of(identity));
+        when(directory.findByIdentifier("Alice")).thenReturn(CompletableFuture.completedFuture(Optional.of(identity)));
+        when(directory.findIdentity(PlayerLookup.playerId(7L)))
+                .thenReturn(CompletableFuture.completedFuture(Optional.of(identity)));
+        when(directory.findByUsernamePrefix("Al", 5)).thenReturn(CompletableFuture.completedFuture(List.of(identity)));
+        when(directory.findByPlayerId(7L)).thenReturn(CompletableFuture.completedFuture(Optional.of(identity)));
         when(languageRepository.findByPlayerId(7L)).thenReturn(Optional.of(language));
         when(nicknameRepository.findNicknameByPlayerId(7L)).thenReturn(Optional.of("Ghost"));
         when(connectionRepository.findByPlayerId(7L)).thenReturn(Optional.of(connection));
@@ -219,17 +234,51 @@ class PlayerDataTest {
                 null
         );
 
-        assertEquals(Optional.of(identity), playerData.findIdentityByIdentifier("Alice"));
-        assertEquals(Optional.of(7L), playerData.findPlayerIdByIdentifier("Alice"));
-        assertEquals(List.of(identity), playerData.findIdentitiesByUsernamePrefix("Al", 5));
-        assertEquals(List.of("Bob"), playerData.findUsernamesSharingLastIp(7L));
+        assertEquals(Optional.of(identity), join(playerData.findIdentityByIdentifier("Alice")));
+        assertEquals(Optional.of(7L), join(playerData.findPlayerIdByIdentifier("Alice")));
+        assertEquals(List.of(identity), join(playerData.findIdentitiesByUsernamePrefix("Al", 5)));
+        assertEquals(List.of("Bob"), join(playerData.findUsernamesSharingLastIp(7L)));
 
-        PlayerProfile profile = playerData.findProfile(7L, 2).orElseThrow();
+        PlayerProfile profile = join(playerData.findProfile(7L, 2)).orElseThrow();
         assertEquals(identity, profile.identity());
         assertEquals("Ghost", profile.nickname().orElseThrow());
         assertTrue(profile.isOnline());
         assertEquals(Optional.of("hub"), profile.currentServer());
         assertEquals(List.of(new PlayerNameHistoryEntry(9L, 7L, "Alpha", now)), profile.nameHistory());
+    }
+
+    @Test
+    void findProfileForSuppliedIdentityUsesPersistedIdentitySnapshot() {
+        PlayerDirectory directory = mock(PlayerDirectory.class);
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        UUID currentUuid = UUID.randomUUID();
+        PlayerIdentity staleIdentity = new PlayerIdentity(7L, UUID.randomUUID(), "OldName");
+        PlayerEntity player = new PlayerEntity();
+        player.setId(7L);
+        player.setUuid(currentUuid.toString());
+        player.setUsername("CurrentName");
+        executeTransactionsWithSession(ormContext, session);
+        when(session.find(PlayerEntity.class, 7L)).thenReturn(player);
+
+        PlayerData playerData = new RepositoryPlayerData(
+                directory,
+                DataRegistryQueryExecutor.immediateForTesting(),
+                ormContext,
+                EnumSet.allOf(DataRegistryFeature.class),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of()
+        );
+
+        PlayerProfile profile = join(playerData.findProfile(staleIdentity, 0)).orElseThrow();
+
+        assertEquals(new PlayerIdentity(7L, currentUuid, "CurrentName"), profile.identity());
     }
 
     private static PlayerData playerData(
@@ -253,5 +302,9 @@ class PlayerDataTest {
                 nameHistoryRepository,
                 playtimeRepository
         );
+    }
+
+    private static <T> T join(CompletionStage<T> stage) {
+        return stage.toCompletableFuture().join();
     }
 }

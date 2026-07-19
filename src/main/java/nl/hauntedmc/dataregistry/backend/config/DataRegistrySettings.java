@@ -26,6 +26,9 @@ public final class DataRegistrySettings {
     private static final boolean DEFAULT_BUKKIT_REGISTER_SERVICE_INSTANCE = false;
     private static final String DEFAULT_BUKKIT_SERVICE_NAME = "auto";
     private static final String DEFAULT_VELOCITY_SERVICE_NAME = "auto";
+    private static final int DEFAULT_QUERY_EXECUTOR_THREADS = 2;
+    private static final int DEFAULT_QUERY_TIMEOUT_MILLIS = 3000;
+    private static final boolean DEFAULT_QUERY_DEVELOPMENT_THREAD_CHECKS = true;
     private static final int DEFAULT_USERNAME_MAX_LENGTH = 32;
     private static final int DEFAULT_SERVER_NAME_MAX_LENGTH = 64;
     private static final int DEFAULT_VIRTUAL_HOST_MAX_LENGTH = 255;
@@ -43,6 +46,9 @@ public final class DataRegistrySettings {
     private final boolean bukkitRegisterServiceInstance;
     private final String bukkitServiceName;
     private final String velocityServiceName;
+    private final int queryExecutorThreads;
+    private final int queryTimeoutMillis;
+    private final boolean queryDevelopmentThreadChecks;
     private final int usernameMaxLength;
     private final int serverNameMaxLength;
     private final int virtualHostMaxLength;
@@ -83,6 +89,19 @@ public final class DataRegistrySettings {
                 builder.velocityServiceName,
                 "velocityServiceName"
         );
+        this.queryExecutorThreads = validateRange(
+                builder.queryExecutorThreads,
+                "queryExecutorThreads",
+                1,
+                32
+        );
+        this.queryTimeoutMillis = validateRange(
+                builder.queryTimeoutMillis,
+                "queryTimeoutMillis",
+                50,
+                60000
+        );
+        this.queryDevelopmentThreadChecks = builder.queryDevelopmentThreadChecks;
         this.usernameMaxLength = validateRange(
                 builder.usernameMaxLength,
                 "usernameMaxLength",
@@ -207,6 +226,18 @@ public final class DataRegistrySettings {
         return "auto".equalsIgnoreCase(velocityServiceName);
     }
 
+    public int queryExecutorThreads() {
+        return queryExecutorThreads;
+    }
+
+    public int queryTimeoutMillis() {
+        return queryTimeoutMillis;
+    }
+
+    public boolean queryDevelopmentThreadChecks() {
+        return queryDevelopmentThreadChecks;
+    }
+
     public int usernameMaxLength() {
         return usernameMaxLength;
     }
@@ -320,6 +351,9 @@ public final class DataRegistrySettings {
         private boolean bukkitRegisterServiceInstance = DEFAULT_BUKKIT_REGISTER_SERVICE_INSTANCE;
         private String bukkitServiceName = DEFAULT_BUKKIT_SERVICE_NAME;
         private String velocityServiceName = DEFAULT_VELOCITY_SERVICE_NAME;
+        private int queryExecutorThreads = DEFAULT_QUERY_EXECUTOR_THREADS;
+        private int queryTimeoutMillis = DEFAULT_QUERY_TIMEOUT_MILLIS;
+        private boolean queryDevelopmentThreadChecks = DEFAULT_QUERY_DEVELOPMENT_THREAD_CHECKS;
         private int usernameMaxLength = DEFAULT_USERNAME_MAX_LENGTH;
         private int serverNameMaxLength = DEFAULT_SERVER_NAME_MAX_LENGTH;
         private int virtualHostMaxLength = DEFAULT_VIRTUAL_HOST_MAX_LENGTH;
@@ -383,6 +417,21 @@ public final class DataRegistrySettings {
 
         public Builder velocityServiceName(String value) {
             this.velocityServiceName = Objects.requireNonNull(value, "velocityServiceName must not be null");
+            return this;
+        }
+
+        public Builder queryExecutorThreads(int value) {
+            this.queryExecutorThreads = value;
+            return this;
+        }
+
+        public Builder queryTimeoutMillis(int value) {
+            this.queryTimeoutMillis = value;
+            return this;
+        }
+
+        public Builder queryDevelopmentThreadChecks(boolean value) {
+            this.queryDevelopmentThreadChecks = value;
             return this;
         }
 

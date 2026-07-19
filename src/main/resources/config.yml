@@ -97,6 +97,15 @@ platform:
     # Proxy logical service name; set to 'auto' to derive from host:port fallback naming.
     service-name: auto
 
+query:
+  # Applies to: Both.
+  # Worker threads for public asynchronous player read queries (1-32).
+  executor-threads: 2
+  # Public player query deadline before the returned stage fails (milliseconds, 50-60000).
+  timeout-millis: 3000
+  # Warn in development when async query stages are requested from likely server/event threads.
+  development-thread-checks: true
+
 validation:
   # Applies to: Both.
   # These limits are shared by the schema and repository validation across both runtimes.

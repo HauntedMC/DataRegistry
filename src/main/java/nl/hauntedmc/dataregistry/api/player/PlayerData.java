@@ -5,270 +5,129 @@ import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeLeaderboardEntry;
 import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeSnapshot;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Player-centric facade for DataRegistry-owned player data.
  * <p>
- * This is the preferred API for downstream plugins. It exposes stable identities and immutable
- * snapshots instead of ORM entities, while keeping authoritative player creation and username
- * updates inside DataRegistry lifecycle handling.
- * <p>
- * Methods whose names start with {@code find} may perform database I/O. Call them from an async
- * context on Paper or Velocity event paths. {@code whenReady} only observes lifecycle state, but its
- * callbacks may run on a DataRegistry lifecycle thread.
+ * Public persistence reads are asynchronous by construction. Returned stages are backed by
+ * DataRegistry's query executor and may complete exceptionally when cancelled or when the configured
+ * query deadline is exceeded. Only explicitly named cached methods are synchronous.
  */
 public interface PlayerData {
 
-    /**
-     * Returns the canonical identity directory used by this facade.
-     */
     PlayerDirectory identities();
 
-    /**
-     * Returns whether a DataRegistry-owned player data feature is enabled.
-     */
     boolean supports(DataRegistryFeature feature);
 
     /**
      * Returns the active cached identity for a player without querying persistence.
      */
-    Optional<PlayerIdentity> activeIdentity(UUID uuid);
+    Optional<PlayerIdentity> findActiveIdentityCached(UUID uuid);
 
-    /**
-     * Looks up a persisted identity by UUID without creating or updating a player row.
-     */
-    Optional<PlayerIdentity> findIdentity(UUID uuid);
+    CompletionStage<Optional<PlayerIdentity>> findIdentity(PlayerLookup lookup);
 
-    /**
-     * Looks up a persisted identity by stable DataRegistry player id.
-     */
-    Optional<PlayerIdentity> findIdentity(long playerId);
+    CompletionStage<Map<PlayerLookup, Optional<PlayerIdentity>>> findIdentities(Collection<PlayerLookup> lookups);
 
-    /**
-     * Looks up a persisted identity by UUID string without creating or updating a player row.
-     */
-    Optional<PlayerIdentity> findIdentity(String uuid);
+    CompletionStage<Optional<PlayerIdentity>> findIdentity(UUID uuid);
 
-    /**
-     * Looks up a persisted identity by case-insensitive username.
-     */
-    Optional<PlayerIdentity> findIdentityByUsername(String username);
+    CompletionStage<Optional<PlayerIdentity>> findIdentity(long playerId);
 
-    /**
-     * Looks up a persisted identity by UUID string or case-insensitive username.
-     */
-    Optional<PlayerIdentity> findIdentityByIdentifier(String identifier);
+    CompletionStage<Optional<PlayerIdentity>> findIdentity(String uuid);
 
-    /**
-     * Finds persisted identities whose current username starts with {@code prefix}, case-insensitively.
-     */
-    List<PlayerIdentity> findIdentitiesByUsernamePrefix(String prefix, int limit);
+    CompletionStage<Optional<PlayerIdentity>> findIdentityByUsername(String username);
 
-    /**
-     * Returns a stable player id by UUID when the canonical row already exists.
-     */
-    Optional<Long> findPlayerId(UUID uuid);
+    CompletionStage<Optional<PlayerIdentity>> findIdentityByIdentifier(String identifier);
 
-    /**
-     * Returns a stable player id by UUID string when the canonical row already exists.
-     */
-    Optional<Long> findPlayerId(String uuid);
+    CompletionStage<List<PlayerIdentity>> findIdentitiesByUsernamePrefix(String prefix, int limit);
 
-    /**
-     * Returns a stable player id by UUID string or case-insensitive username when the row already exists.
-     */
-    Optional<Long> findPlayerIdByIdentifier(String identifier);
+    CompletionStage<PlayerPage<PlayerIdentity>> findIdentitiesByUsernamePrefix(String prefix, PlayerPageRequest pageRequest);
 
-    /**
-     * Completes when the platform lifecycle has finished preparing the active identity.
-     */
+    CompletionStage<Optional<Long>> findPlayerId(UUID uuid);
+
+    CompletionStage<Optional<Long>> findPlayerId(String uuid);
+
+    CompletionStage<Optional<Long>> findPlayerIdByIdentifier(String identifier);
+
     CompletableFuture<Optional<PlayerIdentity>> whenReady(UUID uuid);
 
-    /**
-     * Completes when the platform lifecycle has finished preparing the active identity.
-     */
     CompletableFuture<Optional<PlayerIdentity>> whenReady(String uuid);
 
-    /**
-     * Returns the stored language preference and effective language for a player.
-     */
-    Optional<PlayerLanguageSettings> findLanguage(long playerId);
+    CompletionStage<Optional<PlayerLanguageSettings>> findLanguage(long playerId);
 
-    /**
-     * Returns the stored language preference and effective language for a player.
-     */
-    Optional<PlayerLanguageSettings> findLanguage(UUID uuid);
+    CompletionStage<Optional<PlayerLanguageSettings>> findLanguage(UUID uuid);
 
-    /**
-     * Stores a language preference for an existing player id.
-     */
-    void saveLanguage(long playerId, String language, String effectiveLanguage);
+    CompletionStage<Void> saveLanguage(long playerId, String language, String effectiveLanguage);
 
-    /**
-     * Stores a language preference for an existing player UUID.
-     *
-     * @return {@code true} when an existing player row was found and updated.
-     */
-    boolean saveLanguage(UUID uuid, String language, String effectiveLanguage);
+    CompletionStage<Boolean> saveLanguage(UUID uuid, String language, String effectiveLanguage);
 
-    /**
-     * Removes a stored language preference for an existing player id.
-     */
-    void clearLanguage(long playerId);
+    CompletionStage<Void> clearLanguage(long playerId);
 
-    /**
-     * Returns a player's stored nickname.
-     */
-    Optional<String> findNickname(long playerId);
+    CompletionStage<Optional<String>> findNickname(long playerId);
 
-    /**
-     * Returns a player's stored nickname.
-     */
-    Optional<String> findNickname(UUID uuid);
+    CompletionStage<Optional<String>> findNickname(UUID uuid);
 
-    /**
-     * Stores a nickname for an existing player id.
-     */
-    void saveNickname(long playerId, String nickname);
+    CompletionStage<Void> saveNickname(long playerId, String nickname);
 
-    /**
-     * Stores a nickname for an existing player UUID.
-     *
-     * @return {@code true} when an existing player row was found and updated.
-     */
-    boolean saveNickname(UUID uuid, String nickname);
+    CompletionStage<Boolean> saveNickname(UUID uuid, String nickname);
 
-    /**
-     * Removes a stored nickname for an existing player id.
-     */
-    void clearNickname(long playerId);
+    CompletionStage<Void> clearNickname(long playerId);
 
-    /**
-     * Returns latest connection metadata for a player.
-     */
-    Optional<PlayerConnectionSnapshot> findConnection(long playerId);
+    CompletionStage<Optional<PlayerConnectionSnapshot>> findConnection(long playerId);
 
-    /**
-     * Returns latest connection metadata for a player.
-     */
-    Optional<PlayerConnectionSnapshot> findConnection(UUID uuid);
+    CompletionStage<Optional<PlayerConnectionSnapshot>> findConnection(UUID uuid);
 
-    /**
-     * Returns identities whose latest stored IP address matches {@code ipAddress}.
-     */
-    List<PlayerIdentity> findIdentitiesByLastIpAddress(String ipAddress, Long excludePlayerId);
+    CompletionStage<List<PlayerIdentity>> findIdentitiesByLastIpAddress(String ipAddress, Long excludePlayerId);
 
-    /**
-     * Returns player ids whose latest stored IP address matches {@code ipAddress}.
-     */
-    List<Long> findPlayerIdsByLastIpAddress(String ipAddress, Long excludePlayerId);
+    CompletionStage<List<Long>> findPlayerIdsByLastIpAddress(String ipAddress, Long excludePlayerId);
 
-    /**
-     * Returns usernames whose latest stored IP address matches {@code ipAddress}.
-     */
-    List<String> findUsernamesByLastIpAddress(String ipAddress, Long excludePlayerId);
+    CompletionStage<List<String>> findUsernamesByLastIpAddress(String ipAddress, Long excludePlayerId);
 
-    /**
-     * Returns identities whose latest stored IP address matches the latest IP of {@code playerId}.
-     */
-    List<PlayerIdentity> findIdentitiesSharingLastIp(long playerId);
+    CompletionStage<List<PlayerIdentity>> findIdentitiesSharingLastIp(long playerId);
 
-    /**
-     * Returns usernames whose latest stored IP address matches the latest IP of {@code playerId}.
-     */
-    List<String> findUsernamesSharingLastIp(long playerId);
+    CompletionStage<List<String>> findUsernamesSharingLastIp(long playerId);
 
-    /**
-     * Returns chronological username history rows for a player.
-     */
-    List<PlayerNameHistoryEntry> findNameHistory(long playerId, int limit);
+    CompletionStage<List<PlayerNameHistoryEntry>> findNameHistory(long playerId, int limit);
 
-    /**
-     * Returns chronological username history rows for a player.
-     */
-    List<PlayerNameHistoryEntry> findNameHistory(UUID uuid, int limit);
+    CompletionStage<List<PlayerNameHistoryEntry>> findNameHistory(UUID uuid, int limit);
 
-    /**
-     * Resolves a player's current username and returns chronological username history rows.
-     */
-    List<PlayerNameHistoryEntry> findNameHistoryByCurrentUsername(String username, int limit);
+    CompletionStage<List<PlayerNameHistoryEntry>> findNameHistoryByCurrentUsername(String username, int limit);
 
-    /**
-     * Returns the player's current online-status snapshot.
-     */
-    Optional<PlayerOnlineSnapshot> findOnlineStatus(long playerId);
+    CompletionStage<Optional<PlayerOnlineSnapshot>> findOnlineStatus(long playerId);
 
-    /**
-     * Returns online players across the network.
-     */
-    List<PlayerOnlineSnapshot> findOnlinePlayers(int limit);
+    CompletionStage<List<PlayerOnlineSnapshot>> findOnlinePlayers(int limit);
 
-    /**
-     * Returns online players currently on one backend server.
-     */
-    List<PlayerOnlineSnapshot> findOnlinePlayersByServer(String serverName, int limit);
+    CompletionStage<List<PlayerOnlineSnapshot>> findOnlinePlayersByServer(String serverName, int limit);
 
-    /**
-     * Returns the player's activity summary.
-     */
-    Optional<PlayerActivitySnapshot> findActivity(long playerId);
+    CompletionStage<Optional<PlayerActivitySnapshot>> findActivity(long playerId);
 
-    /**
-     * Returns recently seen players ordered newest first.
-     */
-    List<PlayerActivitySnapshot> findRecentlySeen(int limit);
+    CompletionStage<List<PlayerActivitySnapshot>> findRecentlySeen(int limit);
 
-    /**
-     * Returns a playtime snapshot for a player.
-     */
-    Optional<PlayerPlaytimeSnapshot> findPlaytime(long playerId);
+    CompletionStage<Optional<PlayerPlaytimeSnapshot>> findPlaytime(long playerId);
 
-    /**
-     * Returns a playtime snapshot for a player as of a specific instant.
-     */
-    Optional<PlayerPlaytimeSnapshot> findPlaytime(long playerId, Instant asOf);
+    CompletionStage<Optional<PlayerPlaytimeSnapshot>> findPlaytime(long playerId, Instant asOf);
 
-    /**
-     * Returns top players by network-total playtime.
-     */
-    List<PlayerPlaytimeLeaderboardEntry> findTopPlaytime(int limit);
+    CompletionStage<List<PlayerPlaytimeLeaderboardEntry>> findTopPlaytime(int limit);
 
-    /**
-     * Returns top players for one gamemode key.
-     */
-    List<PlayerPlaytimeLeaderboardEntry> findTopPlaytimeByGamemode(String gamemodeKey, int limit);
+    CompletionStage<List<PlayerPlaytimeLeaderboardEntry>> findTopPlaytimeByGamemode(String gamemodeKey, int limit);
 
-    /**
-     * Returns all gamemode keys with tracked playtime.
-     */
-    List<String> findTrackedGamemodeKeys();
+    CompletionStage<List<String>> findTrackedGamemodeKeys();
 
-    /**
-     * Returns an aggregate snapshot of DataRegistry-owned data for an already resolved identity.
-     */
-    Optional<PlayerProfile> findProfile(PlayerIdentity identity, int nameHistoryLimit);
+    CompletionStage<PlayerProfileResult> findProfile(PlayerLookup lookup, PlayerProfileQuery query);
 
-    /**
-     * Resolves a player id and returns an aggregate snapshot of DataRegistry-owned data.
-     */
-    Optional<PlayerProfile> findProfile(long playerId, int nameHistoryLimit);
+    CompletionStage<Optional<PlayerProfile>> findProfile(PlayerIdentity identity, int nameHistoryLimit);
 
-    /**
-     * Resolves a UUID and returns an aggregate snapshot of DataRegistry-owned data.
-     */
-    Optional<PlayerProfile> findProfile(UUID uuid, int nameHistoryLimit);
+    CompletionStage<Optional<PlayerProfile>> findProfile(long playerId, int nameHistoryLimit);
 
-    /**
-     * Resolves a current username and returns an aggregate snapshot of DataRegistry-owned data.
-     */
-    Optional<PlayerProfile> findProfileByUsername(String username, int nameHistoryLimit);
+    CompletionStage<Optional<PlayerProfile>> findProfile(UUID uuid, int nameHistoryLimit);
 
-    /**
-     * Resolves a UUID string or current username and returns an aggregate snapshot of DataRegistry-owned data.
-     */
-    Optional<PlayerProfile> findProfileByIdentifier(String identifier, int nameHistoryLimit);
+    CompletionStage<Optional<PlayerProfile>> findProfileByUsername(String username, int nameHistoryLimit);
+
+    CompletionStage<Optional<PlayerProfile>> findProfileByIdentifier(String identifier, int nameHistoryLimit);
 }

@@ -1,69 +1,97 @@
 package nl.hauntedmc.dataregistry.api.player;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Read-oriented facade for canonical player identities.
  * <p>
- * Feature plugins should use this API when they only need a player's stable
- * database id, UUID, or current username. Player creation and username updates
- * remain owned by DataRegistry lifecycle handling.
- * <p>
- * Methods whose names start with {@code find} may perform database I/O and should be called from an async
- * context when used on Bukkit/Paper or Velocity event paths. {@link #whenReady(UUID)} is safe to call from
- * event handlers because it only observes active lifecycle state. Its completion callback may run on the
- * thread that finished DataRegistry initialization, so Bukkit/Paper API work must still be scheduled onto
- * the server thread by the caller.
+ * Public persistence reads are asynchronous by construction. Returned stages are backed by
+ * DataRegistry's query executor and may complete exceptionally when cancelled or when the configured
+ * query deadline is exceeded. Completion callbacks run on the thread that completes the stage unless
+ * callers explicitly choose an async continuation executor.
  */
 public interface PlayerDirectory {
     /**
      * Returns the active cached identity for a player without querying persistence.
      */
-    Optional<PlayerIdentity> getActiveIdentity(UUID uuid);
+    Optional<PlayerIdentity> findActiveIdentityCached(UUID uuid);
 
     /**
      * Returns the active cached identity for a UUID string without querying persistence.
      */
-    Optional<PlayerIdentity> getActiveIdentity(String uuid);
+    Optional<PlayerIdentity> findActiveIdentityCached(String uuid);
+
+    /**
+     * @deprecated use {@link #findActiveIdentityCached(UUID)} to make the cache-only behavior explicit.
+     */
+    @Deprecated(forRemoval = true)
+    default Optional<PlayerIdentity> getActiveIdentity(UUID uuid) {
+        return findActiveIdentityCached(uuid);
+    }
+
+    /**
+     * @deprecated use {@link #findActiveIdentityCached(String)} to make the cache-only behavior explicit.
+     */
+    @Deprecated(forRemoval = true)
+    default Optional<PlayerIdentity> getActiveIdentity(String uuid) {
+        return findActiveIdentityCached(uuid);
+    }
+
+    /**
+     * Looks up a persisted identity by typed lookup key without creating or updating a player row.
+     */
+    CompletionStage<Optional<PlayerIdentity>> findIdentity(PlayerLookup lookup);
+
+    /**
+     * Resolves multiple persisted identities in one query task.
+     */
+    CompletionStage<Map<PlayerLookup, Optional<PlayerIdentity>>> findIdentities(Collection<PlayerLookup> lookups);
 
     /**
      * Looks up a persisted identity by UUID without creating or updating a player row.
      */
-    Optional<PlayerIdentity> findByUuid(UUID uuid);
+    CompletionStage<Optional<PlayerIdentity>> findByUuid(UUID uuid);
 
     /**
      * Looks up a persisted identity by stable DataRegistry player id.
      */
-    Optional<PlayerIdentity> findByPlayerId(long playerId);
+    CompletionStage<Optional<PlayerIdentity>> findByPlayerId(long playerId);
 
     /**
      * Looks up a persisted identity by UUID string without creating or updating a player row.
      */
-    Optional<PlayerIdentity> findByUuid(String uuid);
+    CompletionStage<Optional<PlayerIdentity>> findByUuid(String uuid);
 
     /**
      * Looks up a persisted identity by exact username without creating or updating a player row.
      */
-    Optional<PlayerIdentity> findByUsername(String username);
+    CompletionStage<Optional<PlayerIdentity>> findByUsername(String username);
 
     /**
      * Looks up a persisted identity by case-insensitive username without creating or updating a player row.
      */
-    Optional<PlayerIdentity> findByUsernameIgnoreCase(String username);
+    CompletionStage<Optional<PlayerIdentity>> findByUsernameIgnoreCase(String username);
 
     /**
      * Looks up a persisted identity by UUID string or case-insensitive username.
      */
-    Optional<PlayerIdentity> findByIdentifier(String identifier);
+    CompletionStage<Optional<PlayerIdentity>> findByIdentifier(String identifier);
 
     /**
      * Finds persisted identities whose current username starts with {@code prefix}, case-insensitively.
      */
-    List<PlayerIdentity> findByUsernamePrefix(String prefix, int limit);
+    CompletionStage<List<PlayerIdentity>> findByUsernamePrefix(String prefix, int limit);
+
+    /**
+     * Finds a cursor page of identities whose current username starts with {@code prefix}, case-insensitively.
+     */
+    CompletionStage<PlayerPage<PlayerIdentity>> findByUsernamePrefix(String prefix, PlayerPageRequest pageRequest);
 
     /**
      * Returns active identity snapshots keyed by normalized UUID string.

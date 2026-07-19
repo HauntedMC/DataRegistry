@@ -88,6 +88,12 @@ final class DataRegistryConfigSchema {
         platform.put("velocity", velocity);
         root.put("platform", platform);
 
+        Map<String, Object> query = new LinkedHashMap<>();
+        query.put("executor-threads", defaults.queryExecutorThreads());
+        query.put("timeout-millis", defaults.queryTimeoutMillis());
+        query.put("development-thread-checks", defaults.queryDevelopmentThreadChecks());
+        root.put("query", query);
+
         Map<String, Object> validation = new LinkedHashMap<>();
         Map<String, Object> username = new LinkedHashMap<>();
         username.put("max-length", defaults.usernameMaxLength());
@@ -216,6 +222,15 @@ final class DataRegistryConfigSchema {
         builder.append("    # Applies to: Velocity.\n");
         builder.append("    # Proxy logical service name; set to 'auto' to derive from host:port fallback naming.\n");
         builder.append("    service-name: ").append(settings.velocityServiceName()).append('\n');
+        builder.append('\n');
+        builder.append("query:\n");
+        builder.append("  # Applies to: Both.\n");
+        builder.append("  # Worker threads for public asynchronous player read queries (1-32).\n");
+        builder.append("  executor-threads: ").append(settings.queryExecutorThreads()).append('\n');
+        builder.append("  # Public player query deadline before the returned stage fails (milliseconds, 50-60000).\n");
+        builder.append("  timeout-millis: ").append(settings.queryTimeoutMillis()).append('\n');
+        builder.append("  # Warn in development when async query stages are requested from likely server/event threads.\n");
+        builder.append("  development-thread-checks: ").append(settings.queryDevelopmentThreadChecks()).append('\n');
         builder.append('\n');
         builder.append("validation:\n");
         builder.append("  # Applies to: Both.\n");

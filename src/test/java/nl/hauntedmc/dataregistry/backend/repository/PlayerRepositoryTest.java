@@ -2,11 +2,14 @@ package nl.hauntedmc.dataregistry.backend.repository;
 
 import jakarta.persistence.PersistenceException;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
+import nl.hauntedmc.dataregistry.api.player.PlayerPageRequest;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import org.hibernate.Session;
 import org.hibernate.query.Query;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -171,7 +174,8 @@ class PlayerRepositoryTest {
         when(ignoreCaseQuery.uniqueResult()).thenReturn(player);
 
         when(session.createQuery(
-                "SELECT p FROM PlayerEntity p WHERE LOWER(p.username) LIKE :prefix ORDER BY p.username ASC",
+                "SELECT p FROM PlayerEntity p " +
+                        "WHERE LOWER(p.username) LIKE :prefix ORDER BY LOWER(p.username) ASC, p.id ASC",
                 PlayerEntity.class
         )).thenReturn(prefixQuery);
         when(prefixQuery.setParameter("prefix", "ali%")).thenReturn(prefixQuery);
@@ -189,6 +193,42 @@ class PlayerRepositoryTest {
                 )),
                 repository.findIdentitiesByUsernamePrefix("Ali", 1)
         );
+    }
+
+    @Test
+    void pagedPrefixSearchIgnoresCursorFromDifferentPrefix() {
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerEntity> query = mock(Query.class);
+        PlayerRepository repository = new PlayerRepository(ormContext);
+        PlayerEntity alice = new PlayerEntity();
+        alice.setId(15L);
+        alice.setUuid(UUID.randomUUID().toString());
+        alice.setUsername("Alice");
+        String staleCursor = Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString("zoe\n99".getBytes(StandardCharsets.UTF_8));
+
+        executeTransactionsWithSession(ormContext, session);
+        when(session.createQuery(
+                "SELECT p FROM PlayerEntity p " +
+                        "WHERE LOWER(p.username) LIKE :prefix " +
+                        "ORDER BY LOWER(p.username) ASC, p.id ASC",
+                PlayerEntity.class
+        )).thenReturn(query);
+        when(query.setParameter("prefix", "al%")).thenReturn(query);
+        when(query.setMaxResults(3)).thenReturn(query);
+        when(query.list()).thenReturn(List.of(alice));
+
+        var page = repository.findIdentitiesByUsernamePrefix("Al", new PlayerPageRequest(
+                staleCursor,
+                2
+        ));
+
+        assertEquals(1, page.items().size());
+        assertTrue(page.nextCursor().isEmpty());
+        verify(query, never()).setParameter(eq("cursorUsername"), any());
     }
 
     @Test

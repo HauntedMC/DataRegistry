@@ -25,6 +25,9 @@ class DataRegistrySettingsTest {
         assertFalse(settings.bukkitRegisterServiceInstance());
         assertEquals("auto", settings.bukkitServiceName());
         assertEquals("auto", settings.velocityServiceName());
+        assertEquals(2, settings.queryExecutorThreads());
+        assertEquals(3000, settings.queryTimeoutMillis());
+        assertTrue(settings.queryDevelopmentThreadChecks());
         assertEquals(32, settings.usernameMaxLength());
         assertEquals(64, settings.serverNameMaxLength());
         assertEquals(255, settings.virtualHostMaxLength());
@@ -124,6 +127,10 @@ class DataRegistrySettingsTest {
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbeRetentionHours(2161).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbePurgeIntervalHours(0).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbePurgeIntervalHours(2161).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().queryExecutorThreads(0).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().queryExecutorThreads(33).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().queryTimeoutMillis(49).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().queryTimeoutMillis(60001).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().bukkitServiceName(" ").build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().velocityServiceName(" ").build());
     }

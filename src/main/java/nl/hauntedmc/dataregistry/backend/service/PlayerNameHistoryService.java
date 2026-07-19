@@ -95,11 +95,30 @@ public final class PlayerNameHistoryService {
             return List.of();
         }
         try {
-            return dataRegistry.players()
-                    .findNameHistoryByCurrentUsername(normalizedCurrentUsername, Math.max(1, limit))
-                    .stream()
-                    .map(history -> new NameHistoryView(history.username(), history.lastSeenAt()))
-                    .toList();
+            return dataRegistry.getORM().runInTransaction(session -> {
+                PlayerEntity player = session.createQuery(
+                                "SELECT p FROM PlayerEntity p WHERE LOWER(p.username) = :username",
+                                PlayerEntity.class
+                        )
+                        .setParameter("username", normalizedCurrentUsername.toLowerCase(java.util.Locale.ROOT))
+                        .setMaxResults(1)
+                        .uniqueResult();
+                if (player == null || player.getId() == null) {
+                    return List.<NameHistoryView>of();
+                }
+                return session.createQuery(
+                                "SELECT h FROM PlayerNameHistoryEntity h " +
+                                        "WHERE h.player.id = :playerId " +
+                                        "ORDER BY h.lastSeenAt ASC, h.id ASC",
+                                PlayerNameHistoryEntity.class
+                        )
+                        .setParameter("playerId", player.getId())
+                        .setMaxResults(Math.max(1, limit))
+                        .list()
+                        .stream()
+                        .map(history -> new NameHistoryView(history.getUsername(), history.getLastSeenAt()))
+                        .toList();
+            });
         } catch (RuntimeException exception) {
             logger.error(
                     "Failed to list chronological name history for username=" +

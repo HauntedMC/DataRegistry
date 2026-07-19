@@ -5,11 +5,10 @@ import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.api.entities.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerNameHistoryEntity;
-import nl.hauntedmc.dataregistry.api.player.PlayerData;
-import nl.hauntedmc.dataregistry.api.player.PlayerNameHistoryEntry;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import org.hibernate.Session;
+import org.hibernate.query.Query;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -23,6 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -142,15 +143,28 @@ class PlayerNameHistoryServiceTest {
     @Test
     void listChronologicalHistoryForCurrentUsernameResolvesByCurrentName() {
         DataRegistry registry = mock(DataRegistry.class);
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerEntity> playerQuery = mock(Query.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerNameHistoryEntity> historyQuery = mock(Query.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
-        PlayerData playerData = mock(PlayerData.class);
         PlayerNameHistoryService service = new PlayerNameHistoryService(registry, logger, 32, true);
+        PlayerEntity player = persistedPlayer("Alice");
+        PlayerNameHistoryEntity alpha = history("Alpha", Instant.EPOCH, player);
+        PlayerNameHistoryEntity bravo = history("Bravo", Instant.EPOCH.plusSeconds(10), player);
 
-        when(registry.players()).thenReturn(playerData);
-        when(playerData.findNameHistoryByCurrentUsername("Alice", 5)).thenReturn(List.of(
-                new PlayerNameHistoryEntry(1L, 1L, "Alpha", Instant.EPOCH),
-                new PlayerNameHistoryEntry(2L, 1L, "Bravo", Instant.EPOCH.plusSeconds(10))
-        ));
+        when(registry.getORM()).thenReturn(ormContext);
+        executeTransactionsWithSession(ormContext, session);
+        when(session.createQuery(startsWith("SELECT p"), eq(PlayerEntity.class))).thenReturn(playerQuery);
+        when(playerQuery.setParameter("username", "alice")).thenReturn(playerQuery);
+        when(playerQuery.setMaxResults(1)).thenReturn(playerQuery);
+        when(playerQuery.uniqueResult()).thenReturn(player);
+        when(session.createQuery(startsWith("SELECT h"), eq(PlayerNameHistoryEntity.class))).thenReturn(historyQuery);
+        when(historyQuery.setParameter("playerId", 1L)).thenReturn(historyQuery);
+        when(historyQuery.setMaxResults(5)).thenReturn(historyQuery);
+        when(historyQuery.list()).thenReturn(List.of(alpha, bravo));
 
         List<PlayerNameHistoryService.NameHistoryView> result = service.listChronologicalHistoryForCurrentUsername("Alice", 5);
 
@@ -166,5 +180,13 @@ class PlayerNameHistoryServiceTest {
         player.setUuid("55f8e8cd-73be-44e5-8af6-a4f05248d6fb");
         player.setUsername(username);
         return player;
+    }
+
+    private static PlayerNameHistoryEntity history(String username, Instant lastSeenAt, PlayerEntity player) {
+        PlayerNameHistoryEntity history = new PlayerNameHistoryEntity();
+        history.setPlayer(player);
+        history.setUsername(username);
+        history.setLastSeenAt(lastSeenAt);
+        return history;
     }
 }

@@ -3,9 +3,15 @@ package nl.hauntedmc.dataregistry.backend.repository;
 import jakarta.persistence.PersistenceException;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
+import nl.hauntedmc.dataregistry.api.player.PlayerLookup;
+import nl.hauntedmc.dataregistry.api.player.PlayerPage;
+import nl.hauntedmc.dataregistry.api.player.PlayerPageRequest;
 import nl.hauntedmc.dataregistry.api.repository.AbstractRepository;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.LinkedHashSet;
@@ -152,6 +158,95 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
         ).map(PlayerRepository::toIdentity));
     }
 
+    public Optional<PlayerIdentity> findIdentity(PlayerLookup lookup) {
+        if (lookup == null) {
+            return Optional.empty();
+        }
+        return switch (lookup.type()) {
+            case PLAYER_ID -> findIdentityById(lookup.playerId());
+            case UUID -> findIdentityByUUID(lookup.uuid().toString());
+            case USERNAME -> findIdentityByUsernameIgnoreCase(lookup.text());
+            case IDENTIFIER -> findIdentityByIdentifier(lookup.text());
+        };
+    }
+
+    public Optional<PlayerIdentity> findIdentityByIdentifier(String identifier) {
+        if (identifier == null || identifier.isBlank()) {
+            return Optional.empty();
+        }
+        String value = identifier.trim();
+        String normalizedUuid = normalizeUuid(value);
+        if (normalizedUuid != null) {
+            return findIdentityByUUID(normalizedUuid);
+        }
+        return findIdentityByUsernameIgnoreCase(value);
+    }
+
+    public Map<PlayerLookup, Optional<PlayerIdentity>> findIdentities(Collection<PlayerLookup> lookups) {
+        if (lookups == null || lookups.isEmpty()) {
+            return Map.of();
+        }
+        List<PlayerLookup> normalizedLookups = lookups.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (normalizedLookups.isEmpty()) {
+            return Map.of();
+        }
+
+        LinkedHashSet<Long> playerIds = new LinkedHashSet<>();
+        LinkedHashSet<String> uuids = new LinkedHashSet<>();
+        LinkedHashSet<String> usernames = new LinkedHashSet<>();
+        for (PlayerLookup lookup : normalizedLookups) {
+            switch (lookup.type()) {
+                case PLAYER_ID -> playerIds.add(lookup.playerId());
+                case UUID -> uuids.add(lookup.uuid().toString());
+                case USERNAME -> usernames.add(lookup.text().toLowerCase(Locale.ROOT));
+                case IDENTIFIER -> {
+                    String normalizedUuid = normalizeUuid(lookup.text());
+                    if (normalizedUuid != null) {
+                        uuids.add(normalizedUuid);
+                    } else {
+                        usernames.add(lookup.text().toLowerCase(Locale.ROOT));
+                    }
+                }
+            }
+        }
+
+        return ormContext.runInTransaction(session -> {
+            Map<Long, PlayerIdentity> byId = new LinkedHashMap<>();
+            Map<String, PlayerIdentity> byUuid = new LinkedHashMap<>();
+            Map<String, PlayerIdentity> byUsername = new LinkedHashMap<>();
+            if (!playerIds.isEmpty()) {
+                session.createQuery("SELECT p FROM PlayerEntity p WHERE p.id IN :ids", PlayerEntity.class)
+                        .setParameter("ids", playerIds)
+                        .list()
+                        .forEach(player -> addIdentity(player, byId, byUuid, byUsername));
+            }
+            if (!uuids.isEmpty()) {
+                session.createQuery("SELECT p FROM PlayerEntity p WHERE p.uuid IN :uuids", PlayerEntity.class)
+                        .setParameter("uuids", uuids)
+                        .list()
+                        .forEach(player -> addIdentity(player, byId, byUuid, byUsername));
+            }
+            if (!usernames.isEmpty()) {
+                session.createQuery(
+                                "SELECT p FROM PlayerEntity p WHERE LOWER(p.username) IN :usernames",
+                                PlayerEntity.class
+                        )
+                        .setParameter("usernames", usernames)
+                        .list()
+                        .forEach(player -> addIdentity(player, byId, byUuid, byUsername));
+            }
+
+            Map<PlayerLookup, Optional<PlayerIdentity>> results = new LinkedHashMap<>();
+            for (PlayerLookup lookup : normalizedLookups) {
+                results.put(lookup, resolveIdentity(lookup, byId, byUuid, byUsername));
+            }
+            return results;
+        });
+    }
+
     /**
      * Performs a prefix search on usernames (case-insensitive), ordered alphabetically.
      */
@@ -165,7 +260,7 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
                 session.createQuery(
                                 "SELECT p FROM PlayerEntity p " +
                                         "WHERE LOWER(p.username) LIKE :prefix " +
-                                        "ORDER BY p.username ASC",
+                                        "ORDER BY LOWER(p.username) ASC, p.id ASC",
                                 PlayerEntity.class
                         )
                         .setParameter("prefix", normalizedPrefix.toLowerCase(Locale.ROOT) + "%")
@@ -182,6 +277,53 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
                 .stream()
                 .map(PlayerRepository::toIdentity)
                 .toList();
+    }
+
+    public PlayerPage<PlayerIdentity> findIdentitiesByUsernamePrefix(String prefix, PlayerPageRequest pageRequest) {
+        String normalizedPrefix = normalizeUsername(prefix);
+        if (normalizedPrefix == null) {
+            return new PlayerPage<>(List.of(), Optional.empty());
+        }
+        PlayerPageRequest request = pageRequest == null
+                ? PlayerPageRequest.firstPage(PlayerPageRequest.DEFAULT_LIMIT)
+                : pageRequest;
+        Cursor decodedCursor = decodeCursor(request.afterCursor());
+        String normalizedPrefixLower = normalizedPrefix.toLowerCase(Locale.ROOT);
+        Cursor cursor = decodedCursor == null || decodedCursor.username().startsWith(normalizedPrefixLower)
+                ? decodedCursor
+                : null;
+        int fetchLimit = request.limit() + 1;
+
+        List<PlayerEntity> players = ormContext.runInTransaction(session -> {
+            String cursorClause = cursor == null
+                    ? ""
+                    : "AND (LOWER(p.username) > :cursorUsername " +
+                    "OR (LOWER(p.username) = :cursorUsername AND p.id > :cursorPlayerId)) ";
+            var query = session.createQuery(
+                            "SELECT p FROM PlayerEntity p " +
+                                    "WHERE LOWER(p.username) LIKE :prefix " +
+                                    cursorClause +
+                                    "ORDER BY LOWER(p.username) ASC, p.id ASC",
+                            PlayerEntity.class
+                    )
+                    .setParameter("prefix", normalizedPrefixLower + "%")
+                    .setMaxResults(fetchLimit);
+            if (cursor != null) {
+                query.setParameter("cursorUsername", cursor.username());
+                query.setParameter("cursorPlayerId", cursor.playerId());
+            }
+            return query.list();
+        });
+
+        boolean hasNext = players.size() > request.limit();
+        List<PlayerEntity> pageItems = hasNext ? players.subList(0, request.limit()) : players;
+        List<PlayerIdentity> identities = pageItems.stream()
+                .map(PlayerRepository::toIdentity)
+                .toList();
+        Optional<String> nextCursor = hasNext && !pageItems.isEmpty()
+                ? Optional.of(encodeCursor(pageItems.getLast()))
+                : Optional.empty();
+        return new PlayerPage<>(identities, nextCursor);
     }
 
     /**
@@ -336,8 +478,65 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
                 ));
     }
 
-    private static PlayerIdentity toIdentity(PlayerEntity entity) {
+    public static PlayerIdentity toIdentity(PlayerEntity entity) {
         return new PlayerIdentity(entity.getId(), UUID.fromString(entity.getUuid()), entity.getUsername());
+    }
+
+    private static void addIdentity(
+            PlayerEntity player,
+            Map<Long, PlayerIdentity> byId,
+            Map<String, PlayerIdentity> byUuid,
+            Map<String, PlayerIdentity> byUsername
+    ) {
+        PlayerIdentity identity = toIdentity(player);
+        byId.putIfAbsent(identity.playerId(), identity);
+        byUuid.putIfAbsent(identity.uuid().toString(), identity);
+        byUsername.putIfAbsent(identity.username().toLowerCase(Locale.ROOT), identity);
+    }
+
+    private static Optional<PlayerIdentity> resolveIdentity(
+            PlayerLookup lookup,
+            Map<Long, PlayerIdentity> byId,
+            Map<String, PlayerIdentity> byUuid,
+            Map<String, PlayerIdentity> byUsername
+    ) {
+        return switch (lookup.type()) {
+            case PLAYER_ID -> Optional.ofNullable(byId.get(lookup.playerId()));
+            case UUID -> Optional.ofNullable(byUuid.get(lookup.uuid().toString()));
+            case USERNAME -> Optional.ofNullable(byUsername.get(lookup.text().toLowerCase(Locale.ROOT)));
+            case IDENTIFIER -> {
+                String normalizedUuid = normalizeUuid(lookup.text());
+                yield normalizedUuid == null
+                        ? Optional.ofNullable(byUsername.get(lookup.text().toLowerCase(Locale.ROOT)))
+                        : Optional.ofNullable(byUuid.get(normalizedUuid));
+            }
+        };
+    }
+
+    private static String encodeCursor(PlayerEntity player) {
+        String raw = player.getUsername().toLowerCase(Locale.ROOT) + "\n" + player.getId();
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static Cursor decodeCursor(String encoded) {
+        if (encoded == null || encoded.isBlank()) {
+            return null;
+        }
+        try {
+            String raw = new String(Base64.getUrlDecoder().decode(encoded), StandardCharsets.UTF_8);
+            int split = raw.lastIndexOf('\n');
+            if (split <= 0 || split == raw.length() - 1) {
+                return null;
+            }
+            String username = raw.substring(0, split).trim().toLowerCase(Locale.ROOT);
+            long playerId = Long.parseLong(raw.substring(split + 1).trim());
+            return username.isEmpty() || playerId <= 0L ? null : new Cursor(username, playerId);
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
+    }
+
+    private record Cursor(String username, long playerId) {
     }
 
     private static String normalizeUuid(String uuid) {

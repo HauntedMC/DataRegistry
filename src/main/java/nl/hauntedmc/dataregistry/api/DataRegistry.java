@@ -36,6 +36,7 @@ import nl.hauntedmc.dataregistry.api.repository.ServiceProbeRepository;
 import nl.hauntedmc.dataregistry.api.service.FeatureServiceDirectory;
 import nl.hauntedmc.dataregistry.backend.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker;
+import nl.hauntedmc.dataregistry.backend.player.DataRegistryQueryExecutor;
 import nl.hauntedmc.dataregistry.backend.player.RepositoryPlayerData;
 import nl.hauntedmc.dataregistry.backend.player.RepositoryPlayerDirectory;
 import nl.hauntedmc.dataregistry.backend.service.DefaultFeatureServiceDirectory;
@@ -45,6 +46,7 @@ import nl.hauntedmc.dataprovider.logging.LogLevel;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 
 import javax.sql.DataSource;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -79,6 +81,7 @@ public class DataRegistry {
     private ServiceInstanceRepository serviceInstanceRepository;
     private ServiceProbeRepository serviceProbeRepository;
     private PlayerIdentityInitializationTracker playerIdentityInitializationTracker;
+    private DataRegistryQueryExecutor queryExecutor;
     private PlayerDirectory playerDirectory;
     private PlayerData playerData;
     private ORMContext ormContext;
@@ -124,7 +127,12 @@ public class DataRegistry {
 
             this.playerRepository = newPlayerRepository(ormContext);
             this.playerIdentityInitializationTracker = new PlayerIdentityInitializationTracker();
-            this.playerDirectory = new RepositoryPlayerDirectory(playerRepository, playerIdentityInitializationTracker);
+            this.queryExecutor = newQueryExecutor();
+            this.playerDirectory = new RepositoryPlayerDirectory(
+                    playerRepository,
+                    playerIdentityInitializationTracker,
+                    queryExecutor
+            );
             this.playerActivitySummaryRepository = settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)
                     ? newPlayerActivitySummaryRepository(ormContext)
                     : null;
@@ -157,6 +165,8 @@ public class DataRegistry {
                     : null;
             this.playerData = new RepositoryPlayerData(
                     playerDirectory,
+                    queryExecutor,
+                    ormContext,
                     settings.enabledFeatures(),
                     playerActivitySummaryRepository,
                     playerOnlineStatusRepository,
@@ -164,7 +174,8 @@ public class DataRegistry {
                     playerLanguageRepository,
                     playerNicknameRepository,
                     playerNameHistoryRepository,
-                    playerPlaytimeRepository
+                    playerPlaytimeRepository,
+                    settings.playtimeTrackingSettings().excludedFromNetworkTotalGamemodes()
             );
             this.networkServiceRepository = null;
             this.serviceInstanceRepository = null;
@@ -192,6 +203,8 @@ public class DataRegistry {
         ormContext = null;
         serviceOrmContext = null;
         playerRepository = null;
+        DataRegistryQueryExecutor currentQueryExecutor = queryExecutor;
+        queryExecutor = null;
         if (playerIdentityInitializationTracker != null) {
             playerIdentityInitializationTracker.shutdown();
         }
@@ -213,6 +226,9 @@ public class DataRegistry {
         serviceProbeRepository = null;
         featureServiceDirectory.clear();
 
+        if (currentQueryExecutor != null) {
+            currentQueryExecutor.close();
+        }
         if (currentServiceOrmContext != null) {
             try {
                 currentServiceOrmContext.shutdown();
@@ -373,6 +389,15 @@ public class DataRegistry {
         return new PlayerRepository(context, settings.usernameMaxLength());
     }
 
+    DataRegistryQueryExecutor newQueryExecutor() {
+        return new DataRegistryQueryExecutor(
+                settings.queryExecutorThreads(),
+                Duration.ofMillis(settings.queryTimeoutMillis()),
+                settings.queryDevelopmentThreadChecks(),
+                logger
+        );
+    }
+
     PlayerActivitySummaryRepository newPlayerActivitySummaryRepository(ORMContext context) {
         return new PlayerActivitySummaryRepository(context);
     }
@@ -514,6 +539,7 @@ public class DataRegistry {
         return ormContext != null
                 || serviceOrmContext != null
                 || playerRepository != null
+                || queryExecutor != null
                 || playerIdentityInitializationTracker != null
                 || playerDirectory != null
                 || playerData != null
@@ -535,6 +561,7 @@ public class DataRegistry {
     private boolean isRuntimeFullyInitialized() {
         if (ormContext == null
                 || playerRepository == null
+                || queryExecutor == null
                 || playerIdentityInitializationTracker == null
                 || playerDirectory == null
                 || playerData == null) {

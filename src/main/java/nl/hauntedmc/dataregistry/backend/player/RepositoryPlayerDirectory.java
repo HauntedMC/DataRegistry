@@ -2,39 +2,52 @@ package nl.hauntedmc.dataregistry.backend.player;
 
 import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
+import nl.hauntedmc.dataregistry.api.player.PlayerLookup;
+import nl.hauntedmc.dataregistry.api.player.PlayerPage;
+import nl.hauntedmc.dataregistry.api.player.PlayerPageRequest;
 import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker;
 import nl.hauntedmc.dataregistry.backend.repository.PlayerRepository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Repository-backed implementation of the public read-only player directory.
- * <p>
- * It adapts lifecycle initialization state and repository snapshots into immutable identity records.
  */
 public final class RepositoryPlayerDirectory implements PlayerDirectory {
 
     private final PlayerRepository playerRepository;
     private final PlayerIdentityInitializationTracker identityInitializationTracker;
+    private final DataRegistryQueryExecutor queryExecutor;
 
     public RepositoryPlayerDirectory(
             PlayerRepository playerRepository,
             PlayerIdentityInitializationTracker identityInitializationTracker
+    ) {
+        this(playerRepository, identityInitializationTracker, DataRegistryQueryExecutor.immediateForTesting());
+    }
+
+    public RepositoryPlayerDirectory(
+            PlayerRepository playerRepository,
+            PlayerIdentityInitializationTracker identityInitializationTracker,
+            DataRegistryQueryExecutor queryExecutor
     ) {
         this.playerRepository = Objects.requireNonNull(playerRepository, "playerRepository must not be null");
         this.identityInitializationTracker = Objects.requireNonNull(
                 identityInitializationTracker,
                 "identityInitializationTracker must not be null"
         );
+        this.queryExecutor = Objects.requireNonNull(queryExecutor, "queryExecutor must not be null");
     }
 
     @Override
-    public Optional<PlayerIdentity> getActiveIdentity(UUID uuid) {
+    public Optional<PlayerIdentity> findActiveIdentityCached(UUID uuid) {
         String normalizedUuid = normalizeUuid(uuid);
         if (normalizedUuid == null) {
             return Optional.empty();
@@ -43,7 +56,7 @@ public final class RepositoryPlayerDirectory implements PlayerDirectory {
     }
 
     @Override
-    public Optional<PlayerIdentity> getActiveIdentity(String uuid) {
+    public Optional<PlayerIdentity> findActiveIdentityCached(String uuid) {
         String normalizedUuid = normalizeUuid(uuid);
         if (normalizedUuid == null) {
             return Optional.empty();
@@ -52,54 +65,73 @@ public final class RepositoryPlayerDirectory implements PlayerDirectory {
     }
 
     @Override
-    public Optional<PlayerIdentity> findByUuid(UUID uuid) {
+    public CompletionStage<Optional<PlayerIdentity>> findIdentity(PlayerLookup lookup) {
+        return queryExecutor.supply("player.identity.lookup", () -> playerRepository.findIdentity(lookup));
+    }
+
+    @Override
+    public CompletionStage<Map<PlayerLookup, Optional<PlayerIdentity>>> findIdentities(Collection<PlayerLookup> lookups) {
+        return queryExecutor.supply("player.identity.bulk", () -> playerRepository.findIdentities(lookups));
+    }
+
+    @Override
+    public CompletionStage<Optional<PlayerIdentity>> findByUuid(UUID uuid) {
         String normalizedUuid = normalizeUuid(uuid);
         if (normalizedUuid == null) {
-            return Optional.empty();
+            return CompletableFuture.completedFuture(Optional.empty());
         }
-        return playerRepository.findIdentityByUUID(normalizedUuid);
+        return queryExecutor.supply("player.identity.uuid", () -> playerRepository.findIdentityByUUID(normalizedUuid));
     }
 
     @Override
-    public Optional<PlayerIdentity> findByPlayerId(long playerId) {
-        return playerRepository.findIdentityById(playerId);
+    public CompletionStage<Optional<PlayerIdentity>> findByPlayerId(long playerId) {
+        return queryExecutor.supply("player.identity.id", () -> playerRepository.findIdentityById(playerId));
     }
 
     @Override
-    public Optional<PlayerIdentity> findByUuid(String uuid) {
+    public CompletionStage<Optional<PlayerIdentity>> findByUuid(String uuid) {
         String normalizedUuid = normalizeUuid(uuid);
         if (normalizedUuid == null) {
-            return Optional.empty();
+            return CompletableFuture.completedFuture(Optional.empty());
         }
-        return playerRepository.findIdentityByUUID(normalizedUuid);
+        return queryExecutor.supply("player.identity.uuid-string", () -> playerRepository.findIdentityByUUID(normalizedUuid));
     }
 
     @Override
-    public Optional<PlayerIdentity> findByUsername(String username) {
-        return playerRepository.findIdentityByUsername(username);
+    public CompletionStage<Optional<PlayerIdentity>> findByUsername(String username) {
+        return queryExecutor.supply("player.identity.username", () -> playerRepository.findIdentityByUsername(username));
     }
 
     @Override
-    public Optional<PlayerIdentity> findByUsernameIgnoreCase(String username) {
-        return playerRepository.findIdentityByUsernameIgnoreCase(username);
+    public CompletionStage<Optional<PlayerIdentity>> findByUsernameIgnoreCase(String username) {
+        return queryExecutor.supply(
+                "player.identity.username-ignore-case",
+                () -> playerRepository.findIdentityByUsernameIgnoreCase(username)
+        );
     }
 
     @Override
-    public Optional<PlayerIdentity> findByIdentifier(String identifier) {
-        if (identifier == null || identifier.isBlank()) {
-            return Optional.empty();
-        }
-        String value = identifier.trim();
-        String normalizedUuid = normalizeUuid(value);
-        if (normalizedUuid != null) {
-            return findByUuid(normalizedUuid);
-        }
-        return findByUsernameIgnoreCase(value);
+    public CompletionStage<Optional<PlayerIdentity>> findByIdentifier(String identifier) {
+        return queryExecutor.supply(
+                "player.identity.identifier",
+                () -> playerRepository.findIdentityByIdentifier(identifier)
+        );
     }
 
     @Override
-    public List<PlayerIdentity> findByUsernamePrefix(String prefix, int limit) {
-        return playerRepository.findIdentitiesByUsernamePrefix(prefix, limit);
+    public CompletionStage<List<PlayerIdentity>> findByUsernamePrefix(String prefix, int limit) {
+        return queryExecutor.supply(
+                "player.identity.username-prefix",
+                () -> playerRepository.findIdentitiesByUsernamePrefix(prefix, limit)
+        );
+    }
+
+    @Override
+    public CompletionStage<PlayerPage<PlayerIdentity>> findByUsernamePrefix(String prefix, PlayerPageRequest pageRequest) {
+        return queryExecutor.supply(
+                "player.identity.username-prefix-page",
+                () -> playerRepository.findIdentitiesByUsernamePrefix(prefix, pageRequest)
+        );
     }
 
     @Override
@@ -109,7 +141,7 @@ public final class RepositoryPlayerDirectory implements PlayerDirectory {
 
     @Override
     public CompletableFuture<Optional<PlayerIdentity>> whenReady(UUID uuid) {
-        return identityInitializationTracker.whenReady(uuid, () -> getActiveIdentity(uuid));
+        return identityInitializationTracker.whenReady(uuid, () -> findActiveIdentityCached(uuid));
     }
 
     @Override

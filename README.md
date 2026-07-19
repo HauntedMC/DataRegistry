@@ -51,10 +51,11 @@ Use `DataRegistry#players()` for player data:
 ```java
 PlayerData players = platformPlugin.getDataRegistry().players();
 
-players.whenReady(player.getUniqueId()).thenAccept(identity -> {
+UUID uuid = player.getUniqueId(); // snapshot platform state before async continuations
+players.whenReady(uuid).thenAccept(identity -> {
     identity.ifPresent(value -> {
         long playerId = value.playerId();
-        UUID uuid = value.uuid();
+        UUID canonicalUuid = value.uuid();
         String username = value.username();
     });
 });
@@ -69,8 +70,10 @@ Use lookup-only methods outside lifecycle paths:
 
 - `players.findIdentity(uuid)`, `players.findIdentityByUsername(name)`, and `players.findIdentity(playerId)`
 - `players.findIdentityByIdentifier(identifier)` for command input that may be a UUID or username
-- `players.findPlayerId(uuid)`, `players.findPlayerIdByUsername(name)`, and `players.findPlayerIdByIdentifier(identifier)`
-- `players.findIdentitiesByUsernamePrefix(prefix, limit)` for suggestions and staff tooling
+- `players.findPlayerId(uuid)` and `players.findPlayerIdByIdentifier(identifier)`
+- `players.findIdentities(lookups)` for bulk identity resolution
+- `players.findIdentitiesByUsernamePrefix(prefix, pageRequest)` for cursor-based suggestions and staff tooling
+- `players.findActiveIdentityCached(uuid)` only when cache-only behavior is explicitly acceptable
 
 `PlayerIdentity` is immutable and standalone. It is safe to pass between feature layers and does not expose
 Hibernate-managed state.
@@ -80,16 +83,16 @@ Hibernate-managed state.
 Use `PlayerProfile` when a feature needs a read snapshot of several DataRegistry-owned fields:
 
 ```java
-players.findProfileByIdentifier(input, 20).ifPresent(profile -> {
+players.findProfileByIdentifier(input, 20).thenAccept(profileOpt -> profileOpt.ifPresent(profile -> {
     PlayerIdentity identity = profile.identity();
     Optional<String> nickname = profile.nickname();
     List<PlayerNameHistoryEntry> names = profile.nameHistory();
-});
+}));
 ```
 
 Profiles may include language, nickname, connection, online, activity, playtime, and name-history data depending
 on enabled modules and available rows. Missing optional feature data is represented as `Optional.empty()` or an
-empty list.
+empty list. Profile projection is assembled by DataRegistry in one transaction for a consistent snapshot.
 
 ### Feature Reads
 
@@ -105,9 +108,11 @@ Use the specific facade methods when a full profile is unnecessary:
 - `players.findIdentitiesSharingLastIp(playerId)` and `players.findUsernamesSharingLastIp(playerId)`
 - `players.findPlayerIdsByLastIpAddress(ip, excludePlayerId)` and `players.findUsernamesByLastIpAddress(ip, excludePlayerId)`
 
-`find*` methods may perform database I/O. Run them asynchronously on Paper and Velocity event paths. `whenReady`
-may complete on a DataRegistry lifecycle thread, so schedule platform API work back onto the platform thread when
-required.
+Public persistence reads and DataRegistry-owned preference writes return `CompletionStage` and run on DataRegistry's
+query executor with configured deadlines. Returned futures support cancellation when used as `CompletableFuture`.
+Development thread checks warn when likely event threads request queries or block pending query stages. Completion
+callbacks may run on DataRegistry worker or lifecycle threads, so snapshot Bukkit/Velocity state before starting async
+work and schedule platform API work back onto the platform thread when required.
 
 Downstream plugins must not create, update, or merge canonical player rows. They may write only through the
 narrow DataRegistry methods for DataRegistry-owned preferences such as language and nickname.

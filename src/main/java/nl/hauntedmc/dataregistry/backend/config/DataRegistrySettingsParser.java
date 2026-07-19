@@ -44,6 +44,9 @@ final class DataRegistrySettingsParser {
     private static final String BUKKIT_REGISTER_SERVICE_INSTANCE_KEY = "platform.bukkit.register-service-instance";
     private static final String BUKKIT_SERVICE_NAME_KEY = "platform.bukkit.service-name";
     private static final String VELOCITY_SERVICE_NAME_KEY = "platform.velocity.service-name";
+    private static final String QUERY_EXECUTOR_THREADS_KEY = "query.executor-threads";
+    private static final String QUERY_TIMEOUT_MILLIS_KEY = "query.timeout-millis";
+    private static final String QUERY_DEVELOPMENT_THREAD_CHECKS_KEY = "query.development-thread-checks";
     private static final String USERNAME_MAX_LENGTH_KEY = "validation.username.max-length";
     private static final String SERVER_NAME_MAX_LENGTH_KEY = "validation.server.max-length";
     private static final String GAMEMODE_MAX_LENGTH_KEY = "validation.gamemode.max-length";
@@ -227,6 +230,36 @@ final class DataRegistrySettingsParser {
                 defaults.velocityServiceName(),
                 logger,
                 DataRegistrySettings.Builder::velocityServiceName
+        ));
+        builder.queryExecutorThreads(validateWithBuilder(
+                QUERY_EXECUTOR_THREADS_KEY,
+                parseInteger(
+                        configRoot,
+                        QUERY_EXECUTOR_THREADS_KEY,
+                        defaults.queryExecutorThreads(),
+                        logger
+                ),
+                defaults.queryExecutorThreads(),
+                logger,
+                DataRegistrySettings.Builder::queryExecutorThreads
+        ));
+        builder.queryTimeoutMillis(validateWithBuilder(
+                QUERY_TIMEOUT_MILLIS_KEY,
+                parseInteger(
+                        configRoot,
+                        QUERY_TIMEOUT_MILLIS_KEY,
+                        defaults.queryTimeoutMillis(),
+                        logger
+                ),
+                defaults.queryTimeoutMillis(),
+                logger,
+                DataRegistrySettings.Builder::queryTimeoutMillis
+        ));
+        builder.queryDevelopmentThreadChecks(parseBoolean(
+                configRoot,
+                QUERY_DEVELOPMENT_THREAD_CHECKS_KEY,
+                defaults.queryDevelopmentThreadChecks(),
+                logger
         ));
         builder.usernameMaxLength(validateWithBuilder(
                 USERNAME_MAX_LENGTH_KEY,

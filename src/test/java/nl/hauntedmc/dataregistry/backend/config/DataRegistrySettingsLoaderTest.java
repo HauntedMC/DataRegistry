@@ -83,6 +83,11 @@ class DataRegistrySettingsLoaderTest {
                                 "service-name", "proxy-eu"
                         )
                 ),
+                "query", Map.of(
+                        "executor-threads", 4,
+                        "timeout-millis", 2500,
+                        "development-thread-checks", false
+                ),
                 "validation", Map.of(
                         "username", Map.of("max-length", 24),
                         "server", Map.of("max-length", 48),
@@ -123,6 +128,9 @@ class DataRegistrySettingsLoaderTest {
         assertTrue(settings.bukkitRegisterServiceInstance());
         assertEquals("lobby-01", settings.bukkitServiceName());
         assertEquals("proxy-eu", settings.velocityServiceName());
+        assertEquals(4, settings.queryExecutorThreads());
+        assertEquals(2500, settings.queryTimeoutMillis());
+        assertFalse(settings.queryDevelopmentThreadChecks());
         assertEquals(24, settings.usernameMaxLength());
         assertEquals(48, settings.serverNameMaxLength());
         assertEquals(180, settings.virtualHostMaxLength());
