@@ -22,6 +22,8 @@ import nl.hauntedmc.dataregistry.backend.service.PlayerConnectionInfoService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerNameHistoryService;
 import nl.hauntedmc.dataregistry.backend.playtime.PlaytimeGamemodeResolver;
 import nl.hauntedmc.dataregistry.backend.service.PlayerPlaytimeService;
+import nl.hauntedmc.dataregistry.backend.service.PlayerPresenceRecoveryResult;
+import nl.hauntedmc.dataregistry.backend.service.PlayerPresenceRecoveryService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerSessionService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerStatusService;
@@ -112,8 +114,8 @@ public class VelocityDataRegistry implements PlatformPlugin {
                     this::initializeRuntime,
                     getPlatformLogger()
             );
+            recoverPlayerPresenceStateOnStartup();
             registerPlayerStatusListener();
-            recoverPlaytimeStateOnStartup();
             startPlaytimeFlushLifecycle();
             startServiceRegistryLifecycle();
         } catch (RuntimeException | Error startupFailure) {
@@ -256,31 +258,40 @@ public class VelocityDataRegistry implements PlatformPlugin {
         if (listener == null) {
             return;
         }
-        listener.flushActivePlaytime();
         listener.beginShutdown();
-        boolean drained = listener.awaitPipelineDrain(EVENT_PIPELINE_DRAIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        if (!drained) {
+        boolean queuedEventsDrained = listener.awaitPipelineDrain(EVENT_PIPELINE_DRAIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        if (!queuedEventsDrained) {
             logger.warn("Timed out waiting for queued player lifecycle events to drain before shutdown.");
+        }
+        listener.closeActivePresenceForShutdown();
+        boolean shutdownPresenceDrained = listener.awaitPipelineDrain(
+                EVENT_PIPELINE_DRAIN_TIMEOUT_SECONDS,
+                TimeUnit.SECONDS
+        );
+        if (!shutdownPresenceDrained) {
+            logger.warn("Timed out waiting for active player presence cleanup to drain before shutdown.");
         }
     }
 
-    void recoverPlaytimeStateOnStartup() {
-        if (!settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)) {
-            return;
-        }
+    void recoverPlayerPresenceStateOnStartup() {
         DataRegistry registry = getDataRegistry();
-        PlayerPlaytimeService playtimeService = new PlayerPlaytimeService(
+        PlayerPresenceRecoveryService recoveryService = new PlayerPresenceRecoveryService(
                 registry,
                 getPlatformLogger(),
-                new PlaytimeGamemodeResolver(settings.playtimeTrackingSettings()),
-                settings.serverNameMaxLength(),
-                true
+                settings
         );
-        int recoveredSegments = playtimeService.recoverOpenSegmentsOnStartup();
-        if (recoveredSegments > 0) {
+        PlayerPresenceRecoveryResult result = recoveryService.recoverAfterUncleanShutdown();
+        if (result.recoveredAnyState()) {
             logger.warn(
-                    "Recovered {} stale open playtime segment(s) left by a previous unclean shutdown.",
-                    recoveredSegments
+                    "Recovered stale player presence state left by a previous unclean shutdown: " +
+                            "playtimeSegments={}, sessions={}, sessionVisits={}, onlineStatuses={}, " +
+                            "activitySummaries={}, connectionInfos={}.",
+                    result.playtimeSegmentsClosed(),
+                    result.sessionsClosed(),
+                    result.sessionVisitsClosed(),
+                    result.onlineStatusesCleared(),
+                    result.activitySummariesUpdated(),
+                    result.connectionInfosUpdated()
             );
         }
     }

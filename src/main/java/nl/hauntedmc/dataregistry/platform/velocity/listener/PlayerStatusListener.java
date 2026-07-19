@@ -149,11 +149,7 @@ public class PlayerStatusListener {
         enqueuePlayerEvent(uuid, () -> {
             try {
                 PlayerEntity persistent = resolveOrRestorePlayer(uuid, username);
-                statusService.updateStatusOnQuit(persistent);
-                activitySummaryService.recordDisconnect(persistent);
-                connectionService.updateOnDisconnect(persistent);
-                playtimeService.closeActivePlaytimeOnDisconnect(persistent);
-                sessionService.closeSessionOnDisconnect(persistent);
+                persistDisconnect(persistent);
             } finally {
                 playerService.onPlayerQuit(username, uuid);
             }
@@ -166,11 +162,19 @@ public class PlayerStatusListener {
     }
 
     private Optional<CompletableFuture<Void>> enqueuePlayerEvent(String uuid, Runnable task) {
+        return enqueuePlayerEvent(uuid, task, false);
+    }
+
+    private Optional<CompletableFuture<Void>> enqueuePlayerEvent(
+            String uuid,
+            Runnable task,
+            boolean allowDuringShutdown
+    ) {
         AtomicReference<CompletableFuture<Void>> queuedPipeline = new AtomicReference<>();
         AtomicReference<String> queuedKey = new AtomicReference<>();
         AtomicReference<RuntimeException> schedulingFailure = new AtomicReference<>();
         playerEventPipelines.compute(uuid, (key, currentPipeline) -> {
-            if (!acceptingEvents.get()) {
+            if (!allowDuringShutdown && !acceptingEvents.get()) {
                 return currentPipeline;
             }
             CompletableFuture<Void> base = currentPipeline == null
@@ -209,10 +213,21 @@ public class PlayerStatusListener {
         return Optional.ofNullable(scheduledPipeline);
     }
 
+    private void persistDisconnect(PlayerEntity persistent) {
+        statusService.updateStatusOnQuit(persistent);
+        activitySummaryService.recordDisconnect(persistent);
+        connectionService.updateOnDisconnect(persistent);
+        playtimeService.closeActivePlaytimeOnDisconnect(persistent);
+        sessionService.closeSessionOnDisconnect(persistent);
+    }
+
     public void beginShutdown() {
         acceptingEvents.set(false);
     }
 
+    /**
+     * Enqueues a lightweight playtime accrual flush for currently active players.
+     */
     public void flushActivePlaytime() {
         for (Map.Entry<String, PlayerEntity> entry : playerService.snapshotActivePlayers().entrySet()) {
             PlayerEntity player = entry.getValue();
@@ -220,6 +235,26 @@ public class PlayerStatusListener {
                 continue;
             }
             enqueuePlayerEvent(entry.getKey(), () -> playtimeService.flushActivePlaytime(player));
+        }
+    }
+
+    /**
+     * Enqueues full disconnect persistence for active players that did not emit a disconnect event before shutdown.
+     */
+    public void closeActivePresenceForShutdown() {
+        for (Map.Entry<String, PlayerEntity> entry : playerService.snapshotActivePlayers().entrySet()) {
+            PlayerEntity player = entry.getValue();
+            if (player == null) {
+                continue;
+            }
+            String uuid = player.getUuid() == null ? entry.getKey() : player.getUuid();
+            enqueuePlayerEvent(uuid, () -> {
+                try {
+                    persistDisconnect(player);
+                } finally {
+                    playerService.onPlayerQuit(player.getUsername(), uuid);
+                }
+            }, true);
         }
     }
 

@@ -746,6 +746,19 @@ class PlayerStatusListenerTest {
     }
 
     @Test
+    void closeActivePresenceForShutdownQueuesFullDisconnectAfterShutdownBegins() {
+        TestContext context = createContext();
+        String uuid = UUID.randomUUID().toString();
+        when(context.repository.snapshotActivePlayers()).thenReturn(Map.of(uuid, persistedPlayer(uuid, "Alice")));
+
+        context.listener.beginShutdown();
+        context.listener.closeActivePresenceForShutdown();
+
+        verify(context.ormContext, times(5)).runInTransaction(any());
+        verify(context.repository).removeActivePlayer(uuid);
+    }
+
+    @Test
     void flushActivePlaytimeQueuesOneTaskPerActivePlayer() {
         TestContext context = createContext();
         String uuid = UUID.randomUUID().toString();

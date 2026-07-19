@@ -12,7 +12,6 @@ import org.hibernate.Session;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -191,31 +190,6 @@ public final class PlayerPlaytimeService {
         } catch (RuntimeException exception) {
             logger.error("Failed to close playtime for uuid=" +
                     Sanitization.safeForLog(playerEntity.getUuid()), exception);
-        }
-    }
-
-    /**
-     * Closes any segments left open by an unclean proxy shutdown before this runtime started.
-     */
-    public int recoverOpenSegmentsOnStartup() {
-        if (!featureEnabled) {
-            return 0;
-        }
-        try {
-            return dataRegistry.getORM().runInTransaction(session -> {
-                List<PlayerPlaytimeSegmentEntity> openSegments = session.createQuery(
-                                "SELECT s FROM PlayerPlaytimeSegmentEntity s WHERE s.endedAt IS NULL",
-                                PlayerPlaytimeSegmentEntity.class
-                        )
-                        .list();
-                for (PlayerPlaytimeSegmentEntity openSegment : openSegments) {
-                    recoverStaleSegment(openSegment);
-                }
-                return openSegments.size();
-            });
-        } catch (RuntimeException exception) {
-            logger.error("Failed to recover stale playtime segments during startup.", exception);
-            return 0;
         }
     }
 

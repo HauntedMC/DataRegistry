@@ -18,15 +18,20 @@ import nl.hauntedmc.dataregistry.backend.service.ServiceRegistryService;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import nl.hauntedmc.dataregistry.platform.velocity.listener.PlayerStatusListener;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.slf4j.Logger;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -39,6 +44,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.same;
 import static org.mockito.Mockito.times;
@@ -225,7 +231,8 @@ class VelocityDataRegistryTest {
 
         assertSame(registry, plugin.getDataRegistry());
         assertTrue(plugin.listenerRegistered);
-        assertTrue(plugin.playtimeRecoveryInvoked);
+        assertTrue(plugin.playerPresenceRecoveryInvoked);
+        assertEquals(List.of("recover-presence", "register-listener"), plugin.startupSteps);
         assertSame(api, plugin.createdWithApi);
         verify(registry).initialize();
     }
@@ -260,7 +267,7 @@ class VelocityDataRegistryTest {
     }
 
     @Test
-    void onProxyInitializeRollsBackIfStartupFailsAfterListenerRegistration() {
+    void onProxyInitializeRollsBackIfStartupFailsDuringPresenceRecovery() {
         ProxyServer proxyServer = mock(ProxyServer.class);
         PluginManager pluginManager = mock(PluginManager.class);
         Logger logger = mock(Logger.class);
@@ -271,11 +278,11 @@ class VelocityDataRegistryTest {
         when(registry.initialize()).thenReturn(true);
 
         TestVelocityDataRegistry plugin = new TestVelocityDataRegistry(proxyServer, logger, api, registry);
-        plugin.failDuringPlaytimeRecovery = true;
+        plugin.failDuringPlayerPresenceRecovery = true;
 
         plugin.onProxyInitialize(null);
 
-        assertTrue(plugin.listenerRegistered);
+        assertFalse(plugin.listenerRegistered);
         assertTrue(plugin.playerEventsDrained);
         verify(registry).shutdown();
         assertThrows(IllegalStateException.class, plugin::getDataRegistry);
@@ -301,6 +308,36 @@ class VelocityDataRegistryTest {
         assertTrue(plugin.playerEventsDrained);
         verify(registry).shutdown();
         assertThrows(IllegalStateException.class, plugin::getDataRegistry);
+    }
+
+    @Test
+    void stopAcceptingAndDrainPlayerEventsClosesActivePresenceAfterQueuedWorkDrains()
+            throws ReflectiveOperationException {
+        VelocityDataRegistry plugin = new VelocityDataRegistry(
+                mock(ProxyServer.class),
+                mock(Logger.class),
+                TEST_DATA_DIRECTORY
+        );
+        PlayerStatusListener listener = mock(PlayerStatusListener.class);
+        when(listener.awaitPipelineDrain(VelocityDataRegistry.EVENT_PIPELINE_DRAIN_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                .thenReturn(true, true);
+        Field listenerField = VelocityDataRegistry.class.getDeclaredField("playerStatusListener");
+        listenerField.setAccessible(true);
+        listenerField.set(plugin, listener);
+
+        plugin.stopAcceptingAndDrainPlayerEvents();
+
+        InOrder inOrder = inOrder(listener);
+        inOrder.verify(listener).beginShutdown();
+        inOrder.verify(listener).awaitPipelineDrain(
+                VelocityDataRegistry.EVENT_PIPELINE_DRAIN_TIMEOUT_SECONDS,
+                TimeUnit.SECONDS
+        );
+        inOrder.verify(listener).closeActivePresenceForShutdown();
+        inOrder.verify(listener).awaitPipelineDrain(
+                VelocityDataRegistry.EVENT_PIPELINE_DRAIN_TIMEOUT_SECONDS,
+                TimeUnit.SECONDS
+        );
     }
 
     @Test
@@ -337,8 +374,9 @@ class VelocityDataRegistryTest {
         private boolean listenerRegistered;
         private DataProviderAPI createdWithApi;
         private boolean playerEventsDrained;
-        private boolean playtimeRecoveryInvoked;
-        private boolean failDuringPlaytimeRecovery;
+        private boolean playerPresenceRecoveryInvoked;
+        private boolean failDuringPlayerPresenceRecovery;
+        private final List<String> startupSteps = new ArrayList<>();
 
         private TestVelocityDataRegistry(
                 ProxyServer proxyServer,
@@ -364,6 +402,7 @@ class VelocityDataRegistryTest {
 
         @Override
         void registerPlayerStatusListener() {
+            startupSteps.add("register-listener");
             this.listenerRegistered = true;
         }
 
@@ -373,10 +412,11 @@ class VelocityDataRegistryTest {
         }
 
         @Override
-        void recoverPlaytimeStateOnStartup() {
-            this.playtimeRecoveryInvoked = true;
-            if (failDuringPlaytimeRecovery) {
-                throw new IllegalStateException("playtime recovery failed");
+        void recoverPlayerPresenceStateOnStartup() {
+            startupSteps.add("recover-presence");
+            this.playerPresenceRecoveryInvoked = true;
+            if (failDuringPlayerPresenceRecovery) {
+                throw new IllegalStateException("player presence recovery failed");
             }
         }
     }

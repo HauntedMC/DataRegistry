@@ -150,27 +150,6 @@ class PlayerPlaytimeServiceTest {
     }
 
     @Test
-    void recoverOpenSegmentsOnStartupClosesAllDanglingSegments() {
-        TestContext context = createContext(PlaytimeTrackingSettings.defaults());
-        PlayerEntity player = persistedPlayer();
-        PlayerSessionEntity staleSession = openSession(player, 4L);
-        PlayerPlaytimeSegmentEntity firstSegment = openSegment(player, staleSession, "lobby", "lobby-1");
-        PlayerPlaytimeSegmentEntity secondSegment = openSegment(player, staleSession, "skyblock", "skyblock-1");
-        firstSegment.setLastAccruedAt(Instant.now().minusSeconds(20));
-        secondSegment.setLastAccruedAt(Instant.now().minusSeconds(10));
-
-        when(context.openSegmentsQuery.list()).thenReturn(List.of(firstSegment, secondSegment));
-
-        int recoveredCount = context.service.recoverOpenSegmentsOnStartup();
-
-        assertEquals(2, recoveredCount);
-        assertEquals(PlayerPlaytimeSegmentCloseReason.RECOVERY, firstSegment.getCloseReason());
-        assertEquals(PlayerPlaytimeSegmentCloseReason.RECOVERY, secondSegment.getCloseReason());
-        assertEquals(firstSegment.getLastAccruedAt(), firstSegment.getEndedAt());
-        assertEquals(secondSegment.getLastAccruedAt(), secondSegment.getEndedAt());
-    }
-
-    @Test
     void invalidEntityOrDisabledFeatureSkipWork() {
         DataRegistry registry = mock(DataRegistry.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
@@ -200,8 +179,6 @@ class PlayerPlaytimeServiceTest {
         Query<PlayerPlaytimeSegmentEntity> segmentQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
         Query<PlayerPlaytimeEntity> aggregateQuery = mock(Query.class);
-        @SuppressWarnings("unchecked")
-        Query<PlayerPlaytimeSegmentEntity> openSegmentsQuery = mock(Query.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
 
         when(registry.getORM()).thenReturn(ormContext);
@@ -219,19 +196,13 @@ class PlayerPlaytimeServiceTest {
                 .thenReturn(aggregateQuery);
         when(aggregateQuery.setParameter(anyString(), any())).thenReturn(aggregateQuery);
         when(aggregateQuery.setMaxResults(anyInt())).thenReturn(aggregateQuery);
-        when(session.createQuery(
-                "SELECT s FROM PlayerPlaytimeSegmentEntity s WHERE s.endedAt IS NULL",
-                PlayerPlaytimeSegmentEntity.class
-        )).thenReturn(openSegmentsQuery);
-        when(openSegmentsQuery.list()).thenReturn(List.of());
-
         PlayerPlaytimeService service = new PlayerPlaytimeService(
                 registry,
                 logger,
                 new PlaytimeGamemodeResolver(playtimeSettings),
                 64
         );
-        return new TestContext(service, session, sessionQuery, segmentQuery, aggregateQuery, openSegmentsQuery);
+        return new TestContext(service, session, sessionQuery, segmentQuery, aggregateQuery);
     }
 
     private static PlayerEntity persistedPlayer() {
@@ -284,8 +255,7 @@ class PlayerPlaytimeServiceTest {
             Session session,
             Query<PlayerSessionEntity> sessionQuery,
             Query<PlayerPlaytimeSegmentEntity> segmentQuery,
-            Query<PlayerPlaytimeEntity> aggregateQuery,
-            Query<PlayerPlaytimeSegmentEntity> openSegmentsQuery
+            Query<PlayerPlaytimeEntity> aggregateQuery
     ) {
     }
 }

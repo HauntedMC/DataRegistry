@@ -13,6 +13,10 @@ players by the stable scalar `playerId`.
 - Paper prepares backend identity state and exposes the same read APIs to Paper features.
 - DataProvider supplies database connections and ORM bootstrap.
 - Production schemas must be migration-managed. Do not rely on Hibernate schema mutation in production.
+- On Velocity startup, stale player presence from an unclean shutdown is reconciled before periodic flushing starts.
+  Open sessions, visits, playtime segments, and online flags are closed from the last durable activity timestamp instead
+  of from startup time.
+- On Velocity shutdown, queued player lifecycle writes are drained before active players are persisted offline.
 
 ## Requirements
 
