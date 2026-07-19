@@ -1,4 +1,4 @@
-package nl.hauntedmc.dataregistry.api.repository;
+package nl.hauntedmc.dataregistry.backend.repository;
 
 import jakarta.persistence.PersistenceException;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;

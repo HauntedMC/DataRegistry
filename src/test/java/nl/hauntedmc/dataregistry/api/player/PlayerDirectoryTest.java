@@ -1,6 +1,8 @@
 package nl.hauntedmc.dataregistry.api.player;
 
-import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
+import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityReadiness;
+import nl.hauntedmc.dataregistry.backend.player.DefaultPlayerDirectory;
+import nl.hauntedmc.dataregistry.backend.repository.PlayerRepository;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
@@ -20,7 +22,7 @@ class PlayerDirectoryTest {
     void whenReadyReturnsActiveIdentityImmediately() throws Exception {
         PlayerRepository repository = mock(PlayerRepository.class);
         UUID uuid = UUID.randomUUID();
-        PlayerDirectory directory = new PlayerDirectory(repository);
+        PlayerDirectory directory = new DefaultPlayerDirectory(repository, new PlayerIdentityReadiness());
         when(repository.getActiveIdentity(uuid.toString()))
                 .thenReturn(Optional.of(new PlayerIdentity(10L, uuid, "Alice")));
 
@@ -32,26 +34,40 @@ class PlayerDirectoryTest {
     }
 
     @Test
+    void getActiveIdentityAcceptsUuidString() {
+        PlayerRepository repository = mock(PlayerRepository.class);
+        UUID uuid = UUID.randomUUID();
+        PlayerIdentity identity = new PlayerIdentity(10L, uuid, "Alice");
+        PlayerDirectory directory = new DefaultPlayerDirectory(repository, new PlayerIdentityReadiness());
+        when(repository.getActiveIdentity(uuid.toString())).thenReturn(Optional.of(identity));
+
+        assertEquals(Optional.of(identity), directory.getActiveIdentity(uuid.toString()));
+    }
+
+    @Test
     void readinessFutureCompletesWhenIdentityIsMarkedReady() throws Exception {
         PlayerRepository repository = mock(PlayerRepository.class);
         UUID uuid = UUID.randomUUID();
-        PlayerDirectory directory = new PlayerDirectory(repository);
-        CompletableFuture<Optional<PlayerIdentity>> future = directory.beginIdentityInitialization(uuid);
+        PlayerIdentityReadiness readiness = new PlayerIdentityReadiness();
+        PlayerDirectory directory = new DefaultPlayerDirectory(repository, readiness);
+        CompletableFuture<Optional<PlayerIdentity>> future = readiness.begin(uuid);
         PlayerIdentity identity = new PlayerIdentity(12L, uuid, "Alice");
 
-        directory.completeIdentityReady(identity);
+        readiness.complete(identity);
 
         assertEquals(Optional.of(identity), future.get());
+        when(repository.getActiveIdentity(uuid.toString())).thenReturn(Optional.of(identity));
+        assertEquals(Optional.of(identity), directory.whenReady(uuid).get());
     }
 
     @Test
     void readinessFutureCompletesEmptyWhenPlayerLeavesEarly() throws Exception {
         PlayerRepository repository = mock(PlayerRepository.class);
         UUID uuid = UUID.randomUUID();
-        PlayerDirectory directory = new PlayerDirectory(repository);
-        CompletableFuture<Optional<PlayerIdentity>> future = directory.beginIdentityInitialization(uuid);
+        PlayerIdentityReadiness readiness = new PlayerIdentityReadiness();
+        CompletableFuture<Optional<PlayerIdentity>> future = readiness.begin(uuid);
 
-        directory.completeIdentityUnavailable(uuid);
+        readiness.completeUnavailable(uuid);
 
         assertEquals(Optional.empty(), future.get());
     }
@@ -60,10 +76,10 @@ class PlayerDirectoryTest {
     void readinessFutureFailsWhenInitializationFails() {
         PlayerRepository repository = mock(PlayerRepository.class);
         UUID uuid = UUID.randomUUID();
-        PlayerDirectory directory = new PlayerDirectory(repository);
-        CompletableFuture<Optional<PlayerIdentity>> future = directory.beginIdentityInitialization(uuid);
+        PlayerIdentityReadiness readiness = new PlayerIdentityReadiness();
+        CompletableFuture<Optional<PlayerIdentity>> future = readiness.begin(uuid);
 
-        directory.failIdentityInitialization(uuid, new IllegalStateException("database down"));
+        readiness.fail(uuid, new IllegalStateException("database down"));
 
         assertThrows(ExecutionException.class, future::get);
     }
@@ -72,11 +88,19 @@ class PlayerDirectoryTest {
     void shutdownFailsOutstandingReadinessFutures() {
         PlayerRepository repository = mock(PlayerRepository.class);
         UUID uuid = UUID.randomUUID();
-        PlayerDirectory directory = new PlayerDirectory(repository);
-        CompletableFuture<Optional<PlayerIdentity>> future = directory.beginIdentityInitialization(uuid);
+        PlayerIdentityReadiness readiness = new PlayerIdentityReadiness();
+        CompletableFuture<Optional<PlayerIdentity>> future = readiness.begin(uuid);
 
-        directory.shutdown();
+        readiness.shutdown();
 
         assertThrows(ExecutionException.class, future::get);
+    }
+
+    @Test
+    void findByUuidStringRejectsInvalidUuidWithoutQueryingPersistence() {
+        PlayerRepository repository = mock(PlayerRepository.class);
+        PlayerDirectory directory = new DefaultPlayerDirectory(repository, new PlayerIdentityReadiness());
+
+        assertEquals(Optional.empty(), directory.findByUuid("not-a-uuid"));
     }
 }

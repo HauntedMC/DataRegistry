@@ -6,7 +6,9 @@ import nl.hauntedmc.dataregistry.api.entities.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerNameHistoryEntity;
 import nl.hauntedmc.dataregistry.api.repository.PlayerNameHistoryRepository;
-import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
+import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityReadiness;
+import nl.hauntedmc.dataregistry.backend.player.DefaultPlayerDirectory;
+import nl.hauntedmc.dataregistry.backend.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import org.hibernate.Session;
@@ -147,7 +149,7 @@ class PlayerNameHistoryServiceTest {
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
         PlayerRepository playerRepository = mock(PlayerRepository.class);
         nl.hauntedmc.dataregistry.api.player.PlayerDirectory playerDirectory =
-                new nl.hauntedmc.dataregistry.api.player.PlayerDirectory(playerRepository);
+                new DefaultPlayerDirectory(playerRepository, new PlayerIdentityReadiness());
         PlayerNameHistoryRepository historyRepository = mock(PlayerNameHistoryRepository.class);
         PlayerNameHistoryService service = new PlayerNameHistoryService(registry, logger, 32, true);
         PlayerEntity player = persistedPlayer("Alice");

@@ -2,7 +2,9 @@ package nl.hauntedmc.dataregistry.platform.bukkit.listener;
 
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
-import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
+import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityReadiness;
+import nl.hauntedmc.dataregistry.backend.player.DefaultPlayerDirectory;
+import nl.hauntedmc.dataregistry.backend.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.backend.service.PlayerService;
 import nl.hauntedmc.dataregistry.platform.bukkit.BukkitDataRegistry;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
@@ -44,14 +46,13 @@ class PlayerStatusListenerTest {
     void constructorRejectsNullDependencies() {
         PlayerService playerService = new PlayerService(
                 mock(PlayerRepository.class),
+                new PlayerIdentityReadiness(),
                 mock(ILoggerAdapter.class)
         );
-        PlayerDirectory playerDirectory = new PlayerDirectory(mock(PlayerRepository.class));
         BukkitDataRegistry plugin = mock(BukkitDataRegistry.class);
 
-        assertThrows(NullPointerException.class, () -> new PlayerStatusListener(null, playerService, playerDirectory, 0));
-        assertThrows(NullPointerException.class, () -> new PlayerStatusListener(plugin, null, playerDirectory, 0));
-        assertThrows(NullPointerException.class, () -> new PlayerStatusListener(plugin, playerService, null, 0));
+        assertThrows(NullPointerException.class, () -> new PlayerStatusListener(null, playerService, 0));
+        assertThrows(NullPointerException.class, () -> new PlayerStatusListener(plugin, null, 0));
     }
 
     private static void assertLifecyclePriority(String methodName, Class<?> eventType) throws Exception {
@@ -64,14 +65,13 @@ class PlayerStatusListenerTest {
     void onPlayerQuitRemovesCachedPlayerEntry() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
-        PlayerService playerService = new PlayerService(repository, logger);
-        PlayerDirectory playerDirectory = new PlayerDirectory(repository);
+        PlayerIdentityReadiness readiness = new PlayerIdentityReadiness();
+        PlayerService playerService = new PlayerService(repository, readiness, logger);
         BukkitDataRegistry plugin = mock(BukkitDataRegistry.class);
         BukkitScheduler scheduler = mock(BukkitScheduler.class);
         PlayerStatusListener listener = new PlayerStatusListener(
                 plugin,
                 playerService,
-                playerDirectory,
                 4,
                 () -> scheduler,
                 id -> null
@@ -91,8 +91,8 @@ class PlayerStatusListenerTest {
     void onPlayerJoinSchedulesAsyncPersistenceWhenPlayerStillOnline() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
-        PlayerService playerService = new PlayerService(repository, logger);
-        PlayerDirectory playerDirectory = new PlayerDirectory(repository);
+        PlayerIdentityReadiness readiness = new PlayerIdentityReadiness();
+        PlayerService playerService = new PlayerService(repository, readiness, logger);
         BukkitDataRegistry plugin = mock(BukkitDataRegistry.class);
         BukkitScheduler scheduler = mock(BukkitScheduler.class);
         Player joinedPlayer = mock(Player.class);
@@ -101,7 +101,6 @@ class PlayerStatusListenerTest {
         PlayerStatusListener listener = new PlayerStatusListener(
                 plugin,
                 playerService,
-                playerDirectory,
                 4,
                 () -> scheduler,
                 id -> id.equals(uuid) ? livePlayer : null
@@ -133,8 +132,8 @@ class PlayerStatusListenerTest {
     void onPlayerJoinSkipsPersistenceWhenPlayerAlreadyOffline() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
-        PlayerService playerService = new PlayerService(repository, logger);
-        PlayerDirectory playerDirectory = new PlayerDirectory(repository);
+        PlayerIdentityReadiness readiness = new PlayerIdentityReadiness();
+        PlayerService playerService = new PlayerService(repository, readiness, logger);
         BukkitDataRegistry plugin = mock(BukkitDataRegistry.class);
         BukkitScheduler scheduler = mock(BukkitScheduler.class);
         Player joinedPlayer = mock(Player.class);
@@ -142,7 +141,6 @@ class PlayerStatusListenerTest {
         PlayerStatusListener listener = new PlayerStatusListener(
                 plugin,
                 playerService,
-                playerDirectory,
                 4,
                 () -> scheduler,
                 id -> null
@@ -162,8 +160,8 @@ class PlayerStatusListenerTest {
     void onPlayerQuitCancelsPendingDelayedJoinGeneration() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
-        PlayerService playerService = new PlayerService(repository, logger);
-        PlayerDirectory playerDirectory = new PlayerDirectory(repository);
+        PlayerIdentityReadiness readiness = new PlayerIdentityReadiness();
+        PlayerService playerService = new PlayerService(repository, readiness, logger);
         BukkitDataRegistry plugin = mock(BukkitDataRegistry.class);
         BukkitScheduler scheduler = mock(BukkitScheduler.class);
         Player joinedPlayer = mock(Player.class);
@@ -172,7 +170,6 @@ class PlayerStatusListenerTest {
         PlayerStatusListener listener = new PlayerStatusListener(
                 plugin,
                 playerService,
-                playerDirectory,
                 4,
                 () -> scheduler,
                 id -> null
@@ -195,8 +192,9 @@ class PlayerStatusListenerTest {
     void staleJoinTaskDoesNotCompleteReconnectReadiness() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
-        PlayerService playerService = new PlayerService(repository, logger);
-        PlayerDirectory playerDirectory = new PlayerDirectory(repository);
+        PlayerIdentityReadiness readiness = new PlayerIdentityReadiness();
+        PlayerService playerService = new PlayerService(repository, readiness, logger);
+        PlayerDirectory playerDirectory = new DefaultPlayerDirectory(repository, readiness);
         BukkitDataRegistry plugin = mock(BukkitDataRegistry.class);
         BukkitScheduler scheduler = mock(BukkitScheduler.class);
         Player firstJoinPlayer = mock(Player.class);
@@ -209,7 +207,6 @@ class PlayerStatusListenerTest {
         PlayerStatusListener listener = new PlayerStatusListener(
                 plugin,
                 playerService,
-                playerDirectory,
                 4,
                 () -> scheduler,
                 id -> id.equals(uuid) ? onlinePlayer.get() : null

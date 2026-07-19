@@ -1,8 +1,9 @@
-package nl.hauntedmc.dataregistry.api.repository;
+package nl.hauntedmc.dataregistry.backend.repository;
 
 import jakarta.persistence.PersistenceException;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
+import nl.hauntedmc.dataregistry.api.repository.AbstractRepository;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 
 import java.util.Locale;
@@ -15,6 +16,13 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Internal persistence boundary for the canonical DataRegistry player table.
+ * <p>
+ * This repository owns player row creation, username synchronization, and the active-player
+ * cache used by platform lifecycle listeners. Public consumers should use
+ * {@code DataRegistry#getPlayerDirectory()} for read-only identity lookups.
+ */
 public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
 
     // Cache active players keyed by their UUID.

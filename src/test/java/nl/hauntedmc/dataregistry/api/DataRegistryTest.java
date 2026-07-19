@@ -22,7 +22,7 @@ import nl.hauntedmc.dataregistry.api.repository.PlayerLanguageRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerNameHistoryRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerNicknameRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerOnlineStatusRepository;
-import nl.hauntedmc.dataregistry.api.repository.PlayerRepository;
+import nl.hauntedmc.dataregistry.backend.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerSessionVisitRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceInstanceRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceProbeRepository;

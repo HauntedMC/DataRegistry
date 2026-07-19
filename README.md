@@ -6,50 +6,27 @@
 [![License](https://img.shields.io/github/license/HauntedMC/DataRegistry)](LICENSE)
 [![Java 25](https://img.shields.io/badge/Java-25-007396)](https://adoptium.net/)
 
-Shared player and service-state storage for HauntedMC across Velocity and Paper.
+DataRegistry is HauntedMC's shared player identity and service-state registry for Velocity and Paper.
 
-`DataRegistry` keeps identity, presence, sessions, rename history, and service-registry data in one place so other plugins can read a consistent view of the network.
-
-## What It Does
-
-- Stores player identity by UUID
-- Tracks online status and current server
-- Records session open and close events
-- Tracks playtime per logical gamemode with rule-based server mapping
-- Optionally stores IP address and virtual host data
-- Preserves former usernames in a dedicated history table
-- Tracks services, running instances, and backend probe results
+It owns canonical player rows, current usernames, online/session state, rename history, playtime, connection metadata, and service-registry data. Feature plugins should keep their own feature data in their own tables and reference DataRegistry players by the stable `playerId`.
 
 ## Runtime Model
 
 - Velocity is the authoritative writer for joins, switches, disconnects, sessions, connection info, and backend probes.
-- Bukkit/Paper runs as a bridge so backend plugins can read the same registry and publish service heartbeats.
-- DataProvider is required for connection management and ORM bootstrap.
-
-Running only Bukkit/Paper without Velocity is not a supported deployment mode.
+- Paper runs as a bridge for backend identity readiness, read access, and optional service heartbeats.
+- DataProvider supplies database connections and ORM bootstrap.
+- Running only Paper without Velocity is not a supported production topology.
 
 ## Requirements
 
 - Java 25
 - Maven 3.8.6+
 - DataProvider `2.0.0`
-- Velocity `4.0.0-SNAPSHOT` and/or Paper `26.1.2+` (resolved via `paper-api` range)
-
-## Install
-
-Server setup:
-
-1. Install `DataProvider`.
-2. Build or download `DataRegistry.jar`.
-3. Put both jars in the server `plugins/` directory.
-4. Start the server once to generate `plugins/DataRegistry/config.yml`.
-5. Configure the player and service database profiles to match your DataProvider setup.
-
-If you run backend servers, set `platform.bukkit.service-name` to the Velocity server name instead of leaving it on `auto`. That keeps service identity stable across restarts.
+- Velocity `4.0.0-SNAPSHOT` and/or Paper `26.1.2+`
 
 ## Configuration
 
-The config is intentionally small. Most deployments only need to review:
+Start the server once to generate `plugins/DataRegistry/config.yml`, then review:
 
 - `database.profiles.players.connection-id`
 - `database.profiles.services.connection-id`
@@ -62,89 +39,57 @@ The config is intentionally small. Most deployments only need to review:
 - `platform.bukkit.service-name`
 - `platform.velocity.service-name`
 
+Use an explicit, migration-managed schema mode in production. Do not rely on Hibernate to mutate production schemas automatically.
+
 Defaults and inline comments live in [src/main/resources/config.yml](src/main/resources/config.yml). Missing supported keys are restored on load and stale keys are removed.
 
-## Dependency Information
+## Developer API
 
-Coordinates:
-
-- `groupId`: `nl.hauntedmc.dataregistry`
-- `artifactId`: `dataregistry`
-- `version`: `VERSION_HERE`
-
-Repository:
-
-- `https://maven.pkg.github.com/HauntedMC/DataRegistry`
-
-Maven:
-
-```xml
-<repository>
-  <id>github</id>
-  <url>https://maven.pkg.github.com/HauntedMC/DataRegistry</url>
-</repository>
-```
+Depend on DataRegistry as `provided`:
 
 ```xml
 <dependency>
   <groupId>nl.hauntedmc.dataregistry</groupId>
   <artifactId>dataregistry</artifactId>
-  <version>VERSION_HERE</version>
+  <version>1.9.6</version>
   <scope>provided</scope>
 </dependency>
 ```
 
-Gradle (Groovy):
-
-```groovy
-compileOnly "nl.hauntedmc.dataregistry:dataregistry:VERSION_HERE"
-```
-
-## Use the API
-
-From Bukkit/Paper:
+Use `PlayerDirectory` for player identity reads:
 
 ```java
-Plugin plugin = Bukkit.getPluginManager().getPlugin("DataRegistry");
-if (!(plugin instanceof PlatformPlugin platformPlugin)) {
-    throw new IllegalStateException("DataRegistry is unavailable.");
-}
-
 DataRegistry registry = platformPlugin.getDataRegistry();
-Optional<PlayerEntity> player = registry.getPlayerRepository().findByUUID(uuid);
+PlayerDirectory players = registry.getPlayerDirectory();
+
+players.whenReady(player.getUniqueId()).thenAccept(identity -> {
+    identity.ifPresent(playerIdentity -> {
+        Long playerId = playerIdentity.playerId();
+        UUID uuid = playerIdentity.uuid();
+        String username = playerIdentity.username();
+    });
+});
 ```
 
-Primary entry points:
+Primary player identity methods:
 
-- `DataRegistry#getPlayerRepository()`
-- `DataRegistry#getPlayerSessionRepository()`
-- `DataRegistry#getPlayerNameHistoryRepository()`
-- `DataRegistry#getPlayerPlaytimeRepository()`
-- `DataRegistry#getPlayerPlaytimeSegmentRepository()`
-- `DataRegistry#getNetworkServiceRepository()`
-- `DataRegistry#getServiceInstanceRepository()`
-- `DataRegistry#getServiceProbeRepository()`
-- `DataRegistry#newServiceRegistryService()`
+- `PlayerDirectory#whenReady(UUID)` waits for DataRegistry join initialization without doing database work.
+- `PlayerDirectory#getActiveIdentity(UUID)` and `PlayerDirectory#getActiveIdentity(String)` read the active in-memory identity only.
+- `PlayerDirectory#findByUuid(UUID)` and `PlayerDirectory#findByUuid(String)` look up persisted identities without creating players.
+- `PlayerDirectory#findByUsername(String)` and `PlayerDirectory#findByUsernameIgnoreCase(String)` look up persisted identities without updating usernames.
+- `PlayerDirectory#snapshotActiveIdentities()` returns immutable active identity snapshots keyed by UUID string.
+
+Lookup methods can perform database I/O. Call them from an async context on Velocity/Paper event paths. Player creation and username updates are intentionally not exposed to feature plugins; DataRegistry lifecycle code is the only writer for canonical player identity.
+
+## Data Ownership
+
+DataRegistry stores canonical shared state only. Keep feature-owned data such as vanish, glow, nametags, friends, sanctions, client info, 2FA, voting, messaging, and logs in the owning feature plugin.
+
+For new feature tables, prefer scalar `player_id` references when possible. Existing feature tables and foreign keys should be migrated conservatively and never destructively.
 
 ## Build
 
-`mvn verify` expects `nl.hauntedmc.dataprovider:dataprovider:2.0.0` to be available locally or via authenticated GitHub Packages access.
-
-For authenticated GitHub Packages access, add a Maven server entry for repository id `github` in `~/.m2/settings.xml`:
-
-```xml
-<settings>
-  <servers>
-    <server>
-      <id>github</id>
-      <username>YOUR_GITHUB_USERNAME</username>
-      <password>YOUR_TOKEN</password>
-    </server>
-  </servers>
-</settings>
-```
-
-Use a token with `read:packages` (and `repo` if the package source repository is private), then run:
+Authenticated GitHub Packages access may be required for private HauntedMC dependencies. Configure repository id `github` in `~/.m2/settings.xml`, then run:
 
 ```bash
 mvn test

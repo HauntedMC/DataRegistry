@@ -2,8 +2,6 @@ package nl.hauntedmc.dataregistry.platform.bukkit.listener;
 
 import nl.hauntedmc.dataregistry.platform.bukkit.BukkitDataRegistry;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
-import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
-import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.backend.service.PlayerService;
 import nl.hauntedmc.dataregistry.platform.bukkit.event.PlayerIdentityReadyEvent;
 import nl.hauntedmc.dataregistry.platform.bukkit.util.BukkitPlayerAdapter;
@@ -30,7 +28,6 @@ import java.util.function.Supplier;
 public class PlayerStatusListener implements Listener {
 
     private final PlayerService playerService;
-    private final PlayerDirectory playerDirectory;
     private final BukkitDataRegistry plugin;
     private final long joinDelayTicks;
     private final Supplier<BukkitScheduler> schedulerSupplier;
@@ -41,23 +38,20 @@ public class PlayerStatusListener implements Listener {
     public PlayerStatusListener(
             BukkitDataRegistry plugin,
             PlayerService playerService,
-            PlayerDirectory playerDirectory,
             int joinDelayTicks
     ) {
-        this(plugin, playerService, playerDirectory, joinDelayTicks, Bukkit::getScheduler, Bukkit::getPlayer);
+        this(plugin, playerService, joinDelayTicks, Bukkit::getScheduler, Bukkit::getPlayer);
     }
 
     PlayerStatusListener(
             BukkitDataRegistry plugin,
             PlayerService playerService,
-            PlayerDirectory playerDirectory,
             int joinDelayTicks,
             Supplier<BukkitScheduler> schedulerSupplier,
             Function<UUID, Player> onlinePlayerLookup
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin must not be null");
         this.playerService = Objects.requireNonNull(playerService, "playerService must not be null");
-        this.playerDirectory = Objects.requireNonNull(playerDirectory, "playerDirectory must not be null");
         this.joinDelayTicks = joinDelayTicks;
         this.schedulerSupplier = Objects.requireNonNull(schedulerSupplier, "schedulerSupplier must not be null");
         this.onlinePlayerLookup = Objects.requireNonNull(onlinePlayerLookup, "onlinePlayerLookup must not be null");
@@ -67,11 +61,11 @@ public class PlayerStatusListener implements Listener {
     public void onPlayerJoin(PlayerJoinEvent event) {
         UUID playerId = event.getPlayer().getUniqueId();
         if (!acceptingEvents.get()) {
-            playerDirectory.completeIdentityUnavailable(playerId);
+            playerService.completeIdentityUnavailable(playerId);
             return;
         }
         long expectedGeneration = markJoinGeneration(playerId.toString());
-        playerDirectory.beginIdentityInitialization(playerId);
+        playerService.beginIdentityInitialization(playerId);
         processJoinIfStillRelevant(playerId, event.getPlayer().getName(), expectedGeneration);
     }
 
@@ -80,7 +74,7 @@ public class PlayerStatusListener implements Listener {
         String uuid = event.getPlayer().getUniqueId().toString();
         long expectedQuitGeneration = markQuitGeneration(uuid);
         scheduleLifecycleGenerationCleanup(uuid, expectedQuitGeneration);
-        playerDirectory.completeIdentityUnavailable(event.getPlayer().getUniqueId());
+        playerService.completeIdentityUnavailable(event.getPlayer().getUniqueId());
         playerService.onPlayerQuit(
                 event.getPlayer().getName(),
                 uuid
@@ -93,19 +87,19 @@ public class PlayerStatusListener implements Listener {
     public void shutdown() {
         acceptingEvents.set(false);
         playerLifecycleGenerations.clear();
-        playerDirectory.shutdown();
+        playerService.shutdownIdentityReadiness();
     }
 
     private void processJoinIfStillRelevant(UUID playerId, String usernameSnapshot, long expectedGeneration) {
         String uuid = playerId.toString();
         if (!isGenerationCurrent(uuid, expectedGeneration)) {
-            playerDirectory.completeIdentityUnavailable(playerId);
+            playerService.completeIdentityUnavailable(playerId);
             return;
         }
 
         Player livePlayer = onlinePlayerLookup.apply(playerId);
         if (livePlayer == null || !livePlayer.isOnline()) {
-            playerDirectory.completeIdentityUnavailable(playerId);
+            playerService.completeIdentityUnavailable(playerId);
             return;
         }
 
@@ -113,15 +107,14 @@ public class PlayerStatusListener implements Listener {
             if (!isGenerationCurrent(uuid, expectedGeneration)) {
                 return;
             }
-            PlayerIdentity identity;
+            PlayerEntity playerEntity;
             try {
                 PlayerEntity temp = BukkitPlayerAdapter.fromSnapshot(uuid, usernameSnapshot);
-                PlayerEntity playerEntity = playerService.onPlayerJoin(temp);
-                identity = new PlayerIdentity(playerEntity.getId(), playerId, playerEntity.getUsername());
+                playerEntity = playerService.onPlayerJoin(temp);
             } catch (RuntimeException exception) {
                 plugin.getPlatformLogger().error("Failed to process Bukkit player join event.", exception);
                 if (isGenerationCurrent(uuid, expectedGeneration)) {
-                    playerDirectory.failIdentityInitialization(playerId, exception);
+                    playerService.failIdentityInitialization(playerId, exception);
                 }
                 return;
             }
@@ -129,18 +122,18 @@ public class PlayerStatusListener implements Listener {
             Long currentGeneration = playerLifecycleGenerations.get(uuid);
             if (currentGeneration != null && currentGeneration > expectedGeneration && currentGeneration % 2L == 0L) {
                 playerService.onPlayerQuit(usernameSnapshot, uuid);
-                playerDirectory.completeIdentityUnavailable(playerId);
+                playerService.completeIdentityUnavailable(playerId);
                 return;
             }
             if (!isGenerationCurrent(uuid, expectedGeneration)) {
                 return;
             }
-            playerDirectory.completeIdentityReady(identity);
-            fireIdentityReadyEventIfOnline(playerId, identity, expectedGeneration);
+            playerService.completeIdentityReady(playerEntity);
+            fireIdentityReadyEventIfOnline(playerId, playerEntity, expectedGeneration);
         });
     }
 
-    private void fireIdentityReadyEventIfOnline(UUID playerId, PlayerIdentity identity, long expectedGeneration) {
+    private void fireIdentityReadyEventIfOnline(UUID playerId, PlayerEntity playerEntity, long expectedGeneration) {
         try {
             schedulerSupplier.get().runTask(plugin, () -> {
                 Player livePlayer = onlinePlayerLookup.apply(playerId);
@@ -150,7 +143,13 @@ public class PlayerStatusListener implements Listener {
                         || !livePlayer.isOnline()) {
                     return;
                 }
-                Bukkit.getPluginManager().callEvent(new PlayerIdentityReadyEvent(identity));
+                Bukkit.getPluginManager().callEvent(new PlayerIdentityReadyEvent(
+                        new nl.hauntedmc.dataregistry.api.player.PlayerIdentity(
+                                playerEntity.getId(),
+                                playerId,
+                                playerEntity.getUsername()
+                        )
+                ));
             });
         } catch (RuntimeException exception) {
             plugin.getPlatformLogger().warn("Failed to dispatch player identity ready event.", exception);

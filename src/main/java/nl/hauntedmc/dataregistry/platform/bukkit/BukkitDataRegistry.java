@@ -108,7 +108,6 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
         playerStatusListener = new PlayerStatusListener(
                 this,
                 playerService,
-                dataRegistry.getPlayerDirectory(),
                 settings.bukkitJoinDelayTicks()
         );
         getServer().getPluginManager().registerEvents(playerStatusListener, this);
