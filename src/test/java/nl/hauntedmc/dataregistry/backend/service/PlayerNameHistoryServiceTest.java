@@ -5,10 +5,8 @@ import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.api.entities.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerNameHistoryEntity;
-import nl.hauntedmc.dataregistry.api.repository.PlayerNameHistoryRepository;
-import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker;
-import nl.hauntedmc.dataregistry.backend.player.RepositoryPlayerDirectory;
-import nl.hauntedmc.dataregistry.backend.repository.PlayerRepository;
+import nl.hauntedmc.dataregistry.api.player.PlayerData;
+import nl.hauntedmc.dataregistry.api.player.PlayerNameHistoryEntry;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import org.hibernate.Session;
@@ -17,8 +15,6 @@ import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
 
 import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.executeTransactionsWithSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -147,31 +143,14 @@ class PlayerNameHistoryServiceTest {
     void listChronologicalHistoryForCurrentUsernameResolvesByCurrentName() {
         DataRegistry registry = mock(DataRegistry.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
-        PlayerRepository playerRepository = mock(PlayerRepository.class);
-        nl.hauntedmc.dataregistry.api.player.PlayerDirectory playerDirectory =
-                new RepositoryPlayerDirectory(playerRepository, new PlayerIdentityInitializationTracker());
-        PlayerNameHistoryRepository historyRepository = mock(PlayerNameHistoryRepository.class);
+        PlayerData playerData = mock(PlayerData.class);
         PlayerNameHistoryService service = new PlayerNameHistoryService(registry, logger, 32, true);
-        PlayerEntity player = persistedPlayer("Alice");
-        PlayerNameHistoryEntity first = new PlayerNameHistoryEntity();
-        first.setPlayer(player);
-        first.setUsername("Alpha");
-        first.setLastSeenAt(Instant.EPOCH);
-        PlayerNameHistoryEntity second = new PlayerNameHistoryEntity();
-        second.setPlayer(player);
-        second.setUsername("Bravo");
-        second.setLastSeenAt(Instant.EPOCH.plusSeconds(10));
 
-        when(registry.getPlayerDirectory()).thenReturn(playerDirectory);
-        when(registry.getPlayerNameHistoryRepository()).thenReturn(historyRepository);
-        when(playerRepository.findIdentityByUsername("Alice")).thenReturn(Optional.of(
-                new nl.hauntedmc.dataregistry.api.player.PlayerIdentity(
-                        player.getId(),
-                        UUID.fromString(player.getUuid()),
-                        player.getUsername()
-                )
+        when(registry.players()).thenReturn(playerData);
+        when(playerData.findNameHistoryByCurrentUsername("Alice", 5)).thenReturn(List.of(
+                new PlayerNameHistoryEntry(1L, 1L, "Alpha", Instant.EPOCH),
+                new PlayerNameHistoryEntry(2L, 1L, "Bravo", Instant.EPOCH.plusSeconds(10))
         ));
-        when(historyRepository.findChronologicalByPlayer(player.getId(), 5)).thenReturn(List.of(first, second));
 
         List<PlayerNameHistoryService.NameHistoryView> result = service.listChronologicalHistoryForCurrentUsername("Alice", 5);
 

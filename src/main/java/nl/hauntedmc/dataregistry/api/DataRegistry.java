@@ -17,6 +17,7 @@ import nl.hauntedmc.dataregistry.api.entities.PlayerLanguageEntity;
 import nl.hauntedmc.dataregistry.api.entities.NetworkServiceEntity;
 import nl.hauntedmc.dataregistry.api.entities.ServiceInstanceEntity;
 import nl.hauntedmc.dataregistry.api.entities.ServiceProbeEntity;
+import nl.hauntedmc.dataregistry.api.player.PlayerData;
 import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
 import nl.hauntedmc.dataregistry.api.repository.NetworkServiceRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerActivitySummaryRepository;
@@ -34,6 +35,7 @@ import nl.hauntedmc.dataregistry.api.repository.ServiceInstanceRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceProbeRepository;
 import nl.hauntedmc.dataregistry.backend.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker;
+import nl.hauntedmc.dataregistry.backend.player.RepositoryPlayerData;
 import nl.hauntedmc.dataregistry.backend.player.RepositoryPlayerDirectory;
 import nl.hauntedmc.dataregistry.backend.service.PlayerService;
 import nl.hauntedmc.dataregistry.backend.service.ServiceRegistryService;
@@ -75,6 +77,7 @@ public class DataRegistry {
     private ServiceProbeRepository serviceProbeRepository;
     private PlayerIdentityInitializationTracker playerIdentityInitializationTracker;
     private PlayerDirectory playerDirectory;
+    private PlayerData playerData;
     private ORMContext ormContext;
     private ORMContext serviceOrmContext;
 
@@ -149,6 +152,17 @@ public class DataRegistry {
             this.playerPlaytimeSegmentRepository = settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
                     ? newPlayerPlaytimeSegmentRepository(ormContext)
                     : null;
+            this.playerData = new RepositoryPlayerData(
+                    playerDirectory,
+                    settings.enabledFeatures(),
+                    playerActivitySummaryRepository,
+                    playerOnlineStatusRepository,
+                    playerConnectionInfoRepository,
+                    playerLanguageRepository,
+                    playerNicknameRepository,
+                    playerNameHistoryRepository,
+                    playerPlaytimeRepository
+            );
             this.networkServiceRepository = null;
             this.serviceInstanceRepository = null;
             this.serviceProbeRepository = null;
@@ -180,6 +194,7 @@ public class DataRegistry {
         }
         playerIdentityInitializationTracker = null;
         playerDirectory = null;
+        playerData = null;
         playerActivitySummaryRepository = null;
         playerOnlineStatusRepository = null;
         playerConnectionInfoRepository = null;
@@ -240,15 +255,17 @@ public class DataRegistry {
     }
 
     /**
-     * Returns the read-oriented player identity directory.
+     * Returns the player-centric API for downstream plugins.
+     * <p>
+     * Prefer this facade over low-level repositories when reading DataRegistry-owned player data.
      *
      * @throws IllegalStateException when DataRegistry has not been initialized.
      */
-    public synchronized PlayerDirectory getPlayerDirectory() {
-        if (playerDirectory == null) {
+    public synchronized PlayerData players() {
+        if (playerData == null) {
             throw new IllegalStateException("DataRegistry is not initialized.");
         }
-        return playerDirectory;
+        return playerData;
     }
 
     /**
@@ -263,76 +280,6 @@ public class DataRegistry {
             throw new IllegalStateException("DataRegistry is not initialized.");
         }
         return new PlayerService(playerRepository, playerIdentityInitializationTracker, serviceLogger);
-    }
-
-    public synchronized PlayerActivitySummaryRepository getPlayerActivitySummaryRepository() {
-        if (playerActivitySummaryRepository == null) {
-            throw new IllegalStateException("Player activity summary repository is unavailable.");
-        }
-        return playerActivitySummaryRepository;
-    }
-
-    public synchronized PlayerOnlineStatusRepository getPlayerOnlineStatusRepository() {
-        if (playerOnlineStatusRepository == null) {
-            throw new IllegalStateException("Player online status repository is unavailable.");
-        }
-        return playerOnlineStatusRepository;
-    }
-
-    public synchronized PlayerConnectionInfoRepository getPlayerConnectionInfoRepository() {
-        if (playerConnectionInfoRepository == null) {
-            throw new IllegalStateException("Player connection info repository is unavailable.");
-        }
-        return playerConnectionInfoRepository;
-    }
-
-    public synchronized PlayerLanguageRepository getPlayerLanguageRepository() {
-        if (playerLanguageRepository == null) {
-            throw new IllegalStateException("Player language repository is unavailable.");
-        }
-        return playerLanguageRepository;
-    }
-
-    public synchronized PlayerNicknameRepository getPlayerNicknameRepository() {
-        if (playerNicknameRepository == null) {
-            throw new IllegalStateException("Player nickname repository is unavailable.");
-        }
-        return playerNicknameRepository;
-    }
-
-    public synchronized PlayerNameHistoryRepository getPlayerNameHistoryRepository() {
-        if (playerNameHistoryRepository == null) {
-            throw new IllegalStateException("Player name history repository is unavailable.");
-        }
-        return playerNameHistoryRepository;
-    }
-
-    public synchronized PlayerSessionRepository getPlayerSessionRepository() {
-        if (playerSessionRepository == null) {
-            throw new IllegalStateException("Player session repository is unavailable.");
-        }
-        return playerSessionRepository;
-    }
-
-    public synchronized PlayerSessionVisitRepository getPlayerSessionVisitRepository() {
-        if (playerSessionVisitRepository == null) {
-            throw new IllegalStateException("Player session visit repository is unavailable.");
-        }
-        return playerSessionVisitRepository;
-    }
-
-    public synchronized PlayerPlaytimeRepository getPlayerPlaytimeRepository() {
-        if (playerPlaytimeRepository == null) {
-            throw new IllegalStateException("Player playtime repository is unavailable.");
-        }
-        return playerPlaytimeRepository;
-    }
-
-    public synchronized PlayerPlaytimeSegmentRepository getPlayerPlaytimeSegmentRepository() {
-        if (playerPlaytimeSegmentRepository == null) {
-            throw new IllegalStateException("Player playtime segment repository is unavailable.");
-        }
-        return playerPlaytimeSegmentRepository;
     }
 
     public synchronized ORMContext getServiceORM() {
@@ -555,6 +502,7 @@ public class DataRegistry {
                 || playerRepository != null
                 || playerIdentityInitializationTracker != null
                 || playerDirectory != null
+                || playerData != null
                 || playerActivitySummaryRepository != null
                 || playerOnlineStatusRepository != null
                 || playerConnectionInfoRepository != null
@@ -574,7 +522,8 @@ public class DataRegistry {
         if (ormContext == null
                 || playerRepository == null
                 || playerIdentityInitializationTracker == null
-                || playerDirectory == null) {
+                || playerDirectory == null
+                || playerData == null) {
             return false;
         }
         if (settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)

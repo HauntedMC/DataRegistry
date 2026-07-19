@@ -22,8 +22,8 @@ import nl.hauntedmc.dataregistry.api.repository.PlayerLanguageRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerNameHistoryRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerNicknameRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerOnlineStatusRepository;
-import nl.hauntedmc.dataregistry.backend.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerSessionVisitRepository;
+import nl.hauntedmc.dataregistry.backend.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceInstanceRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceProbeRepository;
 import nl.hauntedmc.dataregistry.backend.config.DataRegistrySettings;
@@ -85,16 +85,10 @@ class DataRegistryTest {
 
         assertTrue(registry.initialize());
         assertSame(ormContext, registry.getORM());
-        assertNotNull(registry.getPlayerDirectory());
+        assertNotNull(registry.players());
+        assertNotNull(registry.players().identities());
         assertNotNull(registry.newPlayerService(logger));
-        assertSame(registry.testPlayerActivitySummaryRepository(), registry.getPlayerActivitySummaryRepository());
-        assertSame(registry.testPlayerOnlineStatusRepository(), registry.getPlayerOnlineStatusRepository());
-        assertSame(registry.testPlayerConnectionInfoRepository(), registry.getPlayerConnectionInfoRepository());
-        assertSame(registry.testPlayerLanguageRepository(), registry.getPlayerLanguageRepository());
-        assertSame(registry.testPlayerNicknameRepository(), registry.getPlayerNicknameRepository());
         assertSame(dataSource, registry.lastPlayerDataSource);
-        assertSame(registry.testPlayerNameHistoryRepository(), registry.getPlayerNameHistoryRepository());
-        assertSame(registry.testPlayerSessionVisitRepository(), registry.getPlayerSessionVisitRepository());
         assertSame(registry.testServiceOrmContext(), registry.getServiceORM());
         assertSame(registry.testNetworkServiceRepository(), registry.getNetworkServiceRepository());
         assertSame(registry.testServiceInstanceRepository(), registry.getServiceInstanceRepository());
@@ -301,15 +295,8 @@ class DataRegistryTest {
         DataRegistry registry = new DataRegistry(mock(ILoggerAdapter.class), "DataRegistry", mock(DataProviderAPI.class));
 
         assertThrows(IllegalStateException.class, registry::getORM);
-        assertThrows(IllegalStateException.class, registry::getPlayerDirectory);
+        assertThrows(IllegalStateException.class, registry::players);
         assertThrows(IllegalStateException.class, () -> registry.newPlayerService(mock(ILoggerAdapter.class)));
-        assertThrows(IllegalStateException.class, registry::getPlayerActivitySummaryRepository);
-        assertThrows(IllegalStateException.class, registry::getPlayerOnlineStatusRepository);
-        assertThrows(IllegalStateException.class, registry::getPlayerConnectionInfoRepository);
-        assertThrows(IllegalStateException.class, registry::getPlayerLanguageRepository);
-        assertThrows(IllegalStateException.class, registry::getPlayerNicknameRepository);
-        assertThrows(IllegalStateException.class, registry::getPlayerNameHistoryRepository);
-        assertThrows(IllegalStateException.class, registry::getPlayerSessionVisitRepository);
         assertThrows(IllegalStateException.class, registry::getServiceORM);
         assertThrows(IllegalStateException.class, registry::getNetworkServiceRepository);
         assertThrows(IllegalStateException.class, registry::getServiceInstanceRepository);
@@ -377,7 +364,7 @@ class DataRegistryTest {
 
         registry.shutdown();
 
-        assertThrows(IllegalStateException.class, registry::getPlayerDirectory);
+        assertThrows(IllegalStateException.class, registry::players);
         assertFalse(registry.isInitialized());
         verify(api).unregisterAllDatabasesForPlugin();
     }
@@ -569,34 +556,6 @@ class DataRegistryTest {
 
         private ORMContext testServiceOrmContext() {
             return serviceOrmContext;
-        }
-
-        private PlayerNameHistoryRepository testPlayerNameHistoryRepository() {
-            return playerNameHistoryRepository;
-        }
-
-        private PlayerActivitySummaryRepository testPlayerActivitySummaryRepository() {
-            return playerActivitySummaryRepository;
-        }
-
-        private PlayerOnlineStatusRepository testPlayerOnlineStatusRepository() {
-            return playerOnlineStatusRepository;
-        }
-
-        private PlayerConnectionInfoRepository testPlayerConnectionInfoRepository() {
-            return playerConnectionInfoRepository;
-        }
-
-        private PlayerLanguageRepository testPlayerLanguageRepository() {
-            return playerLanguageRepository;
-        }
-
-        private PlayerNicknameRepository testPlayerNicknameRepository() {
-            return playerNicknameRepository;
-        }
-
-        private PlayerSessionVisitRepository testPlayerSessionVisitRepository() {
-            return playerSessionVisitRepository;
         }
 
         private NetworkServiceRepository testNetworkServiceRepository() {

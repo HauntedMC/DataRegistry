@@ -21,7 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>
  * This repository owns player row creation, username synchronization, and the active-player
  * cache used by platform lifecycle listeners. Public consumers should use
- * {@code DataRegistry#getPlayerDirectory()} for read-only identity lookups.
+ * {@code DataRegistry#players()} for identity and player-data lookups.
  */
 public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
 

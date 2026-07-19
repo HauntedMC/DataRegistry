@@ -10,7 +10,6 @@ import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 public final class PlayerNameHistoryService {
 
@@ -96,16 +95,10 @@ public final class PlayerNameHistoryService {
             return List.of();
         }
         try {
-            Optional<Long> playerId = dataRegistry.getPlayerDirectory()
-                    .findByUsername(normalizedCurrentUsername)
-                    .map(nl.hauntedmc.dataregistry.api.player.PlayerIdentity::playerId);
-            if (playerId.isEmpty()) {
-                return List.of();
-            }
-            return dataRegistry.getPlayerNameHistoryRepository()
-                    .findChronologicalByPlayer(playerId.get(), Math.max(1, limit))
+            return dataRegistry.players()
+                    .findNameHistoryByCurrentUsername(normalizedCurrentUsername, Math.max(1, limit))
                     .stream()
-                    .map(history -> new NameHistoryView(history.getUsername(), history.getLastSeenAt()))
+                    .map(history -> new NameHistoryView(history.username(), history.lastSeenAt()))
                     .toList();
         } catch (RuntimeException exception) {
             logger.error(

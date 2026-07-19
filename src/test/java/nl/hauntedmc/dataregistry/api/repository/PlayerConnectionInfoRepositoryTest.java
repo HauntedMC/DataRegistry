@@ -1,6 +1,7 @@
 package nl.hauntedmc.dataregistry.api.repository;
 
 import nl.hauntedmc.dataregistry.api.entities.PlayerConnectionInfoEntity;
+import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import org.hibernate.Session;
 import org.hibernate.query.Query;
@@ -8,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.executeTransactionsWithSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -67,5 +69,31 @@ class PlayerConnectionInfoRepositoryTest {
         assertEquals(List.of(3L, 5L), playerIds);
         verify(usernameQuery).setParameter("excludePlayerId", 8L);
         verify(idQuery).setParameter("excludePlayerId", 8L);
+    }
+
+    @Test
+    void identityLookupReturnsImmutablePlayerSnapshotsForSharedIp() {
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<Object[]> query = mock(Query.class);
+        PlayerConnectionInfoRepository repository = new PlayerConnectionInfoRepository(ormContext);
+        UUID uuid = UUID.randomUUID();
+
+        executeTransactionsWithSession(ormContext, session);
+        when(session.createQuery(
+                "SELECT c.player.id, c.player.uuid, c.player.username FROM PlayerConnectionInfoEntity c " +
+                        "WHERE c.ipAddress = :ip " +
+                        "AND (:excludePlayerId IS NULL OR c.player.id <> :excludePlayerId) " +
+                        "ORDER BY c.player.username ASC",
+                Object[].class
+        )).thenReturn(query);
+        when(query.setParameter("ip", "1.2.3.4")).thenReturn(query);
+        when(query.setParameter("excludePlayerId", null)).thenReturn(query);
+        when(query.list()).thenReturn(List.<Object[]>of(new Object[]{4L, uuid.toString(), "Alice"}));
+
+        List<PlayerIdentity> identities = repository.findIdentitiesByLastIpAddress(" 1.2.3.4 ", null);
+
+        assertEquals(List.of(new PlayerIdentity(4L, uuid, "Alice")), identities);
     }
 }
