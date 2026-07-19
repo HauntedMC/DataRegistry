@@ -189,7 +189,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
     void registerPlayerStatusListener() {
         ensurePlayerEventExecutor();
         DataRegistry registry = getDataRegistry();
-        PlayerService playerService = new PlayerService(registry.getPlayerRepository(), getPlatformLogger());
+        PlayerService playerService = registry.newPlayerService(getPlatformLogger());
         PlayerNameHistoryService nameHistoryService = new PlayerNameHistoryService(
                 registry,
                 getPlatformLogger(),

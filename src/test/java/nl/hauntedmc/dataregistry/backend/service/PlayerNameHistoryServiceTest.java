@@ -16,6 +16,7 @@ import org.mockito.ArgumentCaptor;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.executeTransactionsWithSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -145,6 +146,8 @@ class PlayerNameHistoryServiceTest {
         DataRegistry registry = mock(DataRegistry.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
         PlayerRepository playerRepository = mock(PlayerRepository.class);
+        nl.hauntedmc.dataregistry.api.player.PlayerDirectory playerDirectory =
+                new nl.hauntedmc.dataregistry.api.player.PlayerDirectory(playerRepository);
         PlayerNameHistoryRepository historyRepository = mock(PlayerNameHistoryRepository.class);
         PlayerNameHistoryService service = new PlayerNameHistoryService(registry, logger, 32, true);
         PlayerEntity player = persistedPlayer("Alice");
@@ -157,9 +160,15 @@ class PlayerNameHistoryServiceTest {
         second.setUsername("Bravo");
         second.setLastSeenAt(Instant.EPOCH.plusSeconds(10));
 
-        when(registry.getPlayerRepository()).thenReturn(playerRepository);
+        when(registry.getPlayerDirectory()).thenReturn(playerDirectory);
         when(registry.getPlayerNameHistoryRepository()).thenReturn(historyRepository);
-        when(playerRepository.findByUsername("Alice")).thenReturn(Optional.of(player));
+        when(playerRepository.findIdentityByUsername("Alice")).thenReturn(Optional.of(
+                new nl.hauntedmc.dataregistry.api.player.PlayerIdentity(
+                        player.getId(),
+                        UUID.fromString(player.getUuid()),
+                        player.getUsername()
+                )
+        ));
         when(historyRepository.findChronologicalByPlayer(player.getId(), 5)).thenReturn(List.of(first, second));
 
         List<PlayerNameHistoryService.NameHistoryView> result = service.listChronologicalHistoryForCurrentUsername("Alice", 5);

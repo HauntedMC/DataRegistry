@@ -11,7 +11,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Collectors;
 
 /**
  * Read-oriented facade for canonical player identities.
@@ -39,7 +38,7 @@ public final class PlayerDirectory {
         if (normalizedUuid == null) {
             return Optional.empty();
         }
-        return playerRepository.getActiveIdentity(normalizedUuid).map(PlayerDirectory::fromRepositoryIdentity);
+        return playerRepository.getActiveIdentity(normalizedUuid);
     }
 
     /**
@@ -50,32 +49,28 @@ public final class PlayerDirectory {
         if (normalizedUuid == null) {
             return Optional.empty();
         }
-        return playerRepository.findIdentityByUUID(normalizedUuid).map(PlayerDirectory::fromRepositoryIdentity);
+        return playerRepository.findIdentityByUUID(normalizedUuid);
     }
 
     /**
      * Looks up a persisted identity by exact username without creating or updating a player row.
      */
     public Optional<PlayerIdentity> findByUsername(String username) {
-        return playerRepository.findIdentityByUsername(username).map(PlayerDirectory::fromRepositoryIdentity);
+        return playerRepository.findIdentityByUsername(username);
     }
 
     /**
      * Looks up a persisted identity by case-insensitive username without creating or updating a player row.
      */
     public Optional<PlayerIdentity> findByUsernameIgnoreCase(String username) {
-        return playerRepository.findIdentityByUsernameIgnoreCase(username).map(PlayerDirectory::fromRepositoryIdentity);
+        return playerRepository.findIdentityByUsernameIgnoreCase(username);
     }
 
     /**
      * Returns active identity snapshots keyed by normalized UUID string.
      */
     public Map<String, PlayerIdentity> snapshotActiveIdentities() {
-        return playerRepository.snapshotActiveIdentities().entrySet().stream()
-                .collect(Collectors.toUnmodifiableMap(
-                        Map.Entry::getKey,
-                        entry -> fromRepositoryIdentity(entry.getValue())
-                ));
+        return playerRepository.snapshotActiveIdentities();
     }
 
     /**
@@ -173,14 +168,6 @@ public final class PlayerDirectory {
         CancellationException cancellation = new CancellationException("DataRegistry is shutting down.");
         identityReadiness.forEach((uuid, future) -> future.completeExceptionally(cancellation));
         identityReadiness.clear();
-    }
-
-    /**
-     * Converts the legacy repository identity record to the standalone API model.
-     */
-    public static PlayerIdentity fromRepositoryIdentity(PlayerRepository.PlayerIdentity identity) {
-        Objects.requireNonNull(identity, "identity must not be null");
-        return new PlayerIdentity(identity.id(), UUID.fromString(identity.uuid()), identity.username());
     }
 
     private static String normalizeUuid(UUID uuid) {

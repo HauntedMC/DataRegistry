@@ -33,6 +33,7 @@ import nl.hauntedmc.dataregistry.api.repository.PlayerSessionVisitRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceInstanceRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceProbeRepository;
 import nl.hauntedmc.dataregistry.backend.config.DataRegistrySettings;
+import nl.hauntedmc.dataregistry.backend.service.PlayerService;
 import nl.hauntedmc.dataregistry.backend.service.ServiceRegistryService;
 import nl.hauntedmc.dataprovider.logging.LogLevel;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
@@ -234,22 +235,6 @@ public class DataRegistry {
     }
 
     /**
-     * Returns the legacy player repository.
-     *
-     * @deprecated use {@link PlayerDirectory} for read-side identity access. Player creation and
-     * username updates are owned by DataRegistry platform lifecycle handling.
-     *
-     * @throws IllegalStateException when DataRegistry has not been initialized.
-     */
-    @Deprecated(forRemoval = false)
-    public synchronized PlayerRepository getPlayerRepository() {
-        if (playerRepository == null) {
-            throw new IllegalStateException("DataRegistry is not initialized.");
-        }
-        return playerRepository;
-    }
-
-    /**
      * Returns the read-oriented player identity directory.
      *
      * @throws IllegalStateException when DataRegistry has not been initialized.
@@ -259,6 +244,20 @@ public class DataRegistry {
             throw new IllegalStateException("DataRegistry is not initialized.");
         }
         return playerDirectory;
+    }
+
+    /**
+     * Creates the lifecycle service that owns player row creation, username updates, and active cache changes.
+     *
+     * @param serviceLogger logger used by the lifecycle service.
+     * @return a lifecycle service backed by the initialized player repository.
+     * @throws IllegalStateException when DataRegistry has not been initialized.
+     */
+    public synchronized PlayerService newPlayerService(ILoggerAdapter serviceLogger) {
+        if (playerRepository == null) {
+            throw new IllegalStateException("DataRegistry is not initialized.");
+        }
+        return new PlayerService(playerRepository, serviceLogger);
     }
 
     public synchronized PlayerActivitySummaryRepository getPlayerActivitySummaryRepository() {

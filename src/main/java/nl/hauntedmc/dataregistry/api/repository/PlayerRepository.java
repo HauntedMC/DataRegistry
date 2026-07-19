@@ -2,6 +2,7 @@ package nl.hauntedmc.dataregistry.api.repository;
 
 import jakarta.persistence.PersistenceException;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
+import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 
 import java.util.Locale;
@@ -15,16 +16,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
-
-    /**
-     * Legacy repository-local identity projection.
-     *
-     * @deprecated use {@link nl.hauntedmc.dataregistry.api.player.PlayerIdentity}
-     * and {@link nl.hauntedmc.dataregistry.api.player.PlayerDirectory} for read-side identity access.
-     */
-    @Deprecated(forRemoval = false)
-    public record PlayerIdentity(Long id, String uuid, String username) {
-    }
 
     // Cache active players keyed by their UUID.
     private final Map<String, PlayerEntity> activePlayers = new ConcurrentHashMap<>();
@@ -56,7 +47,7 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
     }
 
     public Optional<Long> findIdByUUID(String uuid) {
-        return findIdentityByUUID(uuid).map(PlayerIdentity::id);
+        return findIdentityByUUID(uuid).map(PlayerIdentity::playerId);
     }
 
     public Optional<PlayerEntity> findByUsername(String username) {
@@ -125,7 +116,7 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
     }
 
     public Optional<Long> findIdByUsernameIgnoreCase(String username) {
-        return findIdentityByUsernameIgnoreCase(username).map(PlayerIdentity::id);
+        return findIdentityByUsernameIgnoreCase(username).map(PlayerIdentity::playerId);
     }
 
     public Optional<PlayerIdentity> findIdentityByUsernameIgnoreCase(String username) {
@@ -319,7 +310,7 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
     }
 
     private static PlayerIdentity toIdentity(PlayerEntity entity) {
-        return new PlayerIdentity(entity.getId(), entity.getUuid(), entity.getUsername());
+        return new PlayerIdentity(entity.getId(), UUID.fromString(entity.getUuid()), entity.getUsername());
     }
 
     private static String normalizeUuid(String uuid) {

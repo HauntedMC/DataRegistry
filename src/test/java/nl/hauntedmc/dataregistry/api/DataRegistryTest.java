@@ -41,6 +41,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -84,7 +85,8 @@ class DataRegistryTest {
 
         assertTrue(registry.initialize());
         assertSame(ormContext, registry.getORM());
-        assertSame(repository, registry.getPlayerRepository());
+        assertNotNull(registry.getPlayerDirectory());
+        assertNotNull(registry.newPlayerService(logger));
         assertSame(registry.testPlayerActivitySummaryRepository(), registry.getPlayerActivitySummaryRepository());
         assertSame(registry.testPlayerOnlineStatusRepository(), registry.getPlayerOnlineStatusRepository());
         assertSame(registry.testPlayerConnectionInfoRepository(), registry.getPlayerConnectionInfoRepository());
@@ -299,7 +301,8 @@ class DataRegistryTest {
         DataRegistry registry = new DataRegistry(mock(ILoggerAdapter.class), "DataRegistry", mock(DataProviderAPI.class));
 
         assertThrows(IllegalStateException.class, registry::getORM);
-        assertThrows(IllegalStateException.class, registry::getPlayerRepository);
+        assertThrows(IllegalStateException.class, registry::getPlayerDirectory);
+        assertThrows(IllegalStateException.class, () -> registry.newPlayerService(mock(ILoggerAdapter.class)));
         assertThrows(IllegalStateException.class, registry::getPlayerActivitySummaryRepository);
         assertThrows(IllegalStateException.class, registry::getPlayerOnlineStatusRepository);
         assertThrows(IllegalStateException.class, registry::getPlayerConnectionInfoRepository);
@@ -374,7 +377,7 @@ class DataRegistryTest {
 
         registry.shutdown();
 
-        assertThrows(IllegalStateException.class, registry::getPlayerRepository);
+        assertThrows(IllegalStateException.class, registry::getPlayerDirectory);
         assertFalse(registry.isInitialized());
         verify(api).unregisterAllDatabasesForPlugin();
     }

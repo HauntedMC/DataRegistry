@@ -190,9 +190,13 @@ class VelocityDataRegistryTest {
         EventManager eventManager = mock(EventManager.class);
         Logger logger = mock(Logger.class);
         DataRegistry registry = mock(DataRegistry.class);
-        PlayerRepository playerRepository = mock(PlayerRepository.class);
+        nl.hauntedmc.dataregistry.backend.service.PlayerService playerService =
+                new nl.hauntedmc.dataregistry.backend.service.PlayerService(
+                        mock(PlayerRepository.class),
+                        mock(ILoggerAdapter.class)
+                );
         when(proxyServer.getEventManager()).thenReturn(eventManager);
-        when(registry.getPlayerRepository()).thenReturn(playerRepository);
+        when(registry.newPlayerService(any())).thenReturn(playerService);
 
         VelocityDataRegistry plugin = new TestVelocityListenerRegistrationPlugin(proxyServer, logger, registry);
 

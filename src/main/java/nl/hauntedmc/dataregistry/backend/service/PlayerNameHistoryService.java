@@ -96,12 +96,14 @@ public final class PlayerNameHistoryService {
             return List.of();
         }
         try {
-            Optional<PlayerEntity> playerOptional = dataRegistry.getPlayerRepository().findByUsername(normalizedCurrentUsername);
-            if (playerOptional.isEmpty() || playerOptional.get().getId() == null) {
+            Optional<Long> playerId = dataRegistry.getPlayerDirectory()
+                    .findByUsername(normalizedCurrentUsername)
+                    .map(nl.hauntedmc.dataregistry.api.player.PlayerIdentity::playerId);
+            if (playerId.isEmpty()) {
                 return List.of();
             }
             return dataRegistry.getPlayerNameHistoryRepository()
-                    .findChronologicalByPlayer(playerOptional.get().getId(), Math.max(1, limit))
+                    .findChronologicalByPlayer(playerId.get(), Math.max(1, limit))
                     .stream()
                     .map(history -> new NameHistoryView(history.getUsername(), history.getLastSeenAt()))
                     .toList();

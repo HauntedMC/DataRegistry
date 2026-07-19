@@ -104,10 +104,7 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
             throw new IllegalStateException("Database connection not established.");
         }
 
-        PlayerService playerService = new PlayerService(
-                dataRegistry.getPlayerRepository(),
-                logInstance
-        );
+        PlayerService playerService = dataRegistry.newPlayerService(logInstance);
         playerStatusListener = new PlayerStatusListener(
                 this,
                 playerService,

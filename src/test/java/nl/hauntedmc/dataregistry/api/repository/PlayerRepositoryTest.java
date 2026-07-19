@@ -84,17 +84,23 @@ class PlayerRepositoryTest {
         entity.setUsername("Alice");
 
         doReturn(Optional.of(entity)).when(repository).findByUUID(uuid);
-        doReturn(Optional.of(new PlayerRepository.PlayerIdentity(77L, uuid, "Alice")))
+        doReturn(Optional.of(new nl.hauntedmc.dataregistry.api.player.PlayerIdentity(
+                77L,
+                UUID.fromString(uuid),
+                "Alice"
+        )))
                 .when(repository).findIdentityByUUID(uuid);
 
-        PlayerRepository.PlayerIdentity identity = repository.getOrCreateActiveIdentity(uuid, "Alice");
+        nl.hauntedmc.dataregistry.api.player.PlayerIdentity identity =
+                repository.getOrCreateActiveIdentity(uuid, "Alice");
 
-        assertEquals(77L, identity.id());
+        assertEquals(77L, identity.playerId());
         assertEquals(Optional.of(77L), repository.findIdByUUID(uuid));
         assertEquals(Optional.of(identity), repository.getActiveIdentity(uuid));
         assertEquals(Optional.of(identity), repository.findIdentityByUUID(uuid));
 
-        Map<String, PlayerRepository.PlayerIdentity> snapshot = repository.snapshotActiveIdentities();
+        Map<String, nl.hauntedmc.dataregistry.api.player.PlayerIdentity> snapshot =
+                repository.snapshotActiveIdentities();
         assertEquals(Map.of(uuid, identity), snapshot);
         assertThrows(UnsupportedOperationException.class, snapshot::clear);
     }
@@ -120,9 +126,14 @@ class PlayerRepositoryTest {
         when(query.setMaxResults(1)).thenReturn(query);
         when(query.uniqueResult()).thenReturn(player);
 
-        Optional<PlayerRepository.PlayerIdentity> identity = repository.findIdentityByUsernameIgnoreCase("Alice");
+        Optional<nl.hauntedmc.dataregistry.api.player.PlayerIdentity> identity =
+                repository.findIdentityByUsernameIgnoreCase("Alice");
 
-        assertEquals(Optional.of(new PlayerRepository.PlayerIdentity(15L, player.getUuid(), "Alice")), identity);
+        assertEquals(Optional.of(new nl.hauntedmc.dataregistry.api.player.PlayerIdentity(
+                15L,
+                UUID.fromString(player.getUuid()),
+                "Alice"
+        )), identity);
         assertEquals(Optional.of(15L), repository.findIdByUsernameIgnoreCase("Alice"));
     }
 

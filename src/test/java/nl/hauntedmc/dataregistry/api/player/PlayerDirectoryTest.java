@@ -22,7 +22,7 @@ class PlayerDirectoryTest {
         UUID uuid = UUID.randomUUID();
         PlayerDirectory directory = new PlayerDirectory(repository);
         when(repository.getActiveIdentity(uuid.toString()))
-                .thenReturn(Optional.of(new PlayerRepository.PlayerIdentity(10L, uuid.toString(), "Alice")));
+                .thenReturn(Optional.of(new PlayerIdentity(10L, uuid, "Alice")));
 
         Optional<PlayerIdentity> identity = directory.whenReady(uuid).get();
 
