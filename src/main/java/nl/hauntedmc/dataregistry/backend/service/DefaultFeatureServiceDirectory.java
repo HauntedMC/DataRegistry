@@ -34,7 +34,14 @@ public final class DefaultFeatureServiceDirectory implements FeatureServiceDirec
                 service.getClass().getName()
         );
         Registration<T> registration = new Registration<>(info, service);
-        services.put(apiType, registration);
+        services.compute(apiType, (type, existing) -> {
+            if (existing != null && !sameOwner(existing.info(), info)) {
+                throw new IllegalStateException("Feature service " + apiType.getName()
+                        + " is already registered by " + existing.info().ownerPlugin()
+                        + "/" + existing.info().ownerFeature() + ".");
+            }
+            return registration;
+        });
         return new Handle(apiType, service, info);
     }
 
@@ -117,6 +124,11 @@ public final class DefaultFeatureServiceDirectory implements FeatureServiceDirec
             throw new IllegalArgumentException(fieldName + " must not be blank");
         }
         return normalized;
+    }
+
+    private static boolean sameOwner(FeatureServiceInfo first, FeatureServiceInfo second) {
+        return first.ownerPlugin().equals(second.ownerPlugin())
+                && first.ownerFeature().equals(second.ownerFeature());
     }
 
     private final class Handle implements FeatureServiceHandle {

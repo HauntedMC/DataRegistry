@@ -33,11 +33,25 @@ class FeatureServiceDirectoryTest {
         GreetingService first = () -> "first";
         GreetingService second = () -> "second";
 
-        directory.register("ProxyFeatures", "First", GreetingService.class, first);
-        directory.register("ProxyFeatures", "Second", GreetingService.class, second);
+        directory.register("ProxyFeatures", "Greeting", GreetingService.class, first);
+        directory.register("ProxyFeatures", "Greeting", GreetingService.class, second);
 
         assertSame(second, directory.find(GreetingService.class).orElseThrow());
-        assertEquals("Second", directory.describe(GreetingService.class).orElseThrow().ownerFeature());
+        assertEquals("Greeting", directory.describe(GreetingService.class).orElseThrow().ownerFeature());
+    }
+
+    @Test
+    void rejectsDifferentOwnerForAlreadyRegisteredApiType() {
+        FeatureServiceDirectory directory = new DefaultFeatureServiceDirectory();
+
+        directory.register("ProxyFeatures", "Greeting", GreetingService.class, (GreetingService) () -> "hello");
+
+        assertThrows(IllegalStateException.class, () -> directory.register(
+                "ProxyFeatures",
+                "OtherGreeting",
+                GreetingService.class,
+                (GreetingService) () -> "other"
+        ));
     }
 
     @Test
@@ -46,8 +60,8 @@ class FeatureServiceDirectoryTest {
         GreetingService first = () -> "first";
         GreetingService second = () -> "second";
 
-        FeatureServiceHandle firstHandle = directory.register("ProxyFeatures", "First", GreetingService.class, first);
-        directory.register("ProxyFeatures", "Second", GreetingService.class, second);
+        FeatureServiceHandle firstHandle = directory.register("ProxyFeatures", "Greeting", GreetingService.class, first);
+        directory.register("ProxyFeatures", "Greeting", GreetingService.class, second);
 
         firstHandle.close();
 

@@ -13,6 +13,9 @@ public interface FeatureServiceDirectory {
 
     /**
      * Registers or replaces a feature-owned service implementation for an API type.
+     * <p>
+     * Re-registering the same API type is allowed only for the same owner. A different owner attempting to publish an
+     * already claimed API type fails fast so consumers cannot accidentally bind to an arbitrary replacement.
      *
      * @param ownerPlugin owning plugin name, for diagnostics and cleanup.
      * @param ownerFeature owning feature name, for diagnostics and cleanup.
@@ -20,6 +23,7 @@ public interface FeatureServiceDirectory {
      * @param service implementation instance owned by the feature.
      * @param <T> API type.
      * @return handle that unregisters this exact service instance when closed.
+     * @throws IllegalStateException when another owner already registered the same API type.
      */
     <T> FeatureServiceHandle register(String ownerPlugin, String ownerFeature, Class<T> apiType, T service);
 
