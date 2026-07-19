@@ -33,8 +33,8 @@ import nl.hauntedmc.dataregistry.api.repository.PlayerSessionVisitRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceInstanceRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceProbeRepository;
 import nl.hauntedmc.dataregistry.backend.config.DataRegistrySettings;
-import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityReadiness;
-import nl.hauntedmc.dataregistry.backend.player.DefaultPlayerDirectory;
+import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker;
+import nl.hauntedmc.dataregistry.backend.player.RepositoryPlayerDirectory;
 import nl.hauntedmc.dataregistry.backend.service.PlayerService;
 import nl.hauntedmc.dataregistry.backend.service.ServiceRegistryService;
 import nl.hauntedmc.dataprovider.logging.LogLevel;
@@ -73,7 +73,7 @@ public class DataRegistry {
     private NetworkServiceRepository networkServiceRepository;
     private ServiceInstanceRepository serviceInstanceRepository;
     private ServiceProbeRepository serviceProbeRepository;
-    private PlayerIdentityReadiness playerIdentityReadiness;
+    private PlayerIdentityInitializationTracker playerIdentityInitializationTracker;
     private PlayerDirectory playerDirectory;
     private ORMContext ormContext;
     private ORMContext serviceOrmContext;
@@ -117,8 +117,8 @@ public class DataRegistry {
             serviceOrmContext = null;
 
             this.playerRepository = newPlayerRepository(ormContext);
-            this.playerIdentityReadiness = new PlayerIdentityReadiness();
-            this.playerDirectory = new DefaultPlayerDirectory(playerRepository, playerIdentityReadiness);
+            this.playerIdentityInitializationTracker = new PlayerIdentityInitializationTracker();
+            this.playerDirectory = new RepositoryPlayerDirectory(playerRepository, playerIdentityInitializationTracker);
             this.playerActivitySummaryRepository = settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)
                     ? newPlayerActivitySummaryRepository(ormContext)
                     : null;
@@ -175,10 +175,10 @@ public class DataRegistry {
         ormContext = null;
         serviceOrmContext = null;
         playerRepository = null;
-        if (playerIdentityReadiness != null) {
-            playerIdentityReadiness.shutdown();
+        if (playerIdentityInitializationTracker != null) {
+            playerIdentityInitializationTracker.shutdown();
         }
-        playerIdentityReadiness = null;
+        playerIdentityInitializationTracker = null;
         playerDirectory = null;
         playerActivitySummaryRepository = null;
         playerOnlineStatusRepository = null;
@@ -262,7 +262,7 @@ public class DataRegistry {
         if (playerRepository == null) {
             throw new IllegalStateException("DataRegistry is not initialized.");
         }
-        return new PlayerService(playerRepository, playerIdentityReadiness, serviceLogger);
+        return new PlayerService(playerRepository, playerIdentityInitializationTracker, serviceLogger);
     }
 
     public synchronized PlayerActivitySummaryRepository getPlayerActivitySummaryRepository() {
@@ -553,7 +553,7 @@ public class DataRegistry {
         return ormContext != null
                 || serviceOrmContext != null
                 || playerRepository != null
-                || playerIdentityReadiness != null
+                || playerIdentityInitializationTracker != null
                 || playerDirectory != null
                 || playerActivitySummaryRepository != null
                 || playerOnlineStatusRepository != null
@@ -571,7 +571,10 @@ public class DataRegistry {
     }
 
     private boolean isRuntimeFullyInitialized() {
-        if (ormContext == null || playerRepository == null || playerIdentityReadiness == null || playerDirectory == null) {
+        if (ormContext == null
+                || playerRepository == null
+                || playerIdentityInitializationTracker == null
+                || playerDirectory == null) {
             return false;
         }
         if (settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)

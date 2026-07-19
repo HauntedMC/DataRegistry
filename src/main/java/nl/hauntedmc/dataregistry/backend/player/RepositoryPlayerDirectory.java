@@ -2,7 +2,7 @@ package nl.hauntedmc.dataregistry.backend.player;
 
 import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
-import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityReadiness;
+import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker;
 import nl.hauntedmc.dataregistry.backend.repository.PlayerRepository;
 
 import java.util.Map;
@@ -12,18 +12,24 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Backend implementation of the public read-only player directory.
+ * Repository-backed implementation of the public read-only player directory.
  * <p>
- * It adapts lifecycle readiness and repository snapshots into immutable identity records.
+ * It adapts lifecycle initialization state and repository snapshots into immutable identity records.
  */
-public final class DefaultPlayerDirectory implements PlayerDirectory {
+public final class RepositoryPlayerDirectory implements PlayerDirectory {
 
     private final PlayerRepository playerRepository;
-    private final PlayerIdentityReadiness identityReadiness;
+    private final PlayerIdentityInitializationTracker identityInitializationTracker;
 
-    public DefaultPlayerDirectory(PlayerRepository playerRepository, PlayerIdentityReadiness identityReadiness) {
+    public RepositoryPlayerDirectory(
+            PlayerRepository playerRepository,
+            PlayerIdentityInitializationTracker identityInitializationTracker
+    ) {
         this.playerRepository = Objects.requireNonNull(playerRepository, "playerRepository must not be null");
-        this.identityReadiness = Objects.requireNonNull(identityReadiness, "identityReadiness must not be null");
+        this.identityInitializationTracker = Objects.requireNonNull(
+                identityInitializationTracker,
+                "identityInitializationTracker must not be null"
+        );
     }
 
     @Override
@@ -79,7 +85,7 @@ public final class DefaultPlayerDirectory implements PlayerDirectory {
 
     @Override
     public CompletableFuture<Optional<PlayerIdentity>> whenReady(UUID uuid) {
-        return identityReadiness.whenReady(uuid, () -> getActiveIdentity(uuid));
+        return identityInitializationTracker.whenReady(uuid, () -> getActiveIdentity(uuid));
     }
 
     @Override

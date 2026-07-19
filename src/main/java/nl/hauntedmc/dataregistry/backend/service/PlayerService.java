@@ -3,14 +3,14 @@ package nl.hauntedmc.dataregistry.backend.service;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.backend.repository.PlayerRepository;
-import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityReadiness;
+import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker;
+import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker.PlayerIdentityInitialization;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Backend service for player identity lifecycle and active cache access.
@@ -18,16 +18,19 @@ import java.util.concurrent.CompletableFuture;
 public final class PlayerService {
 
     private final PlayerRepository playerRepository;
-    private final PlayerIdentityReadiness identityReadiness;
+    private final PlayerIdentityInitializationTracker identityInitializationTracker;
     private final ILoggerAdapter logger;
 
     public PlayerService(
             PlayerRepository playerRepository,
-            PlayerIdentityReadiness identityReadiness,
+            PlayerIdentityInitializationTracker identityInitializationTracker,
             ILoggerAdapter logger
     ) {
         this.playerRepository = Objects.requireNonNull(playerRepository, "playerRepository must not be null");
-        this.identityReadiness = Objects.requireNonNull(identityReadiness, "identityReadiness must not be null");
+        this.identityInitializationTracker = Objects.requireNonNull(
+                identityInitializationTracker,
+                "identityInitializationTracker must not be null"
+        );
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
     }
 
@@ -95,48 +98,57 @@ public final class PlayerService {
     }
 
     /**
-     * Starts identity readiness tracking for a platform join lifecycle.
+     * Starts identity initialization tracking for a platform join lifecycle.
      *
      * @param uuid player UUID being prepared by DataRegistry.
-     * @return a defensive future copy for lifecycle tests and diagnostics.
+     * @return handle that must be used to complete this specific initialization attempt.
      */
-    public CompletableFuture<Optional<PlayerIdentity>> beginIdentityInitialization(UUID uuid) {
-        return identityReadiness.begin(uuid);
+    public PlayerIdentityInitialization beginIdentityInitialization(UUID uuid) {
+        return identityInitializationTracker.begin(uuid);
     }
 
     /**
      * Publishes a successfully initialized player identity to waiting feature code.
      *
-     * @param player persistent player row returned by {@link #onPlayerJoin(PlayerEntity)}.
+     * @param initialization initialization handle returned by {@link #beginIdentityInitialization(UUID)}.
+     * @param player         persistent player row returned by {@link #onPlayerJoin(PlayerEntity)}.
      */
-    public void completeIdentityReady(PlayerEntity player) {
-        toIdentity(player).ifPresent(identityReadiness::complete);
+    public void completeIdentityInitialization(PlayerIdentityInitialization initialization, PlayerEntity player) {
+        Optional<PlayerIdentity> identity = toIdentity(player);
+        if (identity.isPresent()) {
+            identityInitializationTracker.complete(initialization, identity.get());
+            return;
+        }
+        identityInitializationTracker.fail(
+                initialization,
+                new IllegalStateException("Player initialization did not produce a valid DataRegistry identity.")
+        );
     }
 
     /**
-     * Completes readiness waiters with an empty result because the player left or cannot be initialized.
+     * Completes identity waiters with an empty result because the player left or cannot be initialized.
      *
-     * @param uuid player UUID whose identity is unavailable.
+     * @param initialization initialization handle returned by {@link #beginIdentityInitialization(UUID)}.
      */
-    public void completeIdentityUnavailable(UUID uuid) {
-        identityReadiness.completeUnavailable(uuid);
+    public void completeIdentityInitializationUnavailable(PlayerIdentityInitialization initialization) {
+        identityInitializationTracker.completeUnavailable(initialization);
     }
 
     /**
-     * Completes readiness waiters exceptionally when identity preparation fails.
+     * Completes identity waiters exceptionally when identity preparation fails.
      *
-     * @param uuid    player UUID whose identity failed to initialize.
-     * @param failure failure cause exposed to waiters.
+     * @param initialization initialization handle returned by {@link #beginIdentityInitialization(UUID)}.
+     * @param failure        failure cause exposed to waiters.
      */
-    public void failIdentityInitialization(UUID uuid, Throwable failure) {
-        identityReadiness.fail(uuid, failure);
+    public void failIdentityInitialization(PlayerIdentityInitialization initialization, Throwable failure) {
+        identityInitializationTracker.fail(initialization, failure);
     }
 
     /**
-     * Cancels all outstanding readiness waiters during plugin shutdown.
+     * Cancels all outstanding identity initialization waiters during plugin shutdown.
      */
-    public void shutdownIdentityReadiness() {
-        identityReadiness.shutdown();
+    public void shutdownIdentityInitialization() {
+        identityInitializationTracker.shutdown();
     }
 
     private static Optional<PlayerIdentity> toIdentity(PlayerEntity player) {

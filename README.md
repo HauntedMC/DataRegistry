@@ -13,7 +13,7 @@ It owns canonical player rows, current usernames, online/session state, rename h
 ## Runtime Model
 
 - Velocity is the authoritative writer for joins, switches, disconnects, sessions, connection info, and backend probes.
-- Paper runs as a bridge for backend identity readiness, read access, and optional service heartbeats.
+- Paper runs as a bridge for backend identity initialization, read access, and optional service heartbeats.
 - DataProvider supplies database connections and ORM bootstrap.
 - Running only Paper without Velocity is not a supported production topology.
 
@@ -79,7 +79,10 @@ Primary player identity methods:
 - `PlayerDirectory#findByUsername(String)` and `PlayerDirectory#findByUsernameIgnoreCase(String)` look up persisted identities without updating usernames.
 - `PlayerDirectory#snapshotActiveIdentities()` returns immutable active identity snapshots keyed by UUID string.
 
-Lookup methods can perform database I/O. Call them from an async context on Velocity/Paper event paths. Player creation and username updates are intentionally not exposed to feature plugins; DataRegistry lifecycle code is the only writer for canonical player identity.
+Lookup methods can perform database I/O. Call them from an async context on Velocity/Paper event paths.
+`whenReady` callbacks may run on a DataRegistry lifecycle thread; schedule Bukkit/Paper API work back onto
+the server thread. Player creation and username updates are intentionally not exposed to feature plugins;
+DataRegistry lifecycle code is the only writer for canonical player identity.
 
 ## Data Ownership
 

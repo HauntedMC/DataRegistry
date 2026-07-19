@@ -20,7 +20,7 @@ import nl.hauntedmc.dataregistry.api.entities.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerSessionVisitEntity;
 import nl.hauntedmc.dataregistry.backend.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.backend.config.PlaytimeTrackingSettings;
-import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityReadiness;
+import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker;
 import nl.hauntedmc.dataregistry.backend.playtime.PlaytimeGamemodeResolver;
 import nl.hauntedmc.dataregistry.backend.service.PlayerActivitySummaryService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerConnectionInfoService;
@@ -83,7 +83,7 @@ class PlayerStatusListenerTest {
         DataRegistry registry = mock(DataRegistry.class);
         ORMContext ormContext = mock(ORMContext.class);
         when(registry.getORM()).thenReturn(ormContext);
-        PlayerService playerService = new PlayerService(repository, new PlayerIdentityReadiness(), logger);
+        PlayerService playerService = new PlayerService(repository, new PlayerIdentityInitializationTracker(), logger);
         PlayerNameHistoryService nameHistoryService = new PlayerNameHistoryService(registry, logger, 32, true);
         PlayerActivitySummaryService activitySummaryService = new PlayerActivitySummaryService(registry, logger, true);
         PlayerStatusService statusService = new PlayerStatusService(registry, logger, 64);
@@ -382,7 +382,7 @@ class PlayerStatusListenerTest {
         when(playtimeAggregateQuery.setMaxResults(1)).thenReturn(playtimeAggregateQuery);
         when(playtimeAggregateQuery.uniqueResultOptional()).thenReturn(Optional.empty());
 
-        PlayerService playerService = new PlayerService(repository, new PlayerIdentityReadiness(), logger);
+        PlayerService playerService = new PlayerService(repository, new PlayerIdentityInitializationTracker(), logger);
         PlayerNameHistoryService nameHistoryService = new PlayerNameHistoryService(registry, logger, 32, true);
         PlayerActivitySummaryService activitySummaryService = new PlayerActivitySummaryService(registry, logger, true);
         PlayerStatusService statusService = new PlayerStatusService(registry, logger, 64);
@@ -551,7 +551,7 @@ class PlayerStatusListenerTest {
         aggregate.setLastTrackedAt(openSegment.getLastAccruedAt());
         when(playtimeAggregateQuery.uniqueResultOptional()).thenReturn(Optional.of(aggregate));
 
-        PlayerService playerService = new PlayerService(repository, new PlayerIdentityReadiness(), logger);
+        PlayerService playerService = new PlayerService(repository, new PlayerIdentityInitializationTracker(), logger);
         PlayerNameHistoryService nameHistoryService = new PlayerNameHistoryService(registry, logger, 32, true);
         PlayerActivitySummaryService activitySummaryService = new PlayerActivitySummaryService(registry, logger, true);
         PlayerStatusService statusService = new PlayerStatusService(registry, logger, 64);
@@ -775,7 +775,7 @@ class PlayerStatusListenerTest {
         when(playtimeAggregateQuery.setMaxResults(anyInt())).thenReturn(playtimeAggregateQuery);
         when(playtimeAggregateQuery.uniqueResultOptional()).thenReturn(Optional.empty());
 
-        PlayerService playerService = new PlayerService(repository, new PlayerIdentityReadiness(), logger);
+        PlayerService playerService = new PlayerService(repository, new PlayerIdentityInitializationTracker(), logger);
         PlayerNameHistoryService nameHistoryService = new PlayerNameHistoryService(registry, logger, 32, true);
         PlayerActivitySummaryService activitySummaryService = new PlayerActivitySummaryService(registry, logger, true);
         PlayerStatusService statusService = new PlayerStatusService(registry, logger, 64);

@@ -2,8 +2,8 @@ package nl.hauntedmc.dataregistry.platform.bukkit.listener;
 
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
-import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityReadiness;
-import nl.hauntedmc.dataregistry.backend.player.DefaultPlayerDirectory;
+import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker;
+import nl.hauntedmc.dataregistry.backend.player.RepositoryPlayerDirectory;
 import nl.hauntedmc.dataregistry.backend.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.backend.service.PlayerService;
 import nl.hauntedmc.dataregistry.platform.bukkit.BukkitDataRegistry;
@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -46,7 +47,7 @@ class PlayerStatusListenerTest {
     void constructorRejectsNullDependencies() {
         PlayerService playerService = new PlayerService(
                 mock(PlayerRepository.class),
-                new PlayerIdentityReadiness(),
+                new PlayerIdentityInitializationTracker(),
                 mock(ILoggerAdapter.class)
         );
         BukkitDataRegistry plugin = mock(BukkitDataRegistry.class);
@@ -65,8 +66,8 @@ class PlayerStatusListenerTest {
     void onPlayerQuitRemovesCachedPlayerEntry() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
-        PlayerIdentityReadiness readiness = new PlayerIdentityReadiness();
-        PlayerService playerService = new PlayerService(repository, readiness, logger);
+        PlayerIdentityInitializationTracker initialization = new PlayerIdentityInitializationTracker();
+        PlayerService playerService = new PlayerService(repository, initialization, logger);
         BukkitDataRegistry plugin = mock(BukkitDataRegistry.class);
         BukkitScheduler scheduler = mock(BukkitScheduler.class);
         PlayerStatusListener listener = new PlayerStatusListener(
@@ -91,8 +92,8 @@ class PlayerStatusListenerTest {
     void onPlayerJoinSchedulesAsyncPersistenceWhenPlayerStillOnline() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
-        PlayerIdentityReadiness readiness = new PlayerIdentityReadiness();
-        PlayerService playerService = new PlayerService(repository, readiness, logger);
+        PlayerIdentityInitializationTracker initialization = new PlayerIdentityInitializationTracker();
+        PlayerService playerService = new PlayerService(repository, initialization, logger);
         BukkitDataRegistry plugin = mock(BukkitDataRegistry.class);
         BukkitScheduler scheduler = mock(BukkitScheduler.class);
         Player joinedPlayer = mock(Player.class);
@@ -132,8 +133,8 @@ class PlayerStatusListenerTest {
     void onPlayerJoinSkipsPersistenceWhenPlayerAlreadyOffline() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
-        PlayerIdentityReadiness readiness = new PlayerIdentityReadiness();
-        PlayerService playerService = new PlayerService(repository, readiness, logger);
+        PlayerIdentityInitializationTracker initialization = new PlayerIdentityInitializationTracker();
+        PlayerService playerService = new PlayerService(repository, initialization, logger);
         BukkitDataRegistry plugin = mock(BukkitDataRegistry.class);
         BukkitScheduler scheduler = mock(BukkitScheduler.class);
         Player joinedPlayer = mock(Player.class);
@@ -160,8 +161,8 @@ class PlayerStatusListenerTest {
     void onPlayerQuitCancelsPendingDelayedJoinGeneration() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
-        PlayerIdentityReadiness readiness = new PlayerIdentityReadiness();
-        PlayerService playerService = new PlayerService(repository, readiness, logger);
+        PlayerIdentityInitializationTracker initialization = new PlayerIdentityInitializationTracker();
+        PlayerService playerService = new PlayerService(repository, initialization, logger);
         BukkitDataRegistry plugin = mock(BukkitDataRegistry.class);
         BukkitScheduler scheduler = mock(BukkitScheduler.class);
         Player joinedPlayer = mock(Player.class);
@@ -189,12 +190,12 @@ class PlayerStatusListenerTest {
     }
 
     @Test
-    void staleJoinTaskDoesNotCompleteReconnectReadiness() {
+    void staleJoinTaskDoesNotCompleteReconnectInitialization() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
-        PlayerIdentityReadiness readiness = new PlayerIdentityReadiness();
-        PlayerService playerService = new PlayerService(repository, readiness, logger);
-        PlayerDirectory playerDirectory = new DefaultPlayerDirectory(repository, readiness);
+        PlayerIdentityInitializationTracker initialization = new PlayerIdentityInitializationTracker();
+        PlayerService playerService = new PlayerService(repository, initialization, logger);
+        PlayerDirectory playerDirectory = new RepositoryPlayerDirectory(repository, initialization);
         BukkitDataRegistry plugin = mock(BukkitDataRegistry.class);
         BukkitScheduler scheduler = mock(BukkitScheduler.class);
         Player firstJoinPlayer = mock(Player.class);
@@ -233,9 +234,46 @@ class PlayerStatusListenerTest {
         listener.onPlayerQuit(new PlayerQuitEvent(quitPlayer, "quit"));
         listener.onPlayerJoin(new PlayerJoinEvent(secondJoinPlayer, "join"));
 
-        CompletableFuture<?> secondJoinReadiness = playerDirectory.whenReady(uuid);
+        CompletableFuture<?> secondJoinInitialization = playerDirectory.whenReady(uuid);
         asyncTasks.get(0).run();
 
-        assertFalse(secondJoinReadiness.isDone());
+        assertFalse(secondJoinInitialization.isDone());
+    }
+
+    @Test
+    void schedulerRejectionFailsPendingIdentityInitialization() {
+        PlayerRepository repository = mock(PlayerRepository.class);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        ILoggerAdapter platformLogger = mock(ILoggerAdapter.class);
+        PlayerIdentityInitializationTracker initialization = new PlayerIdentityInitializationTracker();
+        PlayerService playerService = new PlayerService(repository, initialization, logger);
+        PlayerDirectory playerDirectory = new RepositoryPlayerDirectory(repository, initialization);
+        BukkitDataRegistry plugin = mock(BukkitDataRegistry.class);
+        BukkitScheduler scheduler = mock(BukkitScheduler.class);
+        Player joinedPlayer = mock(Player.class);
+        Player livePlayer = mock(Player.class);
+        UUID uuid = UUID.randomUUID();
+        AtomicReference<CompletableFuture<?>> pendingInitialization = new AtomicReference<>();
+        PlayerStatusListener listener = new PlayerStatusListener(
+                plugin,
+                playerService,
+                4,
+                () -> scheduler,
+                id -> id.equals(uuid) ? livePlayer : null
+        );
+
+        when(plugin.getPlatformLogger()).thenReturn(platformLogger);
+        when(joinedPlayer.getUniqueId()).thenReturn(uuid);
+        when(joinedPlayer.getName()).thenReturn("Alice");
+        when(livePlayer.isOnline()).thenReturn(true);
+        when(scheduler.runTaskAsynchronously(eq(plugin), any(Runnable.class))).thenAnswer(invocation -> {
+            pendingInitialization.set(playerDirectory.whenReady(uuid));
+            throw new IllegalStateException("scheduler stopped");
+        });
+
+        listener.onPlayerJoin(new PlayerJoinEvent(joinedPlayer, "join"));
+
+        assertThrows(ExecutionException.class, () -> pendingInitialization.get().get());
+        verify(platformLogger).warn(eq("Failed to schedule Bukkit player join processing."), any(RuntimeException.class));
     }
 }

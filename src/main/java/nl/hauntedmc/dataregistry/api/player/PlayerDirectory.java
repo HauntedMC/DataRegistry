@@ -12,9 +12,11 @@ import java.util.concurrent.CompletableFuture;
  * database id, UUID, or current username. Player creation and username updates
  * remain owned by DataRegistry lifecycle handling.
  * <p>
- * Lookup methods may perform database I/O and should be called from an async
- * context when used on Bukkit/Paper or Velocity event paths. {@link #whenReady(UUID)}
- * is safe to call from event handlers because it only observes active lifecycle state.
+ * Methods whose names start with {@code find} may perform database I/O and should be called from an async
+ * context when used on Bukkit/Paper or Velocity event paths. {@link #whenReady(UUID)} is safe to call from
+ * event handlers because it only observes active lifecycle state. Its completion callback may run on the
+ * thread that finished DataRegistry initialization, so Bukkit/Paper API work must still be scheduled onto
+ * the server thread by the caller.
  */
 public interface PlayerDirectory {
     /**
@@ -57,13 +59,15 @@ public interface PlayerDirectory {
      * <p>
      * The returned future does not perform database work itself. If no lifecycle preparation is
      * pending and no active identity exists, it completes with {@link Optional#empty()}.
+     * Completion callbacks may run on a DataRegistry lifecycle thread.
      */
     CompletableFuture<Optional<PlayerIdentity>> whenReady(UUID uuid);
 
     /**
      * Completes when DataRegistry's platform lifecycle has finished preparing this identity.
      * <p>
-     * Invalid UUID strings complete immediately with {@link Optional#empty()}.
+     * Invalid UUID strings complete immediately with {@link Optional#empty()}. Completion callbacks may
+     * run on a DataRegistry lifecycle thread.
      */
     CompletableFuture<Optional<PlayerIdentity>> whenReady(String uuid);
 }

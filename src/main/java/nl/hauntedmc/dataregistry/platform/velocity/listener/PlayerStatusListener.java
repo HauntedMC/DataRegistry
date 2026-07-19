@@ -8,6 +8,7 @@ import com.velocitypowered.api.proxy.Player;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.backend.service.PlayerActivitySummaryService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerConnectionInfoService;
+import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker.PlayerIdentityInitialization;
 import nl.hauntedmc.dataregistry.backend.service.PlayerNameHistoryService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerPlaytimeService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerService;
@@ -78,11 +79,14 @@ public class PlayerStatusListener {
             return;
         }
 
+        PlayerIdentityInitialization initialization = playerService.beginIdentityInitialization(player.getUniqueId());
         String knownUsername;
         try {
             knownUsername = playerService.findKnownUsername(uuid).orElse(null);
-            playerService.onPlayerJoin(VelocityPlayerAdapter.fromSnapshot(uuid, username));
+            PlayerEntity persistent = playerService.onPlayerJoin(VelocityPlayerAdapter.fromSnapshot(uuid, username));
+            playerService.completeIdentityInitialization(initialization, persistent);
         } catch (RuntimeException exception) {
+            playerService.failIdentityInitialization(initialization, exception);
             logger.error(
                     "Failed to persist player identity on proxy login for uuid=" + safeForLog(uuid),
                     exception

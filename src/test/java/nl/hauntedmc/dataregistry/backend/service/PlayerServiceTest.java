@@ -2,14 +2,16 @@ package nl.hauntedmc.dataregistry.backend.service;
 
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
+import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker;
+import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker.PlayerIdentityInitialization;
 import nl.hauntedmc.dataregistry.backend.repository.PlayerRepository;
-import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityReadiness;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -26,18 +28,18 @@ class PlayerServiceTest {
     @Test
     void constructorRejectsNullDependencies() {
         PlayerRepository repository = mock(PlayerRepository.class);
-        PlayerIdentityReadiness readiness = new PlayerIdentityReadiness();
+        PlayerIdentityInitializationTracker initialization = new PlayerIdentityInitializationTracker();
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
-        assertThrows(NullPointerException.class, () -> new PlayerService(null, readiness, logger));
+        assertThrows(NullPointerException.class, () -> new PlayerService(null, initialization, logger));
         assertThrows(NullPointerException.class, () -> new PlayerService(repository, null, logger));
-        assertThrows(NullPointerException.class, () -> new PlayerService(repository, readiness, null));
+        assertThrows(NullPointerException.class, () -> new PlayerService(repository, initialization, null));
     }
 
     @Test
     void onPlayerJoinDelegatesToRepositoryAndLogs() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
-        PlayerService service = new PlayerService(repository, new PlayerIdentityReadiness(), logger);
+        PlayerService service = new PlayerService(repository, new PlayerIdentityInitializationTracker(), logger);
         PlayerEntity temporary = new PlayerEntity();
         temporary.setUuid("0f4f1f64-dcb1-49a2-bf6d-5ecf6f00d6da");
         temporary.setUsername("Alice\nName");
@@ -59,7 +61,7 @@ class PlayerServiceTest {
     void onPlayerJoinRejectsNullEntity() {
         PlayerService service = new PlayerService(
                 mock(PlayerRepository.class),
-                new PlayerIdentityReadiness(),
+                new PlayerIdentityInitializationTracker(),
                 mock(ILoggerAdapter.class)
         );
         assertThrows(IllegalArgumentException.class, () -> service.onPlayerJoin(null));
@@ -69,7 +71,7 @@ class PlayerServiceTest {
     void onPlayerQuitRemovesFromCacheAndLogs() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
-        PlayerService service = new PlayerService(repository, new PlayerIdentityReadiness(), logger);
+        PlayerService service = new PlayerService(repository, new PlayerIdentityInitializationTracker(), logger);
 
         service.onPlayerQuit("Alice\r", "uuid-123");
 
@@ -81,7 +83,7 @@ class PlayerServiceTest {
     void getActivePlayerDelegatesToRepository() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
-        PlayerService service = new PlayerService(repository, new PlayerIdentityReadiness(), logger);
+        PlayerService service = new PlayerService(repository, new PlayerIdentityInitializationTracker(), logger);
         PlayerEntity player = new PlayerEntity();
         when(repository.getActivePlayer("uuid-123")).thenReturn(Optional.of(player));
 
@@ -95,7 +97,7 @@ class PlayerServiceTest {
     void getActivePlayerReturnsEmptyWhenRepositoryReturnsNullOptional() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
-        PlayerService service = new PlayerService(repository, new PlayerIdentityReadiness(), logger);
+        PlayerService service = new PlayerService(repository, new PlayerIdentityInitializationTracker(), logger);
         when(repository.getActivePlayer("uuid-123")).thenReturn(null);
 
         Optional<PlayerEntity> result = service.getActivePlayer("uuid-123");
@@ -108,7 +110,7 @@ class PlayerServiceTest {
     void findKnownUsernamePrefersActiveCacheThenPersistence() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
-        PlayerService service = new PlayerService(repository, new PlayerIdentityReadiness(), logger);
+        PlayerService service = new PlayerService(repository, new PlayerIdentityInitializationTracker(), logger);
         PlayerEntity activePlayer = new PlayerEntity();
         activePlayer.setUsername("ActiveName");
 
@@ -123,7 +125,7 @@ class PlayerServiceTest {
     void findKnownUsernameFallsBackToPersistentLookup() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
-        PlayerService service = new PlayerService(repository, new PlayerIdentityReadiness(), logger);
+        PlayerService service = new PlayerService(repository, new PlayerIdentityInitializationTracker(), logger);
         PlayerEntity persisted = new PlayerEntity();
         persisted.setUsername("PersistedName");
 
@@ -135,19 +137,37 @@ class PlayerServiceTest {
     }
 
     @Test
-    void completeIdentityReadyPublishesPersistentIdentity() throws Exception {
+    void completeIdentityInitializationPublishesPersistentIdentity() throws Exception {
         PlayerRepository repository = mock(PlayerRepository.class);
-        PlayerIdentityReadiness readiness = new PlayerIdentityReadiness();
-        PlayerService service = new PlayerService(repository, readiness, mock(ILoggerAdapter.class));
+        PlayerIdentityInitializationTracker initialization = new PlayerIdentityInitializationTracker();
+        PlayerService service = new PlayerService(repository, initialization, mock(ILoggerAdapter.class));
         UUID uuid = UUID.randomUUID();
         PlayerEntity player = new PlayerEntity();
         player.setId(7L);
         player.setUuid(uuid.toString());
         player.setUsername("Alice");
-        CompletableFuture<Optional<PlayerIdentity>> future = service.beginIdentityInitialization(uuid);
+        PlayerIdentityInitialization handle = service.beginIdentityInitialization(uuid);
+        CompletableFuture<Optional<PlayerIdentity>> future = handle.future();
 
-        service.completeIdentityReady(player);
+        service.completeIdentityInitialization(handle, player);
 
         assertEquals(Optional.of(7L), future.get().map(identity -> identity.playerId()));
+    }
+
+    @Test
+    void completeIdentityInitializationFailsWhenPersistentIdentityIsInvalid() {
+        PlayerRepository repository = mock(PlayerRepository.class);
+        PlayerIdentityInitializationTracker initialization = new PlayerIdentityInitializationTracker();
+        PlayerService service = new PlayerService(repository, initialization, mock(ILoggerAdapter.class));
+        UUID uuid = UUID.randomUUID();
+        PlayerEntity player = new PlayerEntity();
+        player.setUuid(uuid.toString());
+        player.setUsername("Alice");
+        PlayerIdentityInitialization handle = service.beginIdentityInitialization(uuid);
+        CompletableFuture<Optional<PlayerIdentity>> future = handle.future();
+
+        service.completeIdentityInitialization(handle, player);
+
+        assertThrows(ExecutionException.class, future::get);
     }
 }

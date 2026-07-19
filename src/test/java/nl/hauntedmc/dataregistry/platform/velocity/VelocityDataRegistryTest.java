@@ -13,7 +13,7 @@ import nl.hauntedmc.dataprovider.api.DataProviderApiSupplier;
 import nl.hauntedmc.dataregistry.api.DataRegistry;
 import nl.hauntedmc.dataregistry.backend.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceProbeRepository;
-import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityReadiness;
+import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker;
 import nl.hauntedmc.dataregistry.backend.service.ServiceRegistryService;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import nl.hauntedmc.dataregistry.platform.velocity.listener.PlayerStatusListener;
@@ -194,7 +194,7 @@ class VelocityDataRegistryTest {
         nl.hauntedmc.dataregistry.backend.service.PlayerService playerService =
                 new nl.hauntedmc.dataregistry.backend.service.PlayerService(
                         mock(PlayerRepository.class),
-                        new PlayerIdentityReadiness(),
+                        new PlayerIdentityInitializationTracker(),
                         mock(ILoggerAdapter.class)
                 );
         when(proxyServer.getEventManager()).thenReturn(eventManager);
