@@ -16,6 +16,13 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
 
+    /**
+     * Legacy repository-local identity projection.
+     *
+     * @deprecated use {@link nl.hauntedmc.dataregistry.api.player.PlayerIdentity}
+     * and {@link nl.hauntedmc.dataregistry.api.player.PlayerDirectory} for read-side identity access.
+     */
+    @Deprecated(forRemoval = false)
     public record PlayerIdentity(Long id, String uuid, String username) {
     }
 

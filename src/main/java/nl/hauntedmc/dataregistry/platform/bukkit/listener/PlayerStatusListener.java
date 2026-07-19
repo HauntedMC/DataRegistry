@@ -2,7 +2,10 @@ package nl.hauntedmc.dataregistry.platform.bukkit.listener;
 
 import nl.hauntedmc.dataregistry.platform.bukkit.BukkitDataRegistry;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
+import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
+import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.backend.service.PlayerService;
+import nl.hauntedmc.dataregistry.platform.bukkit.event.PlayerIdentityReadyEvent;
 import nl.hauntedmc.dataregistry.platform.bukkit.util.BukkitPlayerAdapter;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -17,31 +20,44 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+/**
+ * Maintains Bukkit-side active player identities and signals when they are safe to consume.
+ */
 public class PlayerStatusListener implements Listener {
 
     private final PlayerService playerService;
+    private final PlayerDirectory playerDirectory;
     private final BukkitDataRegistry plugin;
     private final long joinDelayTicks;
     private final Supplier<BukkitScheduler> schedulerSupplier;
     private final Function<UUID, Player> onlinePlayerLookup;
     private final ConcurrentMap<String, Long> playerLifecycleGenerations = new ConcurrentHashMap<>();
+    private final AtomicBoolean acceptingEvents = new AtomicBoolean(true);
 
-    public PlayerStatusListener(BukkitDataRegistry plugin, PlayerService playerService, int joinDelayTicks) {
-        this(plugin, playerService, joinDelayTicks, Bukkit::getScheduler, Bukkit::getPlayer);
+    public PlayerStatusListener(
+            BukkitDataRegistry plugin,
+            PlayerService playerService,
+            PlayerDirectory playerDirectory,
+            int joinDelayTicks
+    ) {
+        this(plugin, playerService, playerDirectory, joinDelayTicks, Bukkit::getScheduler, Bukkit::getPlayer);
     }
 
     PlayerStatusListener(
             BukkitDataRegistry plugin,
             PlayerService playerService,
+            PlayerDirectory playerDirectory,
             int joinDelayTicks,
             Supplier<BukkitScheduler> schedulerSupplier,
             Function<UUID, Player> onlinePlayerLookup
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin must not be null");
         this.playerService = Objects.requireNonNull(playerService, "playerService must not be null");
+        this.playerDirectory = Objects.requireNonNull(playerDirectory, "playerDirectory must not be null");
         this.joinDelayTicks = joinDelayTicks;
         this.schedulerSupplier = Objects.requireNonNull(schedulerSupplier, "schedulerSupplier must not be null");
         this.onlinePlayerLookup = Objects.requireNonNull(onlinePlayerLookup, "onlinePlayerLookup must not be null");
@@ -50,13 +66,13 @@ public class PlayerStatusListener implements Listener {
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerJoin(PlayerJoinEvent event) {
         UUID playerId = event.getPlayer().getUniqueId();
+        if (!acceptingEvents.get()) {
+            playerDirectory.completeIdentityUnavailable(playerId);
+            return;
+        }
         long expectedGeneration = markJoinGeneration(playerId.toString());
-        long delay = Math.max(0L, joinDelayTicks);
-        schedulerSupplier.get().runTaskLater(
-                plugin,
-                () -> processJoinIfStillRelevant(playerId, expectedGeneration),
-                delay
-        );
+        playerDirectory.beginIdentityInitialization(playerId);
+        processJoinIfStillRelevant(playerId, event.getPlayer().getName(), expectedGeneration);
     }
 
     @EventHandler(priority = EventPriority.LOWEST)
@@ -64,41 +80,81 @@ public class PlayerStatusListener implements Listener {
         String uuid = event.getPlayer().getUniqueId().toString();
         long expectedQuitGeneration = markQuitGeneration(uuid);
         scheduleLifecycleGenerationCleanup(uuid, expectedQuitGeneration);
+        playerDirectory.completeIdentityUnavailable(event.getPlayer().getUniqueId());
         playerService.onPlayerQuit(
                 event.getPlayer().getName(),
                 uuid
         );
     }
 
-    private void processJoinIfStillRelevant(UUID playerId, long expectedGeneration) {
+    /**
+     * Completes outstanding identity waiters when DataRegistry is disabled.
+     */
+    public void shutdown() {
+        acceptingEvents.set(false);
+        playerLifecycleGenerations.clear();
+        playerDirectory.shutdown();
+    }
+
+    private void processJoinIfStillRelevant(UUID playerId, String usernameSnapshot, long expectedGeneration) {
         String uuid = playerId.toString();
         if (!isGenerationCurrent(uuid, expectedGeneration)) {
+            playerDirectory.completeIdentityUnavailable(playerId);
             return;
         }
 
         Player livePlayer = onlinePlayerLookup.apply(playerId);
         if (livePlayer == null || !livePlayer.isOnline()) {
+            playerDirectory.completeIdentityUnavailable(playerId);
             return;
         }
 
-        String usernameSnapshot = livePlayer.getName();
         schedulerSupplier.get().runTaskAsynchronously(plugin, () -> {
             if (!isGenerationCurrent(uuid, expectedGeneration)) {
                 return;
             }
+            PlayerIdentity identity;
             try {
                 PlayerEntity temp = BukkitPlayerAdapter.fromSnapshot(uuid, usernameSnapshot);
-                playerService.onPlayerJoin(temp);
+                PlayerEntity playerEntity = playerService.onPlayerJoin(temp);
+                identity = new PlayerIdentity(playerEntity.getId(), playerId, playerEntity.getUsername());
             } catch (RuntimeException exception) {
                 plugin.getPlatformLogger().error("Failed to process Bukkit player join event.", exception);
+                if (isGenerationCurrent(uuid, expectedGeneration)) {
+                    playerDirectory.failIdentityInitialization(playerId, exception);
+                }
                 return;
             }
 
             Long currentGeneration = playerLifecycleGenerations.get(uuid);
             if (currentGeneration != null && currentGeneration > expectedGeneration && currentGeneration % 2L == 0L) {
                 playerService.onPlayerQuit(usernameSnapshot, uuid);
+                playerDirectory.completeIdentityUnavailable(playerId);
+                return;
             }
+            if (!isGenerationCurrent(uuid, expectedGeneration)) {
+                return;
+            }
+            playerDirectory.completeIdentityReady(identity);
+            fireIdentityReadyEventIfOnline(playerId, identity, expectedGeneration);
         });
+    }
+
+    private void fireIdentityReadyEventIfOnline(UUID playerId, PlayerIdentity identity, long expectedGeneration) {
+        try {
+            schedulerSupplier.get().runTask(plugin, () -> {
+                Player livePlayer = onlinePlayerLookup.apply(playerId);
+                if (!acceptingEvents.get()
+                        || !isGenerationCurrent(playerId.toString(), expectedGeneration)
+                        || livePlayer == null
+                        || !livePlayer.isOnline()) {
+                    return;
+                }
+                Bukkit.getPluginManager().callEvent(new PlayerIdentityReadyEvent(identity));
+            });
+        } catch (RuntimeException exception) {
+            plugin.getPlatformLogger().warn("Failed to dispatch player identity ready event.", exception);
+        }
     }
 
     private long markJoinGeneration(String uuid) {

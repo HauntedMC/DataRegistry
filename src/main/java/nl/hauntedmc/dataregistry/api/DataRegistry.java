@@ -17,6 +17,7 @@ import nl.hauntedmc.dataregistry.api.entities.PlayerLanguageEntity;
 import nl.hauntedmc.dataregistry.api.entities.NetworkServiceEntity;
 import nl.hauntedmc.dataregistry.api.entities.ServiceInstanceEntity;
 import nl.hauntedmc.dataregistry.api.entities.ServiceProbeEntity;
+import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
 import nl.hauntedmc.dataregistry.api.repository.NetworkServiceRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerActivitySummaryRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerConnectionInfoRepository;
@@ -69,6 +70,7 @@ public class DataRegistry {
     private NetworkServiceRepository networkServiceRepository;
     private ServiceInstanceRepository serviceInstanceRepository;
     private ServiceProbeRepository serviceProbeRepository;
+    private PlayerDirectory playerDirectory;
     private ORMContext ormContext;
     private ORMContext serviceOrmContext;
 
@@ -111,6 +113,7 @@ public class DataRegistry {
             serviceOrmContext = null;
 
             this.playerRepository = newPlayerRepository(ormContext);
+            this.playerDirectory = new PlayerDirectory(playerRepository);
             this.playerActivitySummaryRepository = settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)
                     ? newPlayerActivitySummaryRepository(ormContext)
                     : null;
@@ -167,6 +170,10 @@ public class DataRegistry {
         ormContext = null;
         serviceOrmContext = null;
         playerRepository = null;
+        if (playerDirectory != null) {
+            playerDirectory.shutdown();
+        }
+        playerDirectory = null;
         playerActivitySummaryRepository = null;
         playerOnlineStatusRepository = null;
         playerConnectionInfoRepository = null;
@@ -227,15 +234,31 @@ public class DataRegistry {
     }
 
     /**
-     * Returns the player repository.
+     * Returns the legacy player repository.
+     *
+     * @deprecated use {@link PlayerDirectory} for read-side identity access. Player creation and
+     * username updates are owned by DataRegistry platform lifecycle handling.
      *
      * @throws IllegalStateException when DataRegistry has not been initialized.
      */
+    @Deprecated(forRemoval = false)
     public synchronized PlayerRepository getPlayerRepository() {
         if (playerRepository == null) {
             throw new IllegalStateException("DataRegistry is not initialized.");
         }
         return playerRepository;
+    }
+
+    /**
+     * Returns the read-oriented player identity directory.
+     *
+     * @throws IllegalStateException when DataRegistry has not been initialized.
+     */
+    public synchronized PlayerDirectory getPlayerDirectory() {
+        if (playerDirectory == null) {
+            throw new IllegalStateException("DataRegistry is not initialized.");
+        }
+        return playerDirectory;
     }
 
     public synchronized PlayerActivitySummaryRepository getPlayerActivitySummaryRepository() {
@@ -526,6 +549,7 @@ public class DataRegistry {
         return ormContext != null
                 || serviceOrmContext != null
                 || playerRepository != null
+                || playerDirectory != null
                 || playerActivitySummaryRepository != null
                 || playerOnlineStatusRepository != null
                 || playerConnectionInfoRepository != null
@@ -542,7 +566,7 @@ public class DataRegistry {
     }
 
     private boolean isRuntimeFullyInitialized() {
-        if (ormContext == null || playerRepository == null) {
+        if (ormContext == null || playerRepository == null || playerDirectory == null) {
             return false;
         }
         if (settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)

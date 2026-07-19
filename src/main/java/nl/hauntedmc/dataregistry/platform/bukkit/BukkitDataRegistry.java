@@ -34,6 +34,7 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
     private ServiceRegistryService serviceRegistryService;
     private String localServiceInstanceId;
     private BukkitTask serviceRegistryHeartbeatTask;
+    private PlayerStatusListener playerStatusListener;
 
     @Override
     public void onEnable() {
@@ -66,6 +67,10 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
 
     @Override
     public void onDisable() {
+        if (playerStatusListener != null) {
+            playerStatusListener.shutdown();
+            playerStatusListener = null;
+        }
         stopServiceRegistryLifecycle();
         runtime.stop(getPlatformLogger());
     }
@@ -103,10 +108,13 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
                 dataRegistry.getPlayerRepository(),
                 logInstance
         );
-        getServer().getPluginManager().registerEvents(
-                new PlayerStatusListener(this, playerService, settings.bukkitJoinDelayTicks()),
-                this
+        playerStatusListener = new PlayerStatusListener(
+                this,
+                playerService,
+                dataRegistry.getPlayerDirectory(),
+                settings.bukkitJoinDelayTicks()
         );
+        getServer().getPluginManager().registerEvents(playerStatusListener, this);
     }
 
     void startServiceRegistryLifecycle() {
