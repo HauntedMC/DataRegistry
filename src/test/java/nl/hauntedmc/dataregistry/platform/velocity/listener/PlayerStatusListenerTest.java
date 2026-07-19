@@ -18,9 +18,11 @@ import nl.hauntedmc.dataregistry.api.entities.PlayerPlaytimeSegmentEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerPlaytimeSegmentCloseReason;
 import nl.hauntedmc.dataregistry.api.entities.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerSessionVisitEntity;
+import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
 import nl.hauntedmc.dataregistry.backend.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.backend.config.PlaytimeTrackingSettings;
 import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker;
+import nl.hauntedmc.dataregistry.backend.player.RepositoryPlayerDirectory;
 import nl.hauntedmc.dataregistry.backend.playtime.PlaytimeGamemodeResolver;
 import nl.hauntedmc.dataregistry.backend.service.PlayerActivitySummaryService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerConnectionInfoService;
@@ -45,9 +47,13 @@ import java.util.Deque;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.executeTransactionsWithSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -657,9 +663,9 @@ class PlayerStatusListenerTest {
     }
 
     @Test
-    void onPlayerJoinPersistsIdentityBeforeQueuedFollowUpRuns() {
-        TestContext context = createContext(runnable -> {
-        });
+    void onPlayerJoinQueuesIdentityPersistenceOffEventThread() {
+        Deque<Runnable> queuedTasks = new ArrayDeque<>();
+        TestContext context = createContext(queuedTasks::addLast);
         String uuid = UUID.randomUUID().toString();
         PlayerEntity persistent = persistedPlayer(uuid, "Alice");
         when(context.repository.getOrCreateActivePlayer(uuid, "Alice")).thenReturn(persistent);
@@ -670,7 +676,36 @@ class PlayerStatusListenerTest {
 
         context.listener.onPlayerJoin(new PostLoginEvent(player));
 
+        verify(context.repository, never()).findByUUID(anyString());
+        verify(context.repository, never()).getOrCreateActivePlayer(anyString(), anyString());
+        verify(context.ormContext, never()).runInTransaction(any());
+
+        assertEquals(1, queuedTasks.size());
+        queuedTasks.removeFirst().run();
+
         verify(context.repository).getOrCreateActivePlayer(uuid, "Alice");
+        verify(context.ormContext, times(3)).runInTransaction(any());
+    }
+
+    @Test
+    void onPlayerJoinFailsPendingIdentityWhenExecutorRejectsLoginTask() {
+        String uuid = UUID.randomUUID().toString();
+        AtomicReference<PlayerDirectory> playerDirectoryRef = new AtomicReference<>();
+        AtomicReference<CompletableFuture<?>> pendingInitialization = new AtomicReference<>();
+        TestContext context = createContext(command -> {
+            pendingInitialization.set(playerDirectoryRef.get().whenReady(UUID.fromString(uuid)));
+            throw new RejectedExecutionException("executor stopped");
+        });
+        playerDirectoryRef.set(context.playerDirectory);
+
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
+        when(player.getUsername()).thenReturn("Alice");
+
+        context.listener.onPlayerJoin(new PostLoginEvent(player));
+
+        assertThrows(ExecutionException.class, () -> pendingInitialization.get().get());
+        verify(context.repository, never()).getOrCreateActivePlayer(anyString(), anyString());
         verify(context.ormContext, never()).runInTransaction(any());
     }
 
@@ -775,7 +810,9 @@ class PlayerStatusListenerTest {
         when(playtimeAggregateQuery.setMaxResults(anyInt())).thenReturn(playtimeAggregateQuery);
         when(playtimeAggregateQuery.uniqueResultOptional()).thenReturn(Optional.empty());
 
-        PlayerService playerService = new PlayerService(repository, new PlayerIdentityInitializationTracker(), logger);
+        PlayerIdentityInitializationTracker initializationTracker = new PlayerIdentityInitializationTracker();
+        PlayerDirectory playerDirectory = new RepositoryPlayerDirectory(repository, initializationTracker);
+        PlayerService playerService = new PlayerService(repository, initializationTracker, logger);
         PlayerNameHistoryService nameHistoryService = new PlayerNameHistoryService(registry, logger, 32, true);
         PlayerActivitySummaryService activitySummaryService = new PlayerActivitySummaryService(registry, logger, true);
         PlayerStatusService statusService = new PlayerStatusService(registry, logger, 64);
@@ -816,7 +853,7 @@ class PlayerStatusListenerTest {
                 logger,
                 eventExecutor
         );
-        return new TestContext(listener, repository, ormContext, session);
+        return new TestContext(listener, repository, ormContext, session, playerDirectory);
     }
 
     private static PlayerEntity persistedPlayer(String uuid, String username) {
@@ -831,7 +868,8 @@ class PlayerStatusListenerTest {
             PlayerStatusListener listener,
             PlayerRepository repository,
             ORMContext ormContext,
-            Session session
+            Session session,
+            PlayerDirectory playerDirectory
     ) {
     }
 }

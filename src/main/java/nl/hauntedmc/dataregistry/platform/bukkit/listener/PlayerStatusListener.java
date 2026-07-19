@@ -207,14 +207,23 @@ public class PlayerStatusListener implements Listener {
 
     private void scheduleLifecycleGenerationCleanup(String uuid, long expectedGeneration) {
         long cleanupDelay = Math.max(1L, quitGenerationRetentionTicks + 1L);
-        schedulerSupplier.get().runTaskLater(
-                plugin,
-                () -> playerLifecycleGenerations.compute(
-                        uuid,
-                        (key, currentGeneration) ->
-                                shouldDropLifecycleGeneration(currentGeneration, expectedGeneration) ? null : currentGeneration
-                ),
-                cleanupDelay
+        try {
+            schedulerSupplier.get().runTaskLater(
+                    plugin,
+                    () -> cleanupLifecycleGeneration(uuid, expectedGeneration),
+                    cleanupDelay
+            );
+        } catch (RuntimeException exception) {
+            plugin.getPlatformLogger().warn("Failed to schedule Bukkit player lifecycle cleanup.", exception);
+            cleanupLifecycleGeneration(uuid, expectedGeneration);
+        }
+    }
+
+    private void cleanupLifecycleGeneration(String uuid, long expectedGeneration) {
+        playerLifecycleGenerations.compute(
+                uuid,
+                (key, currentGeneration) ->
+                        shouldDropLifecycleGeneration(currentGeneration, expectedGeneration) ? null : currentGeneration
         );
     }
 

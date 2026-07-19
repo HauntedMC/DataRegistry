@@ -89,6 +89,41 @@ class PlayerStatusListenerTest {
     }
 
     @Test
+    void onPlayerQuitDoesNotFailWhenCleanupSchedulingIsRejected() {
+        PlayerRepository repository = mock(PlayerRepository.class);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        ILoggerAdapter platformLogger = mock(ILoggerAdapter.class);
+        PlayerIdentityInitializationTracker initialization = new PlayerIdentityInitializationTracker();
+        PlayerService playerService = new PlayerService(repository, initialization, logger);
+        BukkitDataRegistry plugin = mock(BukkitDataRegistry.class);
+        BukkitScheduler scheduler = mock(BukkitScheduler.class);
+        PlayerStatusListener listener = new PlayerStatusListener(
+                plugin,
+                playerService,
+                4,
+                () -> scheduler,
+                id -> null
+        );
+        Player player = mock(Player.class);
+        UUID uuid = UUID.randomUUID();
+
+        when(plugin.getPlatformLogger()).thenReturn(platformLogger);
+        when(player.getUniqueId()).thenReturn(uuid);
+        when(player.getName()).thenReturn("Alice");
+        when(scheduler.runTaskLater(eq(plugin), any(Runnable.class), eq(5L))).thenThrow(
+                new IllegalStateException("scheduler stopped")
+        );
+
+        listener.onPlayerQuit(new PlayerQuitEvent(player, "quit"));
+
+        verify(repository).removeActivePlayer(uuid.toString());
+        verify(platformLogger).warn(
+                eq("Failed to schedule Bukkit player lifecycle cleanup."),
+                any(RuntimeException.class)
+        );
+    }
+
+    @Test
     void onPlayerJoinSchedulesAsyncPersistenceWhenPlayerStillOnline() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);

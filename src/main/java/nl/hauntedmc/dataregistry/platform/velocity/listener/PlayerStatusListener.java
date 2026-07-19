@@ -30,7 +30,15 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * Serializes Velocity player lifecycle persistence off the proxy event thread.
+ * <p>
+ * Velocity can emit login, server switch, and disconnect events in quick succession. This listener snapshots the
+ * platform state synchronously, then processes all database-backed lifecycle work through a per-player queue so
+ * dependent feature tables observe identity creation before later lifecycle updates.
+ */
 public class PlayerStatusListener {
 
     private static final int MAX_LOG_VALUE_LENGTH = 256;
@@ -80,26 +88,35 @@ public class PlayerStatusListener {
         }
 
         PlayerIdentityInitialization initialization = playerService.beginIdentityInitialization(player.getUniqueId());
-        String knownUsername;
-        try {
-            knownUsername = playerService.findKnownUsername(uuid).orElse(null);
-            PlayerEntity persistent = playerService.onPlayerJoin(VelocityPlayerAdapter.fromSnapshot(uuid, username));
-            playerService.completeIdentityInitialization(initialization, persistent);
-        } catch (RuntimeException exception) {
-            playerService.failIdentityInitialization(initialization, exception);
-            logger.error(
-                    "Failed to persist player identity on proxy login for uuid=" + safeForLog(uuid),
-                    exception
-            );
+        Optional<CompletableFuture<Void>> queuedLogin = enqueuePlayerEvent(uuid, () -> {
+            String knownUsername = null;
+            PlayerEntity persistent;
+            try {
+                knownUsername = playerService.findKnownUsername(uuid).orElse(null);
+                persistent = playerService.onPlayerJoin(VelocityPlayerAdapter.fromSnapshot(uuid, username));
+                playerService.completeIdentityInitialization(initialization, persistent);
+            } catch (RuntimeException exception) {
+                playerService.failIdentityInitialization(initialization, exception);
+                logger.error(
+                        "Failed to persist player identity on proxy login for uuid=" + safeForLog(uuid),
+                        exception
+                );
+                return;
+            }
+
+            nameHistoryService.recordUsernameChange(persistent, knownUsername, username);
+            activitySummaryService.recordLogin(persistent);
+            connectionService.updateOnLogin(persistent, ip, vhost);
+            sessionService.openSessionOnLogin(persistent, ip, vhost);
+        });
+        if (queuedLogin.isEmpty()) {
+            playerService.completeIdentityInitializationUnavailable(initialization);
             return;
         }
-
-        enqueuePlayerEvent(uuid, () -> {
-            PlayerEntity activePersistent = resolveOrRestorePlayer(uuid, username);
-            nameHistoryService.recordUsernameChange(activePersistent, knownUsername, username);
-            activitySummaryService.recordLogin(activePersistent);
-            connectionService.updateOnLogin(activePersistent, ip, vhost);
-            sessionService.openSessionOnLogin(activePersistent, ip, vhost);
+        queuedLogin.get().whenComplete((ignored, failure) -> {
+            if (failure != null) {
+                playerService.failIdentityInitialization(initialization, failure);
+            }
         });
     }
 
@@ -148,7 +165,10 @@ public class PlayerStatusListener {
         return activeOpt.orElseGet(() -> playerService.onPlayerJoin(VelocityPlayerAdapter.fromSnapshot(uuid, username)));
     }
 
-    private void enqueuePlayerEvent(String uuid, Runnable task) {
+    private Optional<CompletableFuture<Void>> enqueuePlayerEvent(String uuid, Runnable task) {
+        AtomicReference<CompletableFuture<Void>> queuedPipeline = new AtomicReference<>();
+        AtomicReference<String> queuedKey = new AtomicReference<>();
+        AtomicReference<RuntimeException> schedulingFailure = new AtomicReference<>();
         playerEventPipelines.compute(uuid, (key, currentPipeline) -> {
             if (!acceptingEvents.get()) {
                 return currentPipeline;
@@ -156,18 +176,37 @@ public class PlayerStatusListener {
             CompletableFuture<Void> base = currentPipeline == null
                     ? CompletableFuture.completedFuture(null)
                     : currentPipeline.exceptionally(throwable -> null);
-            CompletableFuture<Void> next = base.thenRunAsync(task, eventExecutor);
-            next.whenComplete((ignored, throwable) -> {
+            CompletableFuture<Void> next;
+            try {
+                next = base.thenRunAsync(task, eventExecutor);
+            } catch (RuntimeException exception) {
+                next = new CompletableFuture<>();
+                schedulingFailure.set(exception);
+            }
+            CompletableFuture<Void> scheduledPipeline = next;
+            queuedPipeline.set(scheduledPipeline);
+            queuedKey.set(key);
+            return scheduledPipeline;
+        });
+
+        CompletableFuture<Void> scheduledPipeline = queuedPipeline.get();
+        String key = queuedKey.get();
+        if (scheduledPipeline != null && key != null) {
+            scheduledPipeline.whenComplete((ignored, throwable) -> {
                 if (throwable != null) {
                     logger.error(
                             "Unhandled exception while processing queued lifecycle event for uuid=" + safeForLog(uuid),
                             throwable
                     );
                 }
-                playerEventPipelines.remove(key, next);
+                playerEventPipelines.remove(key, scheduledPipeline);
             });
-            return next;
-        });
+            RuntimeException failure = schedulingFailure.get();
+            if (failure != null) {
+                scheduledPipeline.completeExceptionally(failure);
+            }
+        }
+        return Optional.ofNullable(scheduledPipeline);
     }
 
     public void beginShutdown() {

@@ -168,7 +168,7 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
                                         "ORDER BY p.username ASC",
                                 PlayerEntity.class
                         )
-                        .setParameter("prefix", normalizedPrefix.toLowerCase() + "%")
+                        .setParameter("prefix", normalizedPrefix.toLowerCase(Locale.ROOT) + "%")
                         .setMaxResults(resultLimit)
                         .list()
         );
