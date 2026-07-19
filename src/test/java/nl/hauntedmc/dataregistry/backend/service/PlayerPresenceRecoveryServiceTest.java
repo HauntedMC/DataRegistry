@@ -10,7 +10,6 @@ import nl.hauntedmc.dataregistry.api.entities.PlayerPlaytimeSegmentEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerSessionVisitEntity;
 import nl.hauntedmc.dataregistry.backend.config.DataRegistrySettings;
-import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import org.hibernate.Session;
 import org.hibernate.query.Query;
@@ -125,7 +124,6 @@ class PlayerPresenceRecoveryServiceTest {
         DataRegistry registry = mock(DataRegistry.class);
         PlayerPresenceRecoveryService service = new PlayerPresenceRecoveryService(
                 registry,
-                mock(ILoggerAdapter.class),
                 DataRegistrySettings.builder().enabledFeatures(Set.of()).build()
         );
 
@@ -136,26 +134,24 @@ class PlayerPresenceRecoveryServiceTest {
     }
 
     @Test
-    void databaseFailureIsLoggedAndReturnsEmptyResult() {
+    void databaseFailureFailsStartupRecovery() {
         DataRegistry registry = mock(DataRegistry.class);
         ORMContext ormContext = mock(ORMContext.class);
-        ILoggerAdapter logger = mock(ILoggerAdapter.class);
         PlayerPresenceRecoveryService service = new PlayerPresenceRecoveryService(
                 registry,
-                logger,
                 DataRegistrySettings.defaults()
         );
         RuntimeException failure = new RuntimeException("database unavailable");
         when(registry.getORM()).thenReturn(ormContext);
         doThrow(failure).when(ormContext).runInTransaction(any());
 
-        PlayerPresenceRecoveryResult result = service.recoverAfterUncleanShutdown();
-
-        assertEquals(PlayerPresenceRecoveryResult.empty(), result);
-        verify(logger).error(
-                "Failed to recover stale player presence state during startup.",
-                failure
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                service::recoverAfterUncleanShutdown
         );
+
+        assertEquals("Failed to recover stale player presence state during startup.", exception.getMessage());
+        assertEquals(failure, exception.getCause());
     }
 
     @Test
@@ -178,7 +174,6 @@ class PlayerPresenceRecoveryServiceTest {
         Query<PlayerSessionVisitEntity> visitQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
         Query<PlayerOnlineStatusEntity> statusQuery = mock(Query.class);
-        ILoggerAdapter logger = mock(ILoggerAdapter.class);
 
         when(registry.getORM()).thenReturn(ormContext);
         executeTransactionsWithSession(ormContext, session);
@@ -191,7 +186,7 @@ class PlayerPresenceRecoveryServiceTest {
         when(visitQuery.list()).thenReturn(List.of());
         when(statusQuery.list()).thenReturn(List.of());
 
-        PlayerPresenceRecoveryService service = new PlayerPresenceRecoveryService(registry, logger, settings);
+        PlayerPresenceRecoveryService service = new PlayerPresenceRecoveryService(registry, settings);
         return new TestContext(service, session, segmentQuery, sessionQuery, visitQuery, statusQuery);
     }
 

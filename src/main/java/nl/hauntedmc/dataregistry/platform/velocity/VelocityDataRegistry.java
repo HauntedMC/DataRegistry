@@ -277,7 +277,6 @@ public class VelocityDataRegistry implements PlatformPlugin {
         DataRegistry registry = getDataRegistry();
         PlayerPresenceRecoveryService recoveryService = new PlayerPresenceRecoveryService(
                 registry,
-                getPlatformLogger(),
                 settings
         );
         PlayerPresenceRecoveryResult result = recoveryService.recoverAfterUncleanShutdown();

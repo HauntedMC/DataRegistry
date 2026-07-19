@@ -11,7 +11,6 @@ import nl.hauntedmc.dataregistry.api.entities.PlayerPlaytimeSegmentEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerSessionVisitEntity;
 import nl.hauntedmc.dataregistry.backend.config.DataRegistrySettings;
-import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import org.hibernate.Session;
 
 import java.time.Instant;
@@ -36,16 +35,13 @@ public final class PlayerPresenceRecoveryService {
     private static final Instant UNKNOWN_RECOVERY_TIME = Instant.EPOCH;
 
     private final DataRegistry dataRegistry;
-    private final ILoggerAdapter logger;
     private final DataRegistrySettings settings;
 
     public PlayerPresenceRecoveryService(
             DataRegistry dataRegistry,
-            ILoggerAdapter logger,
             DataRegistrySettings settings
     ) {
         this.dataRegistry = Objects.requireNonNull(dataRegistry, "dataRegistry must not be null");
-        this.logger = Objects.requireNonNull(logger, "logger must not be null");
         this.settings = Objects.requireNonNull(settings, "settings must not be null");
     }
 
@@ -62,8 +58,10 @@ public final class PlayerPresenceRecoveryService {
         try {
             return dataRegistry.getORM().runInTransaction(this::recoverInTransaction);
         } catch (RuntimeException exception) {
-            logger.error("Failed to recover stale player presence state during startup.", exception);
-            return PlayerPresenceRecoveryResult.empty();
+            throw new IllegalStateException(
+                    "Failed to recover stale player presence state during startup.",
+                    exception
+            );
         }
     }
 
