@@ -33,10 +33,12 @@ import nl.hauntedmc.dataregistry.api.repository.PlayerSessionRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerSessionVisitRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceInstanceRepository;
 import nl.hauntedmc.dataregistry.api.repository.ServiceProbeRepository;
+import nl.hauntedmc.dataregistry.api.service.FeatureServiceDirectory;
 import nl.hauntedmc.dataregistry.backend.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker;
 import nl.hauntedmc.dataregistry.backend.player.RepositoryPlayerData;
 import nl.hauntedmc.dataregistry.backend.player.RepositoryPlayerDirectory;
+import nl.hauntedmc.dataregistry.backend.service.DefaultFeatureServiceDirectory;
 import nl.hauntedmc.dataregistry.backend.service.PlayerService;
 import nl.hauntedmc.dataregistry.backend.service.ServiceRegistryService;
 import nl.hauntedmc.dataprovider.logging.LogLevel;
@@ -60,6 +62,7 @@ public class DataRegistry {
     private final DataProviderAPI dataProviderAPI;
     private final DataRegistrySettings settings;
     private final nl.hauntedmc.dataprovider.logging.LoggerAdapter ormLogger;
+    private final FeatureServiceDirectory featureServiceDirectory = new DefaultFeatureServiceDirectory();
 
     private PlayerRepository playerRepository;
     private PlayerActivitySummaryRepository playerActivitySummaryRepository;
@@ -208,6 +211,7 @@ public class DataRegistry {
         networkServiceRepository = null;
         serviceInstanceRepository = null;
         serviceProbeRepository = null;
+        featureServiceDirectory.clear();
 
         if (currentServiceOrmContext != null) {
             try {
@@ -315,6 +319,16 @@ public class DataRegistry {
      */
     public ServiceRegistryService newServiceRegistryService() {
         return new ServiceRegistryService(this, logger, settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
+    }
+
+    /**
+     * Returns the typed process-local catalog of APIs exported by enabled feature plugins.
+     * <p>
+     * DataRegistry only owns discovery and cleanup. The registered service implementations and their feature-owned
+     * tables remain owned by the exporting feature plugin.
+     */
+    public FeatureServiceDirectory featureServices() {
+        return featureServiceDirectory;
     }
 
     /**

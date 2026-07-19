@@ -68,6 +68,20 @@ class DataRegistryTest {
     }
 
     @Test
+    void shutdownClearsFeatureServiceDirectory() {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+        DataRegistry registry = new DataRegistry(logger, "DataRegistry", api);
+        Runnable service = () -> { };
+
+        registry.featureServices().register("ProxyFeatures", "Example", Runnable.class, service);
+
+        registry.shutdown();
+
+        assertTrue(registry.featureServices().find(Runnable.class).isEmpty());
+    }
+
+    @Test
     void initializeCreatesOrmContextAndRepositoryWhenProviderIsReady() {
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
         DataProviderAPI api = mock(DataProviderAPI.class);

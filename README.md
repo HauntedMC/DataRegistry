@@ -4,8 +4,8 @@ DataRegistry is HauntedMC's shared read/write boundary for canonical player iden
 player metadata on Velocity and Paper.
 
 It owns player creation, username updates, active identity state, connection metadata, language and nickname
-preferences, playtime summaries, name history, and service-registry state. Feature plugins own their own tables
-and should reference players by the stable scalar `playerId`.
+preferences, playtime summaries, and name history. Feature plugins own their own tables and should reference
+players by the stable scalar `playerId`.
 
 ## Runtime
 
@@ -108,11 +108,47 @@ required.
 Downstream plugins must not create, update, or merge canonical player rows. They may write only through the
 narrow DataRegistry methods for DataRegistry-owned preferences such as language and nickname.
 
+### Feature Services
+
+DataRegistry also exposes a process-local service catalog for feature-owned APIs. This lets enabled features share
+their own data and behavior without moving their tables into DataRegistry or forcing consumers to query another
+feature's ORM entities.
+
+Feature plugins should publish narrow interfaces from their own lifecycle code:
+
+```java
+FeatureServiceHandle handle = dataRegistry.featureServices().register(
+        "ServerFeatures",
+        "Vanish",
+        VanishAPI.class,
+        vanishService
+);
+```
+
+Consumers should resolve feature services by interface:
+
+```java
+dataRegistry.featureServices()
+        .find(VanishAPI.class)
+        .ifPresent(vanish -> vanish.isVanished(playerId));
+```
+
+Use `find` for optional integrations and `require` only when a feature cannot run without the dependency. Close the
+returned `FeatureServiceHandle` during feature disable, or use the ServerFeatures/ProxyFeatures lifecycle API
+manager, which publishes and unregisters services automatically.
+
+The catalog is intentionally runtime-only. It does not provide cross-server RPC, cache persistence, or schema
+ownership. Exported interfaces should be stable, small, and expressed in scalar IDs or immutable value objects where
+possible.
+
 ## Data Ownership
 
 Keep feature-owned data such as vanish, glow, nametags, friends, sanctions, client info, 2FA, voting, messaging,
 and logs in the owning feature plugin. Do not move those records into DataRegistry. Prefer scalar `player_id`
 references for new feature-owned tables and keep feature queries in the owning feature.
+
+Feature-owned services are the supported sharing boundary for that data. For example, a messaging feature may ask
+the Vanish feature whether a `playerId` is hidden, but it should not read or join the vanish table directly.
 
 ## Build
 
