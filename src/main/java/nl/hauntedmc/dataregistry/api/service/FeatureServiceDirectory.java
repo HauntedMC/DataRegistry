@@ -22,7 +22,7 @@ public interface FeatureServiceDirectory {
      * @param apiType interface or API class exposed to consumers.
      * @param service implementation instance owned by the feature.
      * @param <T> API type.
-     * @return handle that unregisters this exact service instance when closed.
+     * @return handle that unregisters this exact registration when closed.
      * @throws IllegalStateException when another owner already registered the same API type.
      */
     <T> FeatureServiceHandle register(String ownerPlugin, String ownerFeature, Class<T> apiType, T service);
@@ -61,7 +61,7 @@ public interface FeatureServiceDirectory {
     List<FeatureServiceInfo> list();
 
     /**
-     * Unregisters an exact service instance.
+     * Unregisters the current registration when it matches the supplied service instance.
      *
      * @return true when the registration was removed.
      */

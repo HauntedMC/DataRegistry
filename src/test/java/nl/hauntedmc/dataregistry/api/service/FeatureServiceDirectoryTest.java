@@ -69,6 +69,24 @@ class FeatureServiceDirectoryTest {
     }
 
     @Test
+    void oldHandleDoesNotRemoveNewRegistrationForSameServiceInstance() {
+        FeatureServiceDirectory directory = new DefaultFeatureServiceDirectory();
+        GreetingService service = () -> "hello";
+
+        FeatureServiceHandle firstHandle = directory.register(
+                "ProxyFeatures",
+                "Greeting",
+                GreetingService.class,
+                service
+        );
+        directory.register("ProxyFeatures", "Greeting", GreetingService.class, service);
+
+        firstHandle.close();
+
+        assertSame(service, directory.find(GreetingService.class).orElseThrow());
+    }
+
+    @Test
     void unregisterOwnerRemovesOnlyMatchingOwner() {
         FeatureServiceDirectory directory = new DefaultFeatureServiceDirectory();
         GreetingService greeting = () -> "hello";

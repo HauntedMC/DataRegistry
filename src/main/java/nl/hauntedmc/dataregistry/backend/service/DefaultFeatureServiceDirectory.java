@@ -42,7 +42,7 @@ public final class DefaultFeatureServiceDirectory implements FeatureServiceDirec
             }
             return registration;
         });
-        return new Handle(apiType, service, info);
+        return new Handle(apiType, registration);
     }
 
     @Override
@@ -110,10 +110,21 @@ public final class DefaultFeatureServiceDirectory implements FeatureServiceDirec
         services.clear();
     }
 
-    private record Registration<T>(FeatureServiceInfo info, T service) {
-        private Registration {
-            Objects.requireNonNull(info, "info must not be null");
-            Objects.requireNonNull(service, "service must not be null");
+    private static final class Registration<T> {
+        private final FeatureServiceInfo info;
+        private final T service;
+
+        private Registration(FeatureServiceInfo info, T service) {
+            this.info = Objects.requireNonNull(info, "info must not be null");
+            this.service = Objects.requireNonNull(service, "service must not be null");
+        }
+
+        private FeatureServiceInfo info() {
+            return info;
+        }
+
+        private T service() {
+            return service;
         }
     }
 
@@ -131,26 +142,28 @@ public final class DefaultFeatureServiceDirectory implements FeatureServiceDirec
                 && first.ownerFeature().equals(second.ownerFeature());
     }
 
+    private boolean unregisterRegistration(Class<?> apiType, Registration<?> registration) {
+        return services.remove(apiType, registration);
+    }
+
     private final class Handle implements FeatureServiceHandle {
 
         private final Class<?> apiType;
-        private final Object service;
-        private final FeatureServiceInfo info;
+        private final Registration<?> registration;
 
-        private Handle(Class<?> apiType, Object service, FeatureServiceInfo info) {
+        private Handle(Class<?> apiType, Registration<?> registration) {
             this.apiType = apiType;
-            this.service = service;
-            this.info = info;
+            this.registration = registration;
         }
 
         @Override
         public FeatureServiceInfo info() {
-            return info;
+            return registration.info();
         }
 
         @Override
         public void close() {
-            unregister(apiType, service);
+            unregisterRegistration(apiType, registration);
         }
     }
 }

@@ -1,7 +1,7 @@
 package nl.hauntedmc.dataregistry.api.service;
 
 /**
- * Handle for a feature service registration.
+ * Handle for one feature service registration.
  */
 public interface FeatureServiceHandle extends AutoCloseable {
 
@@ -11,7 +11,7 @@ public interface FeatureServiceHandle extends AutoCloseable {
     FeatureServiceInfo info();
 
     /**
-     * Unregisters this exact service instance.
+     * Unregisters this exact registration when it is still current.
      */
     @Override
     void close();
