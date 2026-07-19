@@ -14,6 +14,7 @@ import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.api.player.PlayerLanguageSettings;
 import nl.hauntedmc.dataregistry.api.player.PlayerNameHistoryEntry;
 import nl.hauntedmc.dataregistry.api.player.PlayerOnlineSnapshot;
+import nl.hauntedmc.dataregistry.api.player.PlayerProfile;
 import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeLeaderboardEntry;
 import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeSnapshot;
 import nl.hauntedmc.dataregistry.api.repository.PlayerActivitySummaryRepository;
@@ -90,6 +91,11 @@ public final class RepositoryPlayerData implements PlayerData {
     }
 
     @Override
+    public Optional<PlayerIdentity> findIdentity(long playerId) {
+        return playerDirectory.findByPlayerId(playerId);
+    }
+
+    @Override
     public Optional<PlayerIdentity> findIdentity(String uuid) {
         return playerDirectory.findByUuid(uuid);
     }
@@ -97,6 +103,16 @@ public final class RepositoryPlayerData implements PlayerData {
     @Override
     public Optional<PlayerIdentity> findIdentityByUsername(String username) {
         return playerDirectory.findByUsernameIgnoreCase(username);
+    }
+
+    @Override
+    public Optional<PlayerIdentity> findIdentityByIdentifier(String identifier) {
+        return playerDirectory.findByIdentifier(identifier);
+    }
+
+    @Override
+    public List<PlayerIdentity> findIdentitiesByUsernamePrefix(String prefix, int limit) {
+        return playerDirectory.findByUsernamePrefix(prefix, limit);
     }
 
     @Override
@@ -111,6 +127,11 @@ public final class RepositoryPlayerData implements PlayerData {
         return playerDirectory.getActiveIdentity(uuid)
                 .or(() -> playerDirectory.findByUuid(uuid))
                 .map(PlayerIdentity::playerId);
+    }
+
+    @Override
+    public Optional<Long> findPlayerIdByIdentifier(String identifier) {
+        return findIdentityByIdentifier(identifier).map(PlayerIdentity::playerId);
     }
 
     @Override
@@ -235,6 +256,30 @@ public final class RepositoryPlayerData implements PlayerData {
     }
 
     @Override
+    public List<PlayerIdentity> findIdentitiesSharingLastIp(long playerId) {
+        if (playerId <= 0L || connectionInfoRepository == null) {
+            return List.of();
+        }
+        return findConnection(playerId)
+                .map(PlayerConnectionSnapshot::ipAddress)
+                .filter(ipAddress -> !ipAddress.isBlank())
+                .map(ipAddress -> findIdentitiesByLastIpAddress(ipAddress, playerId))
+                .orElseGet(List::of);
+    }
+
+    @Override
+    public List<String> findUsernamesSharingLastIp(long playerId) {
+        if (playerId <= 0L || connectionInfoRepository == null) {
+            return List.of();
+        }
+        return findConnection(playerId)
+                .map(PlayerConnectionSnapshot::ipAddress)
+                .filter(ipAddress -> !ipAddress.isBlank())
+                .map(ipAddress -> findUsernamesByLastIpAddress(ipAddress, playerId))
+                .orElseGet(List::of);
+    }
+
+    @Override
     public List<PlayerNameHistoryEntry> findNameHistory(long playerId, int limit) {
         if (playerId <= 0L || nameHistoryRepository == null) {
             return List.of();
@@ -348,6 +393,51 @@ public final class RepositoryPlayerData implements PlayerData {
             return List.of();
         }
         return playtimeRepository.findTrackedGamemodeKeys();
+    }
+
+    @Override
+    public Optional<PlayerProfile> findProfile(PlayerIdentity identity, int nameHistoryLimit) {
+        if (identity == null) {
+            return Optional.empty();
+        }
+        return Optional.of(profileFor(identity, nameHistoryLimit));
+    }
+
+    @Override
+    public Optional<PlayerProfile> findProfile(long playerId, int nameHistoryLimit) {
+        if (playerId <= 0L) {
+            return Optional.empty();
+        }
+        return findIdentity(playerId).map(identity -> profileFor(identity, nameHistoryLimit));
+    }
+
+    @Override
+    public Optional<PlayerProfile> findProfile(UUID uuid, int nameHistoryLimit) {
+        return findIdentity(uuid).map(identity -> profileFor(identity, nameHistoryLimit));
+    }
+
+    @Override
+    public Optional<PlayerProfile> findProfileByUsername(String username, int nameHistoryLimit) {
+        return findIdentityByUsername(username).map(identity -> profileFor(identity, nameHistoryLimit));
+    }
+
+    @Override
+    public Optional<PlayerProfile> findProfileByIdentifier(String identifier, int nameHistoryLimit) {
+        return findIdentityByIdentifier(identifier).map(identity -> profileFor(identity, nameHistoryLimit));
+    }
+
+    private PlayerProfile profileFor(PlayerIdentity identity, int nameHistoryLimit) {
+        long playerId = identity.playerId();
+        return new PlayerProfile(
+                identity,
+                findLanguage(playerId),
+                findNickname(playerId),
+                findConnection(playerId),
+                findOnlineStatus(playerId),
+                findActivity(playerId),
+                findPlaytime(playerId),
+                findNameHistory(playerId, Math.max(1, nameHistoryLimit))
+        );
     }
 
     private static PlayerLanguageSettings toLanguageSettings(PlayerLanguageEntity entity) {

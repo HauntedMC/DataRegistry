@@ -5,6 +5,7 @@ import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker;
 import nl.hauntedmc.dataregistry.backend.repository.PlayerRepository;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -60,6 +61,11 @@ public final class RepositoryPlayerDirectory implements PlayerDirectory {
     }
 
     @Override
+    public Optional<PlayerIdentity> findByPlayerId(long playerId) {
+        return playerRepository.findIdentityById(playerId);
+    }
+
+    @Override
     public Optional<PlayerIdentity> findByUuid(String uuid) {
         String normalizedUuid = normalizeUuid(uuid);
         if (normalizedUuid == null) {
@@ -76,6 +82,24 @@ public final class RepositoryPlayerDirectory implements PlayerDirectory {
     @Override
     public Optional<PlayerIdentity> findByUsernameIgnoreCase(String username) {
         return playerRepository.findIdentityByUsernameIgnoreCase(username);
+    }
+
+    @Override
+    public Optional<PlayerIdentity> findByIdentifier(String identifier) {
+        if (identifier == null || identifier.isBlank()) {
+            return Optional.empty();
+        }
+        String value = identifier.trim();
+        String normalizedUuid = normalizeUuid(value);
+        if (normalizedUuid != null) {
+            return findByUuid(normalizedUuid);
+        }
+        return findByUsernameIgnoreCase(value);
+    }
+
+    @Override
+    public List<PlayerIdentity> findByUsernamePrefix(String prefix, int limit) {
+        return playerRepository.findIdentitiesByUsernamePrefix(prefix, limit);
     }
 
     @Override

@@ -1,5 +1,6 @@
 package nl.hauntedmc.dataregistry.api.player;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -35,6 +36,11 @@ public interface PlayerDirectory {
     Optional<PlayerIdentity> findByUuid(UUID uuid);
 
     /**
+     * Looks up a persisted identity by stable DataRegistry player id.
+     */
+    Optional<PlayerIdentity> findByPlayerId(long playerId);
+
+    /**
      * Looks up a persisted identity by UUID string without creating or updating a player row.
      */
     Optional<PlayerIdentity> findByUuid(String uuid);
@@ -48,6 +54,16 @@ public interface PlayerDirectory {
      * Looks up a persisted identity by case-insensitive username without creating or updating a player row.
      */
     Optional<PlayerIdentity> findByUsernameIgnoreCase(String username);
+
+    /**
+     * Looks up a persisted identity by UUID string or case-insensitive username.
+     */
+    Optional<PlayerIdentity> findByIdentifier(String identifier);
+
+    /**
+     * Finds persisted identities whose current username starts with {@code prefix}, case-insensitively.
+     */
+    List<PlayerIdentity> findByUsernamePrefix(String prefix, int limit);
 
     /**
      * Returns active identity snapshots keyed by normalized UUID string.

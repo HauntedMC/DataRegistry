@@ -44,6 +44,11 @@ public interface PlayerData {
     Optional<PlayerIdentity> findIdentity(UUID uuid);
 
     /**
+     * Looks up a persisted identity by stable DataRegistry player id.
+     */
+    Optional<PlayerIdentity> findIdentity(long playerId);
+
+    /**
      * Looks up a persisted identity by UUID string without creating or updating a player row.
      */
     Optional<PlayerIdentity> findIdentity(String uuid);
@@ -54,6 +59,16 @@ public interface PlayerData {
     Optional<PlayerIdentity> findIdentityByUsername(String username);
 
     /**
+     * Looks up a persisted identity by UUID string or case-insensitive username.
+     */
+    Optional<PlayerIdentity> findIdentityByIdentifier(String identifier);
+
+    /**
+     * Finds persisted identities whose current username starts with {@code prefix}, case-insensitively.
+     */
+    List<PlayerIdentity> findIdentitiesByUsernamePrefix(String prefix, int limit);
+
+    /**
      * Returns a stable player id by UUID when the canonical row already exists.
      */
     Optional<Long> findPlayerId(UUID uuid);
@@ -62,6 +77,11 @@ public interface PlayerData {
      * Returns a stable player id by UUID string when the canonical row already exists.
      */
     Optional<Long> findPlayerId(String uuid);
+
+    /**
+     * Returns a stable player id by UUID string or case-insensitive username when the row already exists.
+     */
+    Optional<Long> findPlayerIdByIdentifier(String identifier);
 
     /**
      * Completes when the platform lifecycle has finished preparing the active identity.
@@ -153,6 +173,16 @@ public interface PlayerData {
     List<String> findUsernamesByLastIpAddress(String ipAddress, Long excludePlayerId);
 
     /**
+     * Returns identities whose latest stored IP address matches the latest IP of {@code playerId}.
+     */
+    List<PlayerIdentity> findIdentitiesSharingLastIp(long playerId);
+
+    /**
+     * Returns usernames whose latest stored IP address matches the latest IP of {@code playerId}.
+     */
+    List<String> findUsernamesSharingLastIp(long playerId);
+
+    /**
      * Returns chronological username history rows for a player.
      */
     List<PlayerNameHistoryEntry> findNameHistory(long playerId, int limit);
@@ -216,4 +246,29 @@ public interface PlayerData {
      * Returns all gamemode keys with tracked playtime.
      */
     List<String> findTrackedGamemodeKeys();
+
+    /**
+     * Returns an aggregate snapshot of DataRegistry-owned data for an already resolved identity.
+     */
+    Optional<PlayerProfile> findProfile(PlayerIdentity identity, int nameHistoryLimit);
+
+    /**
+     * Resolves a player id and returns an aggregate snapshot of DataRegistry-owned data.
+     */
+    Optional<PlayerProfile> findProfile(long playerId, int nameHistoryLimit);
+
+    /**
+     * Resolves a UUID and returns an aggregate snapshot of DataRegistry-owned data.
+     */
+    Optional<PlayerProfile> findProfile(UUID uuid, int nameHistoryLimit);
+
+    /**
+     * Resolves a current username and returns an aggregate snapshot of DataRegistry-owned data.
+     */
+    Optional<PlayerProfile> findProfileByUsername(String username, int nameHistoryLimit);
+
+    /**
+     * Resolves a UUID string or current username and returns an aggregate snapshot of DataRegistry-owned data.
+     */
+    Optional<PlayerProfile> findProfileByIdentifier(String identifier, int nameHistoryLimit);
 }

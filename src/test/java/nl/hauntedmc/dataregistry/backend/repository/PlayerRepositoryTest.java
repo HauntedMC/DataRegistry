@@ -149,6 +149,7 @@ class PlayerRepositoryTest {
         Query<PlayerEntity> prefixQuery = mock(Query.class);
         PlayerRepository repository = new PlayerRepository(ormContext);
         PlayerEntity player = new PlayerEntity();
+        player.setId(15L);
         player.setUuid(UUID.randomUUID().toString());
         player.setUsername("Alice");
 
@@ -180,6 +181,35 @@ class PlayerRepositoryTest {
         assertEquals(Optional.of(player), repository.findByUsername("  Alice "));
         assertEquals(Optional.of(player), repository.findByUsernameIgnoreCase("  aLiCe "));
         assertEquals(List.of(player), repository.findByUsernamePrefix("Ali", 0));
+        assertEquals(
+                List.of(new nl.hauntedmc.dataregistry.api.player.PlayerIdentity(
+                        15L,
+                        UUID.fromString(player.getUuid()),
+                        "Alice"
+                )),
+                repository.findIdentitiesByUsernamePrefix("Ali", 1)
+        );
+    }
+
+    @Test
+    void findIdentityByIdReturnsImmutableSnapshot() {
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        PlayerRepository repository = new PlayerRepository(ormContext);
+        PlayerEntity player = new PlayerEntity();
+        UUID uuid = UUID.randomUUID();
+        player.setId(15L);
+        player.setUuid(uuid.toString());
+        player.setUsername("Alice");
+
+        executeTransactionsWithSession(ormContext, session);
+        when(session.find(PlayerEntity.class, 15L)).thenReturn(player);
+
+        assertEquals(
+                Optional.of(new nl.hauntedmc.dataregistry.api.player.PlayerIdentity(15L, uuid, "Alice")),
+                repository.findIdentityById(15L)
+        );
+        assertEquals(Optional.empty(), repository.findIdentityById(0L));
     }
 
     @Test

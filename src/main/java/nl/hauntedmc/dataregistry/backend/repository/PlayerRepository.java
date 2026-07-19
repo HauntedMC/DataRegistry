@@ -58,6 +58,15 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
         return findIdentityByUUID(uuid).map(PlayerIdentity::playerId);
     }
 
+    public Optional<PlayerIdentity> findIdentityById(long playerId) {
+        if (playerId <= 0L) {
+            return Optional.empty();
+        }
+        return ormContext.runInTransaction(session -> Optional.ofNullable(
+                session.find(PlayerEntity.class, playerId)
+        ).map(PlayerRepository::toIdentity));
+    }
+
     public Optional<PlayerEntity> findByUsername(String username) {
         String normalizedUsername = normalizeUsername(username);
         if (normalizedUsername == null) {
@@ -163,6 +172,16 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
                         .setMaxResults(resultLimit)
                         .list()
         );
+    }
+
+    /**
+     * Performs a prefix search on usernames and returns immutable identity snapshots.
+     */
+    public List<PlayerIdentity> findIdentitiesByUsernamePrefix(String prefix, int limit) {
+        return findByUsernamePrefix(prefix, limit)
+                .stream()
+                .map(PlayerRepository::toIdentity)
+                .toList();
     }
 
     /**

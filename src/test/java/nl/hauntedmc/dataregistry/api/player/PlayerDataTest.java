@@ -5,6 +5,7 @@ import nl.hauntedmc.dataregistry.api.entities.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerLanguageEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerNameHistoryEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerOnlineStatusEntity;
 import nl.hauntedmc.dataregistry.api.repository.PlayerActivitySummaryRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerConnectionInfoRepository;
 import nl.hauntedmc.dataregistry.api.repository.PlayerLanguageRepository;
@@ -161,6 +162,74 @@ class PlayerDataTest {
                 List.of(new PlayerNameHistoryEntry(9L, 7L, "Alpha", now)),
                 playerData.findNameHistoryByCurrentUsername("Alice", 3)
         );
+    }
+
+    @Test
+    void identifierPrefixSharedIpAndProfileHelpersUseFacadeRepositories() {
+        UUID uuid = UUID.randomUUID();
+        Instant now = Instant.parse("2026-07-19T10:15:30Z");
+        PlayerDirectory directory = mock(PlayerDirectory.class);
+        PlayerLanguageRepository languageRepository = mock(PlayerLanguageRepository.class);
+        PlayerNicknameRepository nicknameRepository = mock(PlayerNicknameRepository.class);
+        PlayerConnectionInfoRepository connectionRepository = mock(PlayerConnectionInfoRepository.class);
+        PlayerOnlineStatusRepository onlineRepository = mock(PlayerOnlineStatusRepository.class);
+        PlayerNameHistoryRepository nameHistoryRepository = mock(PlayerNameHistoryRepository.class);
+        PlayerIdentity identity = new PlayerIdentity(7L, uuid, "Alice");
+        PlayerLanguageEntity language = new PlayerLanguageEntity();
+        PlayerConnectionInfoEntity connection = new PlayerConnectionInfoEntity();
+        PlayerOnlineStatusEntity online = new PlayerOnlineStatusEntity();
+        PlayerEntity player = new PlayerEntity();
+        PlayerNameHistoryEntity history = new PlayerNameHistoryEntity();
+
+        language.setPlayerId(7L);
+        language.setLanguage("AUTO");
+        language.setEffectiveLanguage("EN");
+        connection.setPlayerId(7L);
+        connection.setIpAddress("1.2.3.4");
+        connection.setLastConnectionAt(now);
+        online.setPlayerId(7L);
+        online.setOnline(true);
+        online.setCurrentServer("hub");
+        player.setId(7L);
+        player.setUuid(uuid.toString());
+        player.setUsername("Alice");
+        history.setId(9L);
+        history.setPlayer(player);
+        history.setUsername("Alpha");
+        history.setLastSeenAt(now);
+
+        when(directory.findByIdentifier("Alice")).thenReturn(Optional.of(identity));
+        when(directory.findByUsernamePrefix("Al", 5)).thenReturn(List.of(identity));
+        when(directory.findByPlayerId(7L)).thenReturn(Optional.of(identity));
+        when(languageRepository.findByPlayerId(7L)).thenReturn(Optional.of(language));
+        when(nicknameRepository.findNicknameByPlayerId(7L)).thenReturn(Optional.of("Ghost"));
+        when(connectionRepository.findByPlayerId(7L)).thenReturn(Optional.of(connection));
+        when(connectionRepository.findUsernamesByLastIpAddress("1.2.3.4", 7L)).thenReturn(List.of("Bob"));
+        when(onlineRepository.findByPlayerId(7L)).thenReturn(Optional.of(online));
+        when(nameHistoryRepository.findChronologicalByPlayer(7L, 2)).thenReturn(List.of(history));
+
+        PlayerData playerData = playerData(
+                directory,
+                null,
+                onlineRepository,
+                connectionRepository,
+                languageRepository,
+                nicknameRepository,
+                nameHistoryRepository,
+                null
+        );
+
+        assertEquals(Optional.of(identity), playerData.findIdentityByIdentifier("Alice"));
+        assertEquals(Optional.of(7L), playerData.findPlayerIdByIdentifier("Alice"));
+        assertEquals(List.of(identity), playerData.findIdentitiesByUsernamePrefix("Al", 5));
+        assertEquals(List.of("Bob"), playerData.findUsernamesSharingLastIp(7L));
+
+        PlayerProfile profile = playerData.findProfile(7L, 2).orElseThrow();
+        assertEquals(identity, profile.identity());
+        assertEquals("Ghost", profile.nickname().orElseThrow());
+        assertTrue(profile.isOnline());
+        assertEquals(Optional.of("hub"), profile.currentServer());
+        assertEquals(List.of(new PlayerNameHistoryEntry(9L, 7L, "Alpha", now)), profile.nameHistory());
     }
 
     private static PlayerData playerData(

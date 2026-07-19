@@ -10,6 +10,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -127,5 +128,34 @@ class PlayerDirectoryTest {
         PlayerDirectory directory = new RepositoryPlayerDirectory(repository, new PlayerIdentityInitializationTracker());
 
         assertEquals(Optional.empty(), directory.findByUuid("not-a-uuid"));
+    }
+
+    @Test
+    void findByIdentifierResolvesUuidOrUsername() {
+        PlayerRepository repository = mock(PlayerRepository.class);
+        PlayerDirectory directory = new RepositoryPlayerDirectory(repository, new PlayerIdentityInitializationTracker());
+        UUID uuid = UUID.randomUUID();
+        PlayerIdentity identity = new PlayerIdentity(20L, uuid, "Alice");
+        PlayerIdentity namedIdentity = new PlayerIdentity(21L, UUID.randomUUID(), "Bob");
+
+        when(repository.findIdentityByUUID(uuid.toString())).thenReturn(Optional.of(identity));
+        when(repository.findIdentityByUsernameIgnoreCase("Bob")).thenReturn(Optional.of(namedIdentity));
+
+        assertEquals(Optional.of(identity), directory.findByIdentifier(uuid.toString()));
+        assertEquals(Optional.of(namedIdentity), directory.findByIdentifier(" Bob "));
+        assertEquals(Optional.empty(), directory.findByIdentifier(" "));
+    }
+
+    @Test
+    void findByPlayerIdAndUsernamePrefixDelegateToRepository() {
+        PlayerRepository repository = mock(PlayerRepository.class);
+        PlayerDirectory directory = new RepositoryPlayerDirectory(repository, new PlayerIdentityInitializationTracker());
+        PlayerIdentity identity = new PlayerIdentity(20L, UUID.randomUUID(), "Alice");
+
+        when(repository.findIdentityById(20L)).thenReturn(Optional.of(identity));
+        when(repository.findIdentitiesByUsernamePrefix("Al", 5)).thenReturn(List.of(identity));
+
+        assertEquals(Optional.of(identity), directory.findByPlayerId(20L));
+        assertEquals(List.of(identity), directory.findByUsernamePrefix("Al", 5));
     }
 }
