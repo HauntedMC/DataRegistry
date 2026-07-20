@@ -65,13 +65,16 @@ class PlayerLifecycleWriterTest {
         when(playerRepository.getOrCreatePlayer(session, uuid, "Alice")).thenReturn(player);
 
         AtomicInteger attempts = new AtomicInteger();
+        PersistenceException constraintFailure =
+                new PersistenceException("duplicate key", new SQLException("duplicate key", "23505"));
+        RuntimeException transactionFailure = new RuntimeException("Transaction failed", constraintFailure);
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             ORMContext.TransactionCallback<Object> callback =
                     (ORMContext.TransactionCallback<Object>) invocation.getArgument(0);
             Object result = callback.execute(session);
             if (attempts.getAndIncrement() == 0) {
-                throw new PersistenceException("duplicate key", new SQLException("duplicate key", "23505"));
+                throw transactionFailure;
             }
             return result;
         }).when(ormContext).runInTransaction(any());
@@ -137,6 +140,6 @@ class PlayerLifecycleWriterTest {
         assertEquals(UUID.fromString(uuid), identity.uuid());
         assertEquals("Alice", identity.username());
         verify(ormContext, times(2)).runInTransaction(any());
-        verify(logger).warn(anyString(), any(PersistenceException.class));
+        verify(logger).warn(anyString(), any(RuntimeException.class));
     }
 }

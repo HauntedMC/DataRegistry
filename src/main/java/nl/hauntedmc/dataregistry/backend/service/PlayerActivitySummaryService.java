@@ -149,6 +149,7 @@ public final class PlayerActivitySummaryService {
             summary = new PlayerActivitySummaryEntity();
             summary.setPlayer(managed);
             summary.setFirstSeenAt(now);
+            summary.setLastSeenAt(now);
             session.persist(summary);
         } else if (summary.getFirstSeenAt() == null) {
             summary.setFirstSeenAt(now);
