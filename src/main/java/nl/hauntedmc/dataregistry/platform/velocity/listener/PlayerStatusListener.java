@@ -6,16 +6,20 @@ import com.velocitypowered.api.event.connection.PostLoginEvent;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.proxy.Player;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
+import nl.hauntedmc.dataregistry.backend.lifecycle.DisconnectCommand;
+import nl.hauntedmc.dataregistry.backend.lifecycle.LoginCommand;
+import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker.PlayerIdentityInitialization;
+import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerLifecycleWriteResult;
+import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerLifecycleWriter;
+import nl.hauntedmc.dataregistry.backend.lifecycle.TransferCommand;
 import nl.hauntedmc.dataregistry.backend.service.PlayerActivitySummaryService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerConnectionInfoService;
-import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker.PlayerIdentityInitialization;
 import nl.hauntedmc.dataregistry.backend.service.PlayerNameHistoryService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerPlaytimeService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerSessionService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerStatusService;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
-import nl.hauntedmc.dataregistry.platform.velocity.util.VelocityPlayerAdapter;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -45,32 +49,52 @@ public class PlayerStatusListener {
     public static final short PLAYER_LIFECYCLE_EVENT_PRIORITY = 1000;
 
     private final PlayerService playerService;
-    private final PlayerNameHistoryService nameHistoryService;
-    private final PlayerActivitySummaryService activitySummaryService;
-    private final PlayerStatusService statusService;
-    private final PlayerConnectionInfoService connectionService;
-    private final PlayerSessionService sessionService;
+    private final PlayerLifecycleWriter lifecycleWriter;
     private final PlayerPlaytimeService playtimeService;
     private final ILoggerAdapter logger;
     private final Executor eventExecutor;
     private final ConcurrentMap<String, CompletableFuture<Void>> playerEventPipelines = new ConcurrentHashMap<>();
     private final AtomicBoolean acceptingEvents = new AtomicBoolean(true);
 
-    public PlayerStatusListener(PlayerService playerService,
-                                PlayerNameHistoryService nameHistoryService,
-                                PlayerActivitySummaryService activitySummaryService,
-                                PlayerStatusService statusService,
-                                PlayerConnectionInfoService connectionService,
-                                PlayerSessionService sessionService,
-                                PlayerPlaytimeService playtimeService,
-                                ILoggerAdapter logger,
-                                Executor eventExecutor) {
+    public PlayerStatusListener(
+            PlayerService playerService,
+            PlayerNameHistoryService nameHistoryService,
+            PlayerActivitySummaryService activitySummaryService,
+            PlayerStatusService statusService,
+            PlayerConnectionInfoService connectionService,
+            PlayerSessionService sessionService,
+            PlayerPlaytimeService playtimeService,
+            ILoggerAdapter logger,
+            Executor eventExecutor
+    ) {
+        this(
+                playerService,
+                new PlayerLifecycleWriter(
+                        Objects.requireNonNull(sessionService, "sessionService must not be null").dataRegistry(),
+                        playerService,
+                        nameHistoryService,
+                        activitySummaryService,
+                        statusService,
+                        connectionService,
+                        sessionService,
+                        playtimeService,
+                        logger
+                ),
+                playtimeService,
+                logger,
+                eventExecutor
+        );
+    }
+
+    public PlayerStatusListener(
+            PlayerService playerService,
+            PlayerLifecycleWriter lifecycleWriter,
+            PlayerPlaytimeService playtimeService,
+            ILoggerAdapter logger,
+            Executor eventExecutor
+    ) {
         this.playerService = Objects.requireNonNull(playerService, "playerService must not be null");
-        this.nameHistoryService = Objects.requireNonNull(nameHistoryService, "nameHistoryService must not be null");
-        this.activitySummaryService = Objects.requireNonNull(activitySummaryService, "activitySummaryService must not be null");
-        this.statusService = Objects.requireNonNull(statusService, "statusService must not be null");
-        this.connectionService = Objects.requireNonNull(connectionService, "connectionService must not be null");
-        this.sessionService = Objects.requireNonNull(sessionService, "sessionService must not be null");
+        this.lifecycleWriter = Objects.requireNonNull(lifecycleWriter, "lifecycleWriter must not be null");
         this.playtimeService = Objects.requireNonNull(playtimeService, "playtimeService must not be null");
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
         this.eventExecutor = Objects.requireNonNull(eventExecutor, "eventExecutor must not be null");
@@ -89,25 +113,18 @@ public class PlayerStatusListener {
 
         PlayerIdentityInitialization initialization = playerService.beginIdentityInitialization(player.getUniqueId());
         Optional<CompletableFuture<Void>> queuedLogin = enqueuePlayerEvent(uuid, () -> {
-            String knownUsername = null;
-            PlayerEntity persistent;
-            try {
-                knownUsername = playerService.findKnownUsername(uuid).orElse(null);
-                persistent = playerService.onPlayerJoin(VelocityPlayerAdapter.fromSnapshot(uuid, username));
-                playerService.completeIdentityInitialization(initialization, persistent);
-            } catch (RuntimeException exception) {
-                playerService.failIdentityInitialization(initialization, exception);
-                logger.error(
-                        "Failed to persist player identity on proxy login for uuid=" + safeForLog(uuid),
-                        exception
-                );
+            PlayerLifecycleWriteResult result = lifecycleWriter.login(LoginCommand.create(uuid, username, ip, vhost));
+            if (!result.succeeded()) {
+                playerService.failIdentityInitialization(initialization, result.failure());
                 return;
             }
-
-            nameHistoryService.recordUsernameChange(persistent, knownUsername, username);
-            activitySummaryService.recordLogin(persistent);
-            connectionService.updateOnLogin(persistent, ip, vhost);
-            sessionService.openSessionOnLogin(persistent, ip, vhost);
+            result.identityOptional().ifPresentOrElse(
+                    identity -> playerService.completeIdentityInitialization(initialization, identity),
+                    () -> playerService.failIdentityInitialization(
+                            initialization,
+                            new IllegalStateException("Lifecycle login completed without an identity.")
+                    )
+            );
         });
         if (queuedLogin.isEmpty()) {
             playerService.completeIdentityInitializationUnavailable(initialization);
@@ -128,11 +145,7 @@ public class PlayerStatusListener {
         String serverName = event.getServer().getServerInfo().getName();
 
         enqueuePlayerEvent(uuid, () -> {
-            PlayerEntity persistent = resolveOrRestorePlayer(uuid, username);
-            activitySummaryService.recordSeen(persistent);
-            statusService.updateStatus(persistent, serverName);
-            sessionService.updateServerOnSwitch(persistent, serverName);
-            playtimeService.onServerSwitch(persistent, serverName);
+            lifecycleWriter.transfer(TransferCommand.create(uuid, username, serverName));
         });
     }
 
@@ -148,17 +161,11 @@ public class PlayerStatusListener {
 
         enqueuePlayerEvent(uuid, () -> {
             try {
-                PlayerEntity persistent = resolveOrRestorePlayer(uuid, username);
-                persistDisconnect(persistent);
+                lifecycleWriter.disconnect(DisconnectCommand.create(uuid, username));
             } finally {
                 playerService.onPlayerQuit(username, uuid);
             }
         });
-    }
-
-    private PlayerEntity resolveOrRestorePlayer(String uuid, String username) {
-        Optional<PlayerEntity> activeOpt = playerService.getActivePlayer(uuid);
-        return activeOpt.orElseGet(() -> playerService.onPlayerJoin(VelocityPlayerAdapter.fromSnapshot(uuid, username)));
     }
 
     private Optional<CompletableFuture<Void>> enqueuePlayerEvent(String uuid, Runnable task) {
@@ -213,14 +220,6 @@ public class PlayerStatusListener {
         return Optional.ofNullable(scheduledPipeline);
     }
 
-    private void persistDisconnect(PlayerEntity persistent) {
-        statusService.updateStatusOnQuit(persistent);
-        activitySummaryService.recordDisconnect(persistent);
-        connectionService.updateOnDisconnect(persistent);
-        playtimeService.closeActivePlaytimeOnDisconnect(persistent);
-        sessionService.closeSessionOnDisconnect(persistent);
-    }
-
     public void beginShutdown() {
         acceptingEvents.set(false);
     }
@@ -250,7 +249,7 @@ public class PlayerStatusListener {
             String uuid = player.getUuid() == null ? entry.getKey() : player.getUuid();
             enqueuePlayerEvent(uuid, () -> {
                 try {
-                    persistDisconnect(player);
+                    lifecycleWriter.disconnect(DisconnectCommand.create(uuid, player.getUsername()));
                 } finally {
                     playerService.onPlayerQuit(player.getUsername(), uuid);
                 }

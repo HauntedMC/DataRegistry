@@ -238,12 +238,12 @@ class PlayerStatusListenerTest {
     }
 
     @Test
-    void onPlayerJoinPersistsPlayerAndRunsConnectionAndSessionTransactions() throws Exception {
+    void onPlayerJoinPersistsPlayerAndRunsConnectionAndSessionInOneTransaction() throws Exception {
         TestContext context = createContext();
         String uuid = UUID.randomUUID().toString();
         PlayerEntity persistent = persistedPlayer(uuid, "Alice");
         when(context.repository.getActivePlayer(uuid)).thenReturn(Optional.empty(), Optional.of(persistent));
-        when(context.repository.getOrCreateActivePlayer(uuid, "Alice")).thenReturn(persistent);
+        when(context.repository.getOrCreatePlayer(eq(context.session), eq(uuid), eq("Alice"))).thenReturn(persistent);
 
         Player player = mock(Player.class);
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
@@ -255,8 +255,8 @@ class PlayerStatusListenerTest {
 
         context.listener.onPlayerJoin(new PostLoginEvent(player));
 
-        verify(context.repository).getOrCreateActivePlayer(uuid, "Alice");
-        verify(context.ormContext, times(3)).runInTransaction(any());
+        verify(context.repository).getOrCreatePlayer(context.session, uuid, "Alice");
+        verify(context.ormContext).runInTransaction(any());
     }
 
     @Test
@@ -266,8 +266,8 @@ class PlayerStatusListenerTest {
         PlayerEntity previous = persistedPlayer(uuid, "OldName");
         PlayerEntity persistent = persistedPlayer(uuid, "Alice");
         when(context.repository.getActivePlayer(uuid)).thenReturn(Optional.empty(), Optional.of(persistent));
-        when(context.repository.findByUUID(uuid)).thenReturn(Optional.of(previous));
-        when(context.repository.getOrCreateActivePlayer(uuid, "Alice")).thenReturn(persistent);
+        when(context.repository.findKnownUsername(context.session, uuid)).thenReturn(Optional.of(previous.getUsername()));
+        when(context.repository.getOrCreatePlayer(eq(context.session), eq(uuid), eq("Alice"))).thenReturn(persistent);
 
         Player player = mock(Player.class);
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
@@ -279,7 +279,7 @@ class PlayerStatusListenerTest {
 
         context.listener.onPlayerJoin(new PostLoginEvent(player));
 
-        verify(context.ormContext, times(4)).runInTransaction(any());
+        verify(context.ormContext).runInTransaction(any());
     }
 
     @Test
@@ -299,7 +299,7 @@ class PlayerStatusListenerTest {
 
         context.listener.onServerSwitch(new ServerConnectedEvent(player, server, null));
 
-        verify(context.ormContext, times(4)).runInTransaction(any());
+        verify(context.ormContext).runInTransaction(any());
     }
 
     @Test
@@ -308,7 +308,7 @@ class PlayerStatusListenerTest {
         String uuid = UUID.randomUUID().toString();
         PlayerEntity persistent = persistedPlayer(uuid, "Alice");
         when(context.repository.getActivePlayer(uuid)).thenReturn(Optional.empty());
-        when(context.repository.getOrCreateActivePlayer(uuid, "Alice")).thenReturn(persistent);
+        when(context.repository.getOrCreatePlayer(eq(context.session), eq(uuid), eq("Alice"))).thenReturn(persistent);
         reset(context.ormContext);
         executeTransactionsWithSession(context.ormContext, context.session);
 
@@ -320,8 +320,8 @@ class PlayerStatusListenerTest {
 
         context.listener.onServerSwitch(new ServerConnectedEvent(player, server, null));
 
-        verify(context.repository).getOrCreateActivePlayer(uuid, "Alice");
-        verify(context.ormContext, times(4)).runInTransaction(any());
+        verify(context.repository).getOrCreatePlayer(context.session, uuid, "Alice");
+        verify(context.ormContext).runInTransaction(any());
     }
 
     @Test
@@ -331,6 +331,8 @@ class PlayerStatusListenerTest {
         DataRegistry registry = mock(DataRegistry.class);
         ORMContext ormContext = mock(ORMContext.class);
         Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<Long> outboxQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
         Query<PlayerSessionEntity> sessionUpdateQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
@@ -346,6 +348,10 @@ class PlayerStatusListenerTest {
         when(session.merge(any(PlayerEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(session.find(eq(PlayerOnlineStatusEntity.class), any())).thenReturn(null);
         when(session.find(eq(PlayerActivitySummaryEntity.class), any())).thenReturn(null);
+        when(session.createQuery(anyString(), eq(Long.class))).thenReturn(outboxQuery);
+        when(outboxQuery.setParameter(anyString(), any())).thenReturn(outboxQuery);
+        when(outboxQuery.setMaxResults(anyInt())).thenReturn(outboxQuery);
+        when(outboxQuery.uniqueResultOptional()).thenReturn(Optional.empty());
         when(session.createQuery(
                 "SELECT s FROM PlayerSessionEntity s " +
                         "WHERE s.player.id = :playerId AND s.endedAt IS NULL " +
@@ -389,6 +395,10 @@ class PlayerStatusListenerTest {
         when(playtimeAggregateQuery.uniqueResultOptional()).thenReturn(Optional.empty());
 
         PlayerService playerService = new PlayerService(repository, new PlayerIdentityInitializationTracker(), logger);
+        when(repository.findKnownUsername(eq(session), anyString())).thenReturn(Optional.empty());
+        when(repository.getOrCreatePlayer(eq(session), anyString(), anyString())).thenAnswer(invocation ->
+                persistedPlayer(invocation.getArgument(1), invocation.getArgument(2))
+        );
         PlayerNameHistoryService nameHistoryService = new PlayerNameHistoryService(registry, logger, 32, true);
         PlayerActivitySummaryService activitySummaryService = new PlayerActivitySummaryService(registry, logger, true);
         PlayerStatusService statusService = new PlayerStatusService(registry, logger, 64);
@@ -447,7 +457,7 @@ class PlayerStatusListenerTest {
 
         context.listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN));
 
-        verify(context.ormContext, times(5)).runInTransaction(any());
+        verify(context.ormContext).runInTransaction(any());
         verify(context.repository).removeActivePlayer(uuid);
     }
 
@@ -457,7 +467,7 @@ class PlayerStatusListenerTest {
         String uuid = UUID.randomUUID().toString();
         PlayerEntity persistent = persistedPlayer(uuid, "Alice");
         when(context.repository.getActivePlayer(uuid)).thenReturn(Optional.empty());
-        when(context.repository.getOrCreateActivePlayer(uuid, "Alice")).thenReturn(persistent);
+        when(context.repository.getOrCreatePlayer(eq(context.session), eq(uuid), eq("Alice"))).thenReturn(persistent);
         reset(context.ormContext);
         executeTransactionsWithSession(context.ormContext, context.session);
 
@@ -467,8 +477,8 @@ class PlayerStatusListenerTest {
 
         context.listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN));
 
-        verify(context.repository).getOrCreateActivePlayer(uuid, "Alice");
-        verify(context.ormContext, times(5)).runInTransaction(any());
+        verify(context.repository).getOrCreatePlayer(context.session, uuid, "Alice");
+        verify(context.ormContext).runInTransaction(any());
         verify(context.repository).removeActivePlayer(uuid);
     }
 
@@ -479,6 +489,8 @@ class PlayerStatusListenerTest {
         DataRegistry registry = mock(DataRegistry.class);
         ORMContext ormContext = mock(ORMContext.class);
         Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<Long> outboxQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
         Query<PlayerPlaytimeSegmentEntity> playtimeSegmentQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
@@ -492,6 +504,10 @@ class PlayerStatusListenerTest {
         when(registry.getORM()).thenReturn(ormContext);
         executeTransactionsWithSession(ormContext, session);
         when(session.merge(any(PlayerEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(session.createQuery(anyString(), eq(Long.class))).thenReturn(outboxQuery);
+        when(outboxQuery.setParameter(anyString(), any())).thenReturn(outboxQuery);
+        when(outboxQuery.setMaxResults(anyInt())).thenReturn(outboxQuery);
+        when(outboxQuery.uniqueResultOptional()).thenReturn(Optional.empty());
         PlayerOnlineStatusEntity onlineStatus = new PlayerOnlineStatusEntity();
         onlineStatus.setCurrentServer("lobby-1");
         when(session.find(eq(PlayerOnlineStatusEntity.class), any())).thenReturn(onlineStatus);
@@ -558,6 +574,8 @@ class PlayerStatusListenerTest {
         when(playtimeAggregateQuery.uniqueResultOptional()).thenReturn(Optional.of(aggregate));
 
         PlayerService playerService = new PlayerService(repository, new PlayerIdentityInitializationTracker(), logger);
+        when(repository.findKnownUsername(eq(session), anyString())).thenReturn(Optional.empty());
+        when(repository.getOrCreatePlayer(eq(session), anyString(), anyString())).thenReturn(persistent);
         PlayerNameHistoryService nameHistoryService = new PlayerNameHistoryService(registry, logger, 32, true);
         PlayerActivitySummaryService activitySummaryService = new PlayerActivitySummaryService(registry, logger, true);
         PlayerStatusService statusService = new PlayerStatusService(registry, logger, 64);
@@ -625,7 +643,7 @@ class PlayerStatusListenerTest {
         context.listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.CANCELLED_BY_PROXY));
 
         verify(context.ormContext, never()).runInTransaction(any());
-        verify(context.repository, never()).getOrCreateActivePlayer(anyString(), anyString());
+        verify(context.repository, never()).getOrCreatePlayer(any(), anyString(), anyString());
         verify(context.repository).removeActivePlayer(uuid);
     }
 
@@ -641,7 +659,7 @@ class PlayerStatusListenerTest {
 
         context.listener.onPlayerJoin(new PostLoginEvent(player));
 
-        verify(context.repository, never()).getOrCreateActivePlayer(anyString(), anyString());
+        verify(context.repository, never()).getOrCreatePlayer(any(), anyString(), anyString());
         verify(context.ormContext, never()).runInTransaction(any());
         assertTrue(context.listener.awaitPipelineDrain(1L, TimeUnit.MILLISECONDS));
     }
@@ -668,7 +686,7 @@ class PlayerStatusListenerTest {
         TestContext context = createContext(queuedTasks::addLast);
         String uuid = UUID.randomUUID().toString();
         PlayerEntity persistent = persistedPlayer(uuid, "Alice");
-        when(context.repository.getOrCreateActivePlayer(uuid, "Alice")).thenReturn(persistent);
+        when(context.repository.getOrCreatePlayer(eq(context.session), eq(uuid), eq("Alice"))).thenReturn(persistent);
 
         Player player = mock(Player.class);
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
@@ -677,14 +695,14 @@ class PlayerStatusListenerTest {
         context.listener.onPlayerJoin(new PostLoginEvent(player));
 
         verify(context.repository, never()).findByUUID(anyString());
-        verify(context.repository, never()).getOrCreateActivePlayer(anyString(), anyString());
+        verify(context.repository, never()).getOrCreatePlayer(any(), anyString(), anyString());
         verify(context.ormContext, never()).runInTransaction(any());
 
         assertEquals(1, queuedTasks.size());
         queuedTasks.removeFirst().run();
 
-        verify(context.repository).getOrCreateActivePlayer(uuid, "Alice");
-        verify(context.ormContext, times(3)).runInTransaction(any());
+        verify(context.repository).getOrCreatePlayer(context.session, uuid, "Alice");
+        verify(context.ormContext).runInTransaction(any());
     }
 
     @Test
@@ -705,7 +723,7 @@ class PlayerStatusListenerTest {
         context.listener.onPlayerJoin(new PostLoginEvent(player));
 
         assertThrows(ExecutionException.class, () -> pendingInitialization.get().get());
-        verify(context.repository, never()).getOrCreateActivePlayer(anyString(), anyString());
+        verify(context.repository, never()).getOrCreatePlayer(any(), anyString(), anyString());
         verify(context.ormContext, never()).runInTransaction(any());
     }
 
@@ -719,10 +737,12 @@ class PlayerStatusListenerTest {
         when(context.repository.getActivePlayer(uuid)).thenAnswer(invocation ->
                 Optional.ofNullable(activePlayers.get(uuid))
         );
-        when(context.repository.getOrCreateActivePlayer(uuid, "Alice")).thenAnswer(invocation -> {
-            activePlayers.put(uuid, persistent);
-            return persistent;
-        });
+        when(context.repository.getOrCreatePlayer(eq(context.session), eq(uuid), eq("Alice"))).thenReturn(persistent);
+        doAnswer(invocation -> {
+            PlayerEntity player = invocation.getArgument(0);
+            activePlayers.put(player.getUuid(), player);
+            return null;
+        }).when(context.repository).cacheActivePlayer(any(PlayerEntity.class));
         doAnswer(invocation -> {
             activePlayers.remove(uuid);
             return null;
@@ -742,7 +762,7 @@ class PlayerStatusListenerTest {
         assertEquals(1, queuedTasks.size());
         queuedTasks.removeFirst().run();
         assertEquals(persistent, activePlayers.get(uuid));
-        verify(context.repository, times(2)).getOrCreateActivePlayer(uuid, "Alice");
+        verify(context.repository, times(2)).getOrCreatePlayer(context.session, uuid, "Alice");
     }
 
     @Test
@@ -754,7 +774,7 @@ class PlayerStatusListenerTest {
         context.listener.beginShutdown();
         context.listener.closeActivePresenceForShutdown();
 
-        verify(context.ormContext, times(5)).runInTransaction(any());
+        verify(context.ormContext).runInTransaction(any());
         verify(context.repository).removeActivePlayer(uuid);
     }
 
@@ -781,6 +801,8 @@ class PlayerStatusListenerTest {
         Session session = mock(Session.class);
         MutationQuery mutationQuery = mock(MutationQuery.class);
         @SuppressWarnings("unchecked")
+        Query<Long> outboxQuery = mock(Query.class);
+        @SuppressWarnings("unchecked")
         Query<PlayerSessionEntity> sessionQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
         Query<PlayerSessionVisitEntity> sessionVisitQuery = mock(Query.class);
@@ -799,6 +821,10 @@ class PlayerStatusListenerTest {
         when(session.find(eq(PlayerActivitySummaryEntity.class), any())).thenReturn(null);
         when(session.find(eq(PlayerOnlineStatusEntity.class), any())).thenReturn(null);
         when(session.find(eq(PlayerConnectionInfoEntity.class), any())).thenReturn(null);
+        when(session.createQuery(anyString(), eq(Long.class))).thenReturn(outboxQuery);
+        when(outboxQuery.setParameter(anyString(), any())).thenReturn(outboxQuery);
+        when(outboxQuery.setMaxResults(anyInt())).thenReturn(outboxQuery);
+        when(outboxQuery.uniqueResultOptional()).thenReturn(Optional.empty());
         when(session.createMutationQuery(anyString())).thenReturn(mutationQuery);
         when(mutationQuery.setParameter(anyString(), any())).thenReturn(mutationQuery);
         when(mutationQuery.executeUpdate()).thenReturn(0);
@@ -826,6 +852,10 @@ class PlayerStatusListenerTest {
         PlayerIdentityInitializationTracker initializationTracker = new PlayerIdentityInitializationTracker();
         PlayerDirectory playerDirectory = new RepositoryPlayerDirectory(repository, initializationTracker);
         PlayerService playerService = new PlayerService(repository, initializationTracker, logger);
+        when(repository.findKnownUsername(eq(session), anyString())).thenReturn(Optional.empty());
+        when(repository.getOrCreatePlayer(eq(session), anyString(), anyString())).thenAnswer(invocation ->
+                persistedPlayer(invocation.getArgument(1), invocation.getArgument(2))
+        );
         PlayerNameHistoryService nameHistoryService = new PlayerNameHistoryService(registry, logger, 32, true);
         PlayerActivitySummaryService activitySummaryService = new PlayerActivitySummaryService(registry, logger, true);
         PlayerStatusService statusService = new PlayerStatusService(registry, logger, 64);

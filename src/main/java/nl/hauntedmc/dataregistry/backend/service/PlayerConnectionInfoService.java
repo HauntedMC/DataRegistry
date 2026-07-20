@@ -4,6 +4,7 @@ import nl.hauntedmc.dataregistry.api.DataRegistry;
 import nl.hauntedmc.dataregistry.api.entities.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
+import org.hibernate.Session;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -86,25 +87,7 @@ public final class PlayerConnectionInfoService {
 
         try {
             dataRegistry.getORM().runInTransaction(session -> {
-                PlayerEntity managed = session.merge(playerEntity);
-                PlayerConnectionInfoEntity info = session.find(PlayerConnectionInfoEntity.class, managed.getId());
-                if (info == null) {
-                    info = new PlayerConnectionInfoEntity();
-                    info.setPlayer(managed);
-                    info.setFirstConnectionAt(now);
-                    info.setLastConnectionAt(now);
-                    info.setIpAddress(sanitizedIp);
-                    info.setVirtualHost(sanitizedVirtualHost);
-                    session.persist(info);
-                    return null;
-                }
-
-                if (info.getFirstConnectionAt() == null) {
-                    info.setFirstConnectionAt(now);
-                }
-                info.setLastConnectionAt(now);
-                info.setIpAddress(sanitizedIp);
-                info.setVirtualHost(sanitizedVirtualHost);
+                updateOnLogin(session, playerEntity, sanitizedIp, sanitizedVirtualHost, now);
                 return null;
             });
         } catch (RuntimeException exception) {
@@ -128,29 +111,84 @@ public final class PlayerConnectionInfoService {
         final Instant now = Instant.now();
         try {
             dataRegistry.getORM().runInTransaction(session -> {
-                PlayerEntity managed = session.merge(playerEntity);
-                PlayerConnectionInfoEntity info = session.find(PlayerConnectionInfoEntity.class, managed.getId());
-                if (info == null) {
-                    info = new PlayerConnectionInfoEntity();
-                    info.setPlayer(managed);
-                    info.setLastDisconnectAt(now);
-                    session.persist(info);
-                    return null;
-                }
-
-                info.setLastDisconnectAt(now);
-                if (!persistIpAddress) {
-                    info.setIpAddress(null);
-                }
-                if (!persistVirtualHost) {
-                    info.setVirtualHost(null);
-                }
+                updateOnDisconnect(session, playerEntity, now);
                 return null;
             });
         } catch (RuntimeException exception) {
             logger.error("Failed to update disconnect info for uuid=" +
                     Sanitization.safeForLog(playerEntity.getUuid()), exception);
         }
+    }
+
+    /**
+     * Updates connection metadata for a login in the supplied transaction.
+     *
+     * @param sanitizedIp          already-normalized IP address, or {@code null}.
+     * @param sanitizedVirtualHost already-normalized virtual host, or {@code null}.
+     */
+    public void updateOnLogin(
+            Session session,
+            PlayerEntity playerEntity,
+            String sanitizedIp,
+            String sanitizedVirtualHost,
+            Instant now
+    ) {
+        if (!featureEnabled) {
+            return;
+        }
+        PlayerConnectionInfoEntity info = findOrCreateConnectionInfo(session, playerEntity);
+        if (info.getFirstConnectionAt() == null) {
+            info.setFirstConnectionAt(now);
+        }
+        info.setLastConnectionAt(now);
+        info.setIpAddress(sanitizedIp);
+        info.setVirtualHost(sanitizedVirtualHost);
+    }
+
+    /**
+     * Updates disconnect metadata in the supplied transaction.
+     */
+    public void updateOnDisconnect(Session session, PlayerEntity playerEntity, Instant now) {
+        if (!featureEnabled) {
+            return;
+        }
+        PlayerConnectionInfoEntity info = findOrCreateConnectionInfo(session, playerEntity);
+        info.setLastDisconnectAt(now);
+        if (!persistIpAddress) {
+            info.setIpAddress(null);
+        }
+        if (!persistVirtualHost) {
+            info.setVirtualHost(null);
+        }
+    }
+
+    /**
+     * Normalizes an IP value using this service's retention settings.
+     */
+    public String sanitizeIpAddress(String ipAddress) {
+        return persistIpAddress ? Sanitization.trimToLengthOrNull(ipAddress, ipAddressMaxLength) : null;
+    }
+
+    /**
+     * Normalizes a virtual-host value using this service's retention settings.
+     */
+    public String sanitizeVirtualHost(String virtualHost) {
+        return persistVirtualHost ? Sanitization.trimToLengthOrNull(virtualHost, virtualHostMaxLength) : null;
+    }
+
+    private static PlayerConnectionInfoEntity findOrCreateConnectionInfo(Session session, PlayerEntity playerEntity) {
+        Objects.requireNonNull(session, "session must not be null");
+        if (!isPersistedPlayer(playerEntity)) {
+            throw new IllegalArgumentException("playerEntity must be a persisted player.");
+        }
+        PlayerEntity managed = session.merge(playerEntity);
+        PlayerConnectionInfoEntity info = session.find(PlayerConnectionInfoEntity.class, managed.getId());
+        if (info == null) {
+            info = new PlayerConnectionInfoEntity();
+            info.setPlayer(managed);
+            session.persist(info);
+        }
+        return info;
     }
 
     private static boolean isPersistedPlayer(PlayerEntity playerEntity) {

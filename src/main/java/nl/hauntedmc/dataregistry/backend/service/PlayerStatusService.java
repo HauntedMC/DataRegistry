@@ -4,6 +4,7 @@ import nl.hauntedmc.dataregistry.api.DataRegistry;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerOnlineStatusEntity;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
+import org.hibernate.Session;
 
 import java.util.Objects;
 
@@ -54,20 +55,7 @@ public final class PlayerStatusService {
 
         try {
             dataRegistry.getORM().runInTransaction(session -> {
-                PlayerEntity managed = session.merge(playerEntity);
-                PlayerOnlineStatusEntity status = session.find(PlayerOnlineStatusEntity.class, managed.getId());
-                if (status == null) {
-                    status = new PlayerOnlineStatusEntity();
-                    status.setPlayer(managed);
-                    status.setOnline(true);
-                    status.setCurrentServer(sanitizedServer);
-                    session.persist(status);
-                    return null;
-                }
-
-                status.setOnline(true);
-                status.setPreviousServer(status.getCurrentServer());
-                status.setCurrentServer(sanitizedServer);
+                updateStatus(session, playerEntity, sanitizedServer);
                 return null;
             });
         } catch (RuntimeException exception) {
@@ -90,20 +78,64 @@ public final class PlayerStatusService {
 
         try {
             dataRegistry.getORM().runInTransaction(session -> {
-                PlayerEntity managed = session.merge(playerEntity);
-                PlayerOnlineStatusEntity status = session.find(PlayerOnlineStatusEntity.class, managed.getId());
-                if (status == null) {
-                    return null;
-                }
-                status.setOnline(false);
-                status.setPreviousServer(status.getCurrentServer());
-                status.setCurrentServer("");
+                updateStatusOnQuit(session, playerEntity);
                 return null;
             });
         } catch (RuntimeException exception) {
             logger.error("Failed to update player quit status for uuid=" +
                     Sanitization.safeForLog(playerEntity.getUuid()), exception);
         }
+    }
+
+    /**
+     * Upserts online status in the supplied transaction.
+     */
+    public void updateStatus(Session session, PlayerEntity playerEntity, String currentServer) {
+        if (!featureEnabled) {
+            return;
+        }
+        Objects.requireNonNull(session, "session must not be null");
+        if (!isPersistedPlayer(playerEntity)) {
+            throw new IllegalArgumentException("playerEntity must be a persisted player.");
+        }
+        final String sanitizedServer = Sanitization.emptyIfNull(
+                Sanitization.trimToLengthOrNull(currentServer, serverNameMaxLength)
+        );
+        PlayerEntity managed = session.merge(playerEntity);
+        PlayerOnlineStatusEntity status = session.find(PlayerOnlineStatusEntity.class, managed.getId());
+        if (status == null) {
+            status = new PlayerOnlineStatusEntity();
+            status.setPlayer(managed);
+            status.setOnline(true);
+            status.setCurrentServer(sanitizedServer);
+            session.persist(status);
+            return;
+        }
+
+        status.setOnline(true);
+        status.setPreviousServer(status.getCurrentServer());
+        status.setCurrentServer(sanitizedServer);
+    }
+
+    /**
+     * Marks a player offline in the supplied transaction.
+     */
+    public void updateStatusOnQuit(Session session, PlayerEntity playerEntity) {
+        if (!featureEnabled) {
+            return;
+        }
+        Objects.requireNonNull(session, "session must not be null");
+        if (!isPersistedPlayer(playerEntity)) {
+            throw new IllegalArgumentException("playerEntity must be a persisted player.");
+        }
+        PlayerEntity managed = session.merge(playerEntity);
+        PlayerOnlineStatusEntity status = session.find(PlayerOnlineStatusEntity.class, managed.getId());
+        if (status == null) {
+            return;
+        }
+        status.setOnline(false);
+        status.setPreviousServer(status.getCurrentServer());
+        status.setCurrentServer("");
     }
 
     private static boolean isPersistedPlayer(PlayerEntity playerEntity) {

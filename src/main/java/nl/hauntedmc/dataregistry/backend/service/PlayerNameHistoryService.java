@@ -6,6 +6,7 @@ import nl.hauntedmc.dataregistry.api.entities.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerNameHistoryEntity;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
+import org.hibernate.Session;
 
 import java.time.Instant;
 import java.util.List;
@@ -61,26 +62,70 @@ public final class PlayerNameHistoryService {
         boolean useLastDisconnectTimestamp = dataRegistry.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO);
         try {
             dataRegistry.getORM().runInTransaction(session -> {
-                PlayerEntity managed = session.merge(playerEntity);
-                Instant transitionTime = now;
-                if (useLastDisconnectTimestamp) {
-                    PlayerConnectionInfoEntity connectionInfo = session.find(PlayerConnectionInfoEntity.class, managed.getId());
-                    if (connectionInfo != null && connectionInfo.getLastDisconnectAt() != null) {
-                        transitionTime = connectionInfo.getLastDisconnectAt();
-                    }
-                }
-
-                PlayerNameHistoryEntity history = new PlayerNameHistoryEntity();
-                history.setPlayer(managed);
-                history.setUsername(normalizedPreviousUsername);
-                history.setLastSeenAt(transitionTime);
-                session.persist(history);
+                recordUsernameChange(
+                        session,
+                        playerEntity,
+                        normalizedPreviousUsername,
+                        normalizedCurrentUsername,
+                        now,
+                        useLastDisconnectTimestamp
+                );
                 return null;
             });
         } catch (RuntimeException exception) {
             logger.error("Failed to record player name history change for uuid=" +
                     Sanitization.safeForLog(playerEntity.getUuid()), exception);
         }
+    }
+
+    /**
+     * Persists a historical username entry in the supplied transaction.
+     *
+     * @param session                    active Hibernate session.
+     * @param playerEntity               managed or detached persisted player.
+     * @param previousUsername           known username before the current login.
+     * @param currentUsername            username seen on the current login.
+     * @param now                        fallback transition timestamp.
+     * @param useLastDisconnectTimestamp whether to prefer connection-info's disconnect timestamp.
+     */
+    public void recordUsernameChange(
+            Session session,
+            PlayerEntity playerEntity,
+            String previousUsername,
+            String currentUsername,
+            Instant now,
+            boolean useLastDisconnectTimestamp
+    ) {
+        if (!featureEnabled) {
+            return;
+        }
+        Objects.requireNonNull(session, "session must not be null");
+        if (!isPersistedPlayer(playerEntity)) {
+            throw new IllegalArgumentException("playerEntity must be a persisted player.");
+        }
+        String normalizedPreviousUsername = Sanitization.trimToLengthOrNull(previousUsername, usernameMaxLength);
+        String normalizedCurrentUsername = Sanitization.trimToLengthOrNull(currentUsername, usernameMaxLength);
+        if (normalizedPreviousUsername == null || normalizedCurrentUsername == null) {
+            return;
+        }
+        if (normalizedPreviousUsername.equals(normalizedCurrentUsername)) {
+            return;
+        }
+
+        PlayerEntity managed = session.merge(playerEntity);
+        Instant transitionTime = now;
+        if (useLastDisconnectTimestamp) {
+            PlayerConnectionInfoEntity connectionInfo = session.find(PlayerConnectionInfoEntity.class, managed.getId());
+            if (connectionInfo != null && connectionInfo.getLastDisconnectAt() != null) {
+                transitionTime = connectionInfo.getLastDisconnectAt();
+            }
+        }
+
+        PlayerNameHistoryEntity history = new PlayerNameHistoryEntity();
+        history.setPlayer(managed);
+        history.setUsername(normalizedPreviousUsername);
+        history.setLastSeenAt(transitionTime);
+        session.persist(history);
     }
 
     /**

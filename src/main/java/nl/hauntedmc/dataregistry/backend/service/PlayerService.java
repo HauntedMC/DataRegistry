@@ -6,6 +6,7 @@ import nl.hauntedmc.dataregistry.backend.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker;
 import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker.PlayerIdentityInitialization;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
+import org.hibernate.Session;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -51,6 +52,37 @@ public final class PlayerService {
         logger.info("Added " + Sanitization.safeForLog(username) + " (" +
                 Sanitization.safeForLog(uuid) + ") to the local player repository.");
         return player;
+    }
+
+    /**
+     * Retrieves or creates the persistent player row inside a caller-owned lifecycle transaction.
+     * The active cache is intentionally not changed until the outer transaction has committed.
+     *
+     * @param session  active Hibernate session supplied by {@code PlayerLifecycleWriter}.
+     * @param uuid     player UUID.
+     * @param username current player username.
+     * @return managed persistent player row.
+     */
+    public PlayerEntity getOrCreatePlayer(Session session, String uuid, String username) {
+        return playerRepository.getOrCreatePlayer(session, uuid, username);
+    }
+
+    /**
+     * Resolves the known username inside a caller-owned lifecycle transaction.
+     */
+    public Optional<String> findKnownUsername(Session session, String uuid) {
+        return playerRepository.findKnownUsername(session, uuid);
+    }
+
+    /**
+     * Marks a player as active after lifecycle persistence has committed successfully.
+     */
+    public void cacheActivePlayer(PlayerEntity player) {
+        playerRepository.cacheActivePlayer(player);
+        if (player != null) {
+            logger.info("Added " + Sanitization.safeForLog(player.getUsername()) + " (" +
+                    Sanitization.safeForLog(player.getUuid()) + ") to the local player repository.");
+        }
     }
 
     /**
@@ -116,13 +148,30 @@ public final class PlayerService {
     public void completeIdentityInitialization(PlayerIdentityInitialization initialization, PlayerEntity player) {
         Optional<PlayerIdentity> identity = toIdentity(player);
         if (identity.isPresent()) {
-            identityInitializationTracker.complete(initialization, identity.get());
+            completeIdentityInitialization(initialization, identity.get());
             return;
         }
         identityInitializationTracker.fail(
                 initialization,
                 new IllegalStateException("Player initialization did not produce a valid DataRegistry identity.")
         );
+    }
+
+    /**
+     * Publishes a successfully initialized player identity to waiting feature code.
+     *
+     * @param initialization initialization handle returned by {@link #beginIdentityInitialization(UUID)}.
+     * @param identity       immutable identity snapshot returned by lifecycle persistence.
+     */
+    public void completeIdentityInitialization(PlayerIdentityInitialization initialization, PlayerIdentity identity) {
+        if (identity == null) {
+            identityInitializationTracker.fail(
+                    initialization,
+                    new IllegalStateException("Player initialization did not produce a valid DataRegistry identity.")
+            );
+            return;
+        }
+        identityInitializationTracker.complete(initialization, identity);
     }
 
     /**

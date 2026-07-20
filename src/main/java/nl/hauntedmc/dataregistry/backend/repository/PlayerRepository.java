@@ -8,6 +8,7 @@ import nl.hauntedmc.dataregistry.api.player.PlayerPage;
 import nl.hauntedmc.dataregistry.api.player.PlayerPageRequest;
 import nl.hauntedmc.dataregistry.api.repository.AbstractRepository;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
+import org.hibernate.Session;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -432,6 +433,81 @@ public class PlayerRepository extends AbstractRepository<PlayerEntity, Long> {
             }
             return player;
         });
+    }
+
+    /**
+     * Retrieves or creates a player row in the caller-owned transaction without changing the active cache.
+     *
+     * @param session  active Hibernate session supplied by the lifecycle writer.
+     * @param uuid     player UUID.
+     * @param username current player username.
+     * @return managed persistent player row.
+     */
+    public PlayerEntity getOrCreatePlayer(Session session, String uuid, String username) {
+        Objects.requireNonNull(session, "session must not be null");
+        String normalizedUuid = normalizeUuid(uuid);
+        String normalizedUsername = normalizeUsername(username);
+        if (normalizedUuid == null) {
+            throw new IllegalArgumentException("Player UUID is required.");
+        }
+        if (normalizedUsername == null) {
+            throw new IllegalArgumentException("Player username is required.");
+        }
+
+        PlayerEntity player = session.createQuery(
+                        "SELECT p FROM PlayerEntity p WHERE p.uuid = :uuid",
+                        PlayerEntity.class
+                )
+                .setParameter("uuid", normalizedUuid)
+                .setMaxResults(1)
+                .uniqueResult();
+        if (player == null) {
+            player = new PlayerEntity();
+            player.setUuid(normalizedUuid);
+            player.setUsername(normalizedUsername);
+            session.persist(player);
+            return player;
+        }
+        if (!Objects.equals(player.getUsername(), normalizedUsername)) {
+            player.setUsername(normalizedUsername);
+        }
+        return player;
+    }
+
+    /**
+     * Resolves the cached or persisted username inside a caller-owned lifecycle transaction.
+     */
+    public Optional<String> findKnownUsername(Session session, String uuid) {
+        Objects.requireNonNull(session, "session must not be null");
+        String normalizedUuid = normalizeUuid(uuid);
+        if (normalizedUuid == null) {
+            return Optional.empty();
+        }
+        PlayerEntity activePlayer = activePlayers.get(normalizedUuid);
+        if (activePlayer != null) {
+            return Optional.ofNullable(activePlayer.getUsername());
+        }
+        PlayerEntity persistedPlayer = session.createQuery(
+                        "SELECT p FROM PlayerEntity p WHERE p.uuid = :uuid",
+                        PlayerEntity.class
+                )
+                .setParameter("uuid", normalizedUuid)
+                .setMaxResults(1)
+                .uniqueResult();
+        return Optional.ofNullable(persistedPlayer).map(PlayerEntity::getUsername);
+    }
+
+    /**
+     * Marks a committed player lifecycle identity as active in the process-local cache.
+     */
+    public void cacheActivePlayer(PlayerEntity player) {
+        if (player == null) {
+            return;
+        }
+        String normalizedUuid = normalizeUuid(player.getUuid());
+        if (normalizedUuid != null) {
+            activePlayers.put(normalizedUuid, player);
+        }
     }
 
     /**

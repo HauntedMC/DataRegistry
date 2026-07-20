@@ -8,6 +8,7 @@ import nl.hauntedmc.dataregistry.api.entities.PlayerActivitySummaryEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerNicknameEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerNameHistoryEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerLifecycleOutboxEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerOnlineStatusEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerPlaytimeEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerPlaytimeSegmentEntity;
@@ -36,11 +37,18 @@ import nl.hauntedmc.dataregistry.api.repository.ServiceProbeRepository;
 import nl.hauntedmc.dataregistry.api.service.FeatureServiceDirectory;
 import nl.hauntedmc.dataregistry.backend.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerIdentityInitializationTracker;
+import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerLifecycleWriter;
 import nl.hauntedmc.dataregistry.backend.player.DataRegistryQueryExecutor;
 import nl.hauntedmc.dataregistry.backend.player.RepositoryPlayerData;
 import nl.hauntedmc.dataregistry.backend.player.RepositoryPlayerDirectory;
 import nl.hauntedmc.dataregistry.backend.service.DefaultFeatureServiceDirectory;
+import nl.hauntedmc.dataregistry.backend.service.PlayerActivitySummaryService;
+import nl.hauntedmc.dataregistry.backend.service.PlayerConnectionInfoService;
+import nl.hauntedmc.dataregistry.backend.service.PlayerNameHistoryService;
+import nl.hauntedmc.dataregistry.backend.service.PlayerPlaytimeService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerService;
+import nl.hauntedmc.dataregistry.backend.service.PlayerSessionService;
+import nl.hauntedmc.dataregistry.backend.service.PlayerStatusService;
 import nl.hauntedmc.dataregistry.backend.service.ServiceRegistryService;
 import nl.hauntedmc.dataprovider.logging.LogLevel;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
@@ -126,6 +134,7 @@ public class DataRegistry {
             serviceOrmContext = null;
 
             this.playerRepository = newPlayerRepository(ormContext);
+            validatePlayerLifecycleOutbox();
             this.playerIdentityInitializationTracker = new PlayerIdentityInitializationTracker();
             this.queryExecutor = newQueryExecutor();
             this.playerDirectory = new RepositoryPlayerDirectory(
@@ -302,6 +311,68 @@ public class DataRegistry {
         return new PlayerService(playerRepository, playerIdentityInitializationTracker, serviceLogger);
     }
 
+    /**
+     * Creates the transactional command writer for platform-owned player lifecycle persistence.
+     *
+     * @param serviceLogger logger used by the writer and internal helper services.
+     * @return lifecycle writer backed by the initialized player ORM context.
+     * @throws IllegalStateException when DataRegistry has not been initialized.
+     */
+    public synchronized PlayerLifecycleWriter newPlayerLifecycleWriter(ILoggerAdapter serviceLogger) {
+        PlayerService playerService = newPlayerService(serviceLogger);
+        return new PlayerLifecycleWriter(
+                this,
+                playerService,
+                new PlayerNameHistoryService(
+                        this,
+                        serviceLogger,
+                        settings.usernameMaxLength(),
+                        settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY)
+                ),
+                new PlayerActivitySummaryService(
+                        this,
+                        serviceLogger,
+                        settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)
+                ),
+                new PlayerStatusService(
+                        this,
+                        serviceLogger,
+                        settings.serverNameMaxLength(),
+                        settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)
+                ),
+                new PlayerConnectionInfoService(
+                        this,
+                        serviceLogger,
+                        settings.persistIpAddress(),
+                        settings.persistVirtualHost(),
+                        settings.ipAddressMaxLength(),
+                        settings.virtualHostMaxLength(),
+                        settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO)
+                ),
+                new PlayerSessionService(
+                        this,
+                        serviceLogger,
+                        settings.persistIpAddress(),
+                        settings.persistVirtualHost(),
+                        settings.ipAddressMaxLength(),
+                        settings.virtualHostMaxLength(),
+                        settings.serverNameMaxLength(),
+                        settings.isFeatureEnabled(DataRegistryFeature.SESSIONS),
+                        settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS)
+                ),
+                new PlayerPlaytimeService(
+                        this,
+                        serviceLogger,
+                        new nl.hauntedmc.dataregistry.backend.playtime.PlaytimeGamemodeResolver(
+                                settings.playtimeTrackingSettings()
+                        ),
+                        settings.serverNameMaxLength(),
+                        settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
+                ),
+                serviceLogger
+        );
+    }
+
     public synchronized ORMContext getServiceORM() {
         if (serviceOrmContext == null) {
             throw new IllegalStateException("Service ORM context is unavailable.");
@@ -466,6 +537,7 @@ public class DataRegistry {
     private Class<?>[] resolvePlayerOrmEntityClasses() {
         LinkedHashSet<Class<?>> entityClasses = new LinkedHashSet<>();
         entityClasses.add(PlayerEntity.class);
+        entityClasses.add(PlayerLifecycleOutboxEntity.class);
         if (settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)) {
             entityClasses.add(PlayerActivitySummaryEntity.class);
         }
@@ -503,6 +575,13 @@ public class DataRegistry {
                 ServiceInstanceEntity.class,
                 ServiceProbeEntity.class
         };
+    }
+
+    private void validatePlayerLifecycleOutbox() {
+        ormContext.runInTransaction(session ->
+                session.createQuery("SELECT COUNT(o) FROM PlayerLifecycleOutboxEntity o", Long.class)
+                        .getSingleResult()
+        );
     }
 
     private DataSource resolveDataSource(Map<String, DataSource> dataSourceCache, String connectionId) {

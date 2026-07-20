@@ -70,50 +70,7 @@ public final class PlayerPlaytimeService {
         Instant now = Instant.now();
         try {
             dataRegistry.getORM().runInTransaction(session -> {
-                PlayerEntity managedPlayer = session.merge(playerEntity);
-                Optional<PlayerSessionEntity> openSession = findOpenSession(session, managedPlayer.getId());
-                Optional<PlayerPlaytimeSegmentEntity> openSegment = findOpenSegment(session, managedPlayer.getId());
-
-                if (openSegment.isPresent()
-                        && !belongsToOpenSession(openSegment.get(), openSession.orElse(null))) {
-                    recoverStaleSegment(openSegment.get());
-                    openSegment = Optional.empty();
-                }
-
-                if (openSegment.isPresent()) {
-                    PlayerPlaytimeSegmentEntity currentSegment = openSegment.get();
-                    if (!resolvedGamemode.tracked()) {
-                        flushAndCloseSegment(
-                                currentSegment,
-                                now,
-                                PlayerPlaytimeSegmentCloseReason.STOP_TRACKING,
-                                session
-                        );
-                        return null;
-                    }
-                    if (Objects.equals(currentSegment.getGamemodeKey(), resolvedGamemode.gamemodeKey())) {
-                        flushSegment(currentSegment, now, session);
-                        currentSegment.setLastServer(resolvedGamemode.serverName());
-                        return null;
-                    }
-                    flushAndCloseSegment(
-                            currentSegment,
-                            now,
-                            PlayerPlaytimeSegmentCloseReason.SERVER_SWITCH,
-                            session
-                    );
-                }
-
-                if (resolvedGamemode.tracked() && openSession.isPresent()) {
-                    openSegment(
-                            managedPlayer,
-                            openSession.get(),
-                            resolvedGamemode.gamemodeKey(),
-                            resolvedGamemode.serverName(),
-                            now,
-                            session
-                    );
-                }
+                onServerSwitch(session, playerEntity, resolvedGamemode, now);
                 return null;
             });
         } catch (RuntimeException exception) {
@@ -134,19 +91,7 @@ public final class PlayerPlaytimeService {
         Instant now = Instant.now();
         try {
             dataRegistry.getORM().runInTransaction(session -> {
-                Optional<PlayerPlaytimeSegmentEntity> openSegment = findOpenSegment(session, playerEntity.getId());
-                if (openSegment.isEmpty()) {
-                    return null;
-                }
-
-                Optional<PlayerSessionEntity> openSession = findOpenSession(session, playerEntity.getId());
-                PlayerPlaytimeSegmentEntity segment = openSegment.get();
-                if (!belongsToOpenSession(segment, openSession.orElse(null))) {
-                    recoverStaleSegment(segment);
-                    return null;
-                }
-
-                flushSegment(segment, now, session);
+                flushActivePlaytime(session, playerEntity, now);
                 return null;
             });
         } catch (RuntimeException exception) {
@@ -167,30 +112,155 @@ public final class PlayerPlaytimeService {
         Instant now = Instant.now();
         try {
             dataRegistry.getORM().runInTransaction(session -> {
-                Optional<PlayerPlaytimeSegmentEntity> openSegment = findOpenSegment(session, playerEntity.getId());
-                if (openSegment.isEmpty()) {
-                    return null;
-                }
-
-                Optional<PlayerSessionEntity> openSession = findOpenSession(session, playerEntity.getId());
-                PlayerPlaytimeSegmentEntity segment = openSegment.get();
-                if (!belongsToOpenSession(segment, openSession.orElse(null))) {
-                    recoverStaleSegment(segment);
-                    return null;
-                }
-
-                flushAndCloseSegment(
-                        segment,
-                        now,
-                        PlayerPlaytimeSegmentCloseReason.DISCONNECT,
-                        session
-                );
+                closeActivePlaytimeOnDisconnect(session, playerEntity, now);
                 return null;
             });
         } catch (RuntimeException exception) {
             logger.error("Failed to close playtime for uuid=" +
                     Sanitization.safeForLog(playerEntity.getUuid()), exception);
         }
+    }
+
+    /**
+     * Updates playtime segment state for a server switch in the supplied transaction.
+     */
+    public void onServerSwitch(Session session, PlayerEntity playerEntity, String serverName, Instant now) {
+        if (!featureEnabled) {
+            return;
+        }
+        String sanitizedServerName = sanitizeServerName(serverName);
+        if (sanitizedServerName == null) {
+            return;
+        }
+        onServerSwitch(session, playerEntity, gamemodeResolver.resolve(sanitizedServerName), now);
+    }
+
+    /**
+     * Updates playtime segment state for a resolved gamemode in the supplied transaction.
+     */
+    public void onServerSwitch(
+            Session session,
+            PlayerEntity playerEntity,
+            PlaytimeGamemodeResolver.ResolvedGamemode resolvedGamemode,
+            Instant now
+    ) {
+        if (!featureEnabled) {
+            return;
+        }
+        Objects.requireNonNull(session, "session must not be null");
+        Objects.requireNonNull(resolvedGamemode, "resolvedGamemode must not be null");
+        if (!isPersistedPlayer(playerEntity)) {
+            throw new IllegalArgumentException("playerEntity must be a persisted player.");
+        }
+
+        PlayerEntity managedPlayer = session.merge(playerEntity);
+        Optional<PlayerSessionEntity> openSession = findOpenSession(session, managedPlayer.getId());
+        Optional<PlayerPlaytimeSegmentEntity> openSegment = findOpenSegment(session, managedPlayer.getId());
+
+        if (openSegment.isPresent()
+                && !belongsToOpenSession(openSegment.get(), openSession.orElse(null))) {
+            recoverStaleSegment(openSegment.get());
+            openSegment = Optional.empty();
+        }
+
+        if (openSegment.isPresent()) {
+            PlayerPlaytimeSegmentEntity currentSegment = openSegment.get();
+            if (!resolvedGamemode.tracked()) {
+                flushAndCloseSegment(
+                        currentSegment,
+                        now,
+                        PlayerPlaytimeSegmentCloseReason.STOP_TRACKING,
+                        session
+                );
+                return;
+            }
+            if (Objects.equals(currentSegment.getGamemodeKey(), resolvedGamemode.gamemodeKey())) {
+                flushSegment(currentSegment, now, session);
+                currentSegment.setLastServer(resolvedGamemode.serverName());
+                return;
+            }
+            flushAndCloseSegment(
+                    currentSegment,
+                    now,
+                    PlayerPlaytimeSegmentCloseReason.SERVER_SWITCH,
+                    session
+            );
+        }
+
+        if (resolvedGamemode.tracked() && openSession.isPresent()) {
+            openSegment(
+                    managedPlayer,
+                    openSession.get(),
+                    resolvedGamemode.gamemodeKey(),
+                    resolvedGamemode.serverName(),
+                    now,
+                    session
+            );
+        }
+    }
+
+    /**
+     * Flushes the currently open playtime segment in the supplied transaction.
+     */
+    public void flushActivePlaytime(Session session, PlayerEntity playerEntity, Instant now) {
+        if (!featureEnabled) {
+            return;
+        }
+        Objects.requireNonNull(session, "session must not be null");
+        if (!isPersistedPlayer(playerEntity)) {
+            throw new IllegalArgumentException("playerEntity must be a persisted player.");
+        }
+        Optional<PlayerPlaytimeSegmentEntity> openSegment = findOpenSegment(session, playerEntity.getId());
+        if (openSegment.isEmpty()) {
+            return;
+        }
+
+        Optional<PlayerSessionEntity> openSession = findOpenSession(session, playerEntity.getId());
+        PlayerPlaytimeSegmentEntity segment = openSegment.get();
+        if (!belongsToOpenSession(segment, openSession.orElse(null))) {
+            recoverStaleSegment(segment);
+            return;
+        }
+
+        flushSegment(segment, now, session);
+    }
+
+    /**
+     * Closes active playtime state for a disconnect in the supplied transaction.
+     */
+    public void closeActivePlaytimeOnDisconnect(Session session, PlayerEntity playerEntity, Instant now) {
+        if (!featureEnabled) {
+            return;
+        }
+        Objects.requireNonNull(session, "session must not be null");
+        if (!isPersistedPlayer(playerEntity)) {
+            throw new IllegalArgumentException("playerEntity must be a persisted player.");
+        }
+        Optional<PlayerPlaytimeSegmentEntity> openSegment = findOpenSegment(session, playerEntity.getId());
+        if (openSegment.isEmpty()) {
+            return;
+        }
+
+        Optional<PlayerSessionEntity> openSession = findOpenSession(session, playerEntity.getId());
+        PlayerPlaytimeSegmentEntity segment = openSegment.get();
+        if (!belongsToOpenSession(segment, openSession.orElse(null))) {
+            recoverStaleSegment(segment);
+            return;
+        }
+
+        flushAndCloseSegment(
+                segment,
+                now,
+                PlayerPlaytimeSegmentCloseReason.DISCONNECT,
+                session
+        );
+    }
+
+    /**
+     * Normalizes a backend server name for playtime storage.
+     */
+    public String sanitizeServerName(String serverName) {
+        return Sanitization.trimToLengthOrNull(serverName, serverNameMaxLength);
     }
 
     private static Optional<PlayerSessionEntity> findOpenSession(Session session, Long playerId) {

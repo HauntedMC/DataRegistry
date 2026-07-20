@@ -9,6 +9,7 @@ import nl.hauntedmc.dataprovider.logging.LogLevel;
 import nl.hauntedmc.dataregistry.api.entities.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerLanguageEntity;
+import nl.hauntedmc.dataregistry.api.entities.PlayerLifecycleOutboxEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerNameHistoryEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerNicknameEntity;
 import nl.hauntedmc.dataregistry.api.entities.PlayerSessionVisitEntity;
@@ -145,8 +146,9 @@ class DataRegistryTest {
         );
 
         assertTrue(registry.initialize());
-        assertEquals(2, registry.lastPlayerEntityClasses.length);
+        assertEquals(3, registry.lastPlayerEntityClasses.length);
         assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerEntity.class));
+        assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerLifecycleOutboxEntity.class));
         assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerConnectionInfoEntity.class));
         assertFalse(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerActivitySummaryEntity.class));
         assertFalse(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerNameHistoryEntity.class));

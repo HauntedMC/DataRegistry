@@ -124,30 +124,7 @@ public final class PlayerSessionService {
 
         try {
             dataRegistry.getORM().runInTransaction(session -> {
-                PlayerEntity managed = session.merge(playerEntity);
-
-                session.createMutationQuery(
-                                "UPDATE PlayerSessionEntity s SET s.endedAt = :end " +
-                                        "WHERE s.player.id = :playerId AND s.endedAt IS NULL")
-                        .setParameter("playerId", managed.getId())
-                        .setParameter("end", now)
-                        .executeUpdate();
-                if (sessionVisitsEnabled) {
-                    session.createMutationQuery(
-                                    "UPDATE PlayerSessionVisitEntity v SET v.leftAt = :end " +
-                                            "WHERE v.player.id = :playerId AND v.leftAt IS NULL"
-                            )
-                            .setParameter("playerId", managed.getId())
-                            .setParameter("end", now)
-                            .executeUpdate();
-                }
-
-                PlayerSessionEntity sessionEntity = new PlayerSessionEntity();
-                sessionEntity.setPlayer(managed);
-                sessionEntity.setIpAddress(sanitizedIp);
-                sessionEntity.setVirtualHost(sanitizedVirtualHost);
-                sessionEntity.setStartedAt(now);
-                session.persist(sessionEntity);
+                openSessionOnLogin(session, playerEntity, sanitizedIp, sanitizedVirtualHost, now);
                 return null;
             });
 
@@ -179,27 +156,7 @@ public final class PlayerSessionService {
         final Instant now = Instant.now();
         try {
             dataRegistry.getORM().runInTransaction(session -> {
-                Optional<PlayerSessionEntity> openSession = session.createQuery(
-                                "SELECT s FROM PlayerSessionEntity s " +
-                                        "WHERE s.player.id = :playerId AND s.endedAt IS NULL " +
-                                        "ORDER BY s.startedAt DESC, s.id DESC",
-                                PlayerSessionEntity.class)
-                        .setParameter("playerId", playerEntity.getId())
-                        .setMaxResults(1)
-                        .uniqueResultOptional();
-
-                if (openSession.isEmpty()) {
-                    return null;
-                }
-
-                PlayerSessionEntity sessionEntity = openSession.get();
-                if (sessionEntity.getFirstServer() == null || sessionEntity.getFirstServer().isBlank()) {
-                    sessionEntity.setFirstServer(sanitizedServer);
-                }
-                sessionEntity.setLastServer(sanitizedServer);
-                if (sessionVisitsEnabled) {
-                    updateSessionVisitOnSwitch(sessionEntity, sanitizedServer, now, session);
-                }
+                updateServerOnSwitch(session, playerEntity, sanitizedServer, now);
                 return null;
             });
         } catch (RuntimeException exception) {
@@ -223,19 +180,7 @@ public final class PlayerSessionService {
         final Instant now = Instant.now();
         try {
             dataRegistry.getORM().runInTransaction(session -> {
-                if (sessionVisitsEnabled) {
-                    closeOpenVisit(playerEntity.getId(), now, session);
-                }
-                Optional<PlayerSessionEntity> openSession = session.createQuery(
-                                "SELECT s FROM PlayerSessionEntity s " +
-                                        "WHERE s.player.id = :playerId AND s.endedAt IS NULL " +
-                                        "ORDER BY s.startedAt DESC, s.id DESC",
-                                PlayerSessionEntity.class)
-                        .setParameter("playerId", playerEntity.getId())
-                        .setMaxResults(1)
-                        .uniqueResultOptional();
-
-                openSession.ifPresent(sessionEntity -> sessionEntity.setEndedAt(now));
+                closeSessionOnDisconnect(session, playerEntity, now);
                 return null;
             });
 
@@ -249,6 +194,139 @@ public final class PlayerSessionService {
 
     private static boolean isPersistedPlayer(PlayerEntity playerEntity) {
         return playerEntity != null && playerEntity.getId() != null;
+    }
+
+    /**
+     * Creates a new open session in the supplied transaction after closing stale open session state.
+     *
+     * @param sanitizedIp          already-normalized IP address, or {@code null}.
+     * @param sanitizedVirtualHost already-normalized virtual host, or {@code null}.
+     */
+    public void openSessionOnLogin(
+            Session session,
+            PlayerEntity playerEntity,
+            String sanitizedIp,
+            String sanitizedVirtualHost,
+            Instant now
+    ) {
+        if (!featureEnabled) {
+            return;
+        }
+        Objects.requireNonNull(session, "session must not be null");
+        if (!isPersistedPlayer(playerEntity)) {
+            throw new IllegalArgumentException("playerEntity must be a persisted player.");
+        }
+        PlayerEntity managed = session.merge(playerEntity);
+
+        session.createMutationQuery(
+                        "UPDATE PlayerSessionEntity s SET s.endedAt = :end " +
+                                "WHERE s.player.id = :playerId AND s.endedAt IS NULL")
+                .setParameter("playerId", managed.getId())
+                .setParameter("end", now)
+                .executeUpdate();
+        if (sessionVisitsEnabled) {
+            session.createMutationQuery(
+                            "UPDATE PlayerSessionVisitEntity v SET v.leftAt = :end " +
+                                    "WHERE v.player.id = :playerId AND v.leftAt IS NULL"
+                    )
+                    .setParameter("playerId", managed.getId())
+                    .setParameter("end", now)
+                    .executeUpdate();
+        }
+
+        PlayerSessionEntity sessionEntity = new PlayerSessionEntity();
+        sessionEntity.setPlayer(managed);
+        sessionEntity.setIpAddress(sanitizedIp);
+        sessionEntity.setVirtualHost(sanitizedVirtualHost);
+        sessionEntity.setStartedAt(now);
+        session.persist(sessionEntity);
+    }
+
+    /**
+     * Updates open session and visit state in the supplied transaction.
+     */
+    public void updateServerOnSwitch(Session session, PlayerEntity playerEntity, String serverName, Instant now) {
+        if (!featureEnabled) {
+            return;
+        }
+        Objects.requireNonNull(session, "session must not be null");
+        if (!isPersistedPlayer(playerEntity)) {
+            throw new IllegalArgumentException("playerEntity must be a persisted player.");
+        }
+        final String sanitizedServer = sanitizeServerName(serverName);
+        if (sanitizedServer == null) {
+            return;
+        }
+
+        Optional<PlayerSessionEntity> openSession = findOpenSession(session, playerEntity.getId());
+        if (openSession.isEmpty()) {
+            return;
+        }
+
+        PlayerSessionEntity sessionEntity = openSession.get();
+        if (sessionEntity.getFirstServer() == null || sessionEntity.getFirstServer().isBlank()) {
+            sessionEntity.setFirstServer(sanitizedServer);
+        }
+        sessionEntity.setLastServer(sanitizedServer);
+        if (sessionVisitsEnabled) {
+            updateSessionVisitOnSwitch(sessionEntity, sanitizedServer, now, session);
+        }
+    }
+
+    /**
+     * Closes open session and visit state in the supplied transaction.
+     */
+    public void closeSessionOnDisconnect(Session session, PlayerEntity playerEntity, Instant now) {
+        if (!featureEnabled) {
+            return;
+        }
+        Objects.requireNonNull(session, "session must not be null");
+        if (!isPersistedPlayer(playerEntity)) {
+            throw new IllegalArgumentException("playerEntity must be a persisted player.");
+        }
+        if (sessionVisitsEnabled) {
+            closeOpenVisit(playerEntity.getId(), now, session);
+        }
+        findOpenSession(session, playerEntity.getId()).ifPresent(sessionEntity -> sessionEntity.setEndedAt(now));
+    }
+
+    /**
+     * Normalizes an IP value using this service's retention settings.
+     */
+    public String sanitizeIpAddress(String ipAddress) {
+        return persistIpAddress ? Sanitization.trimToLengthOrNull(ipAddress, ipAddressMaxLength) : null;
+    }
+
+    /**
+     * Normalizes a virtual-host value using this service's retention settings.
+     */
+    public String sanitizeVirtualHost(String virtualHost) {
+        return persistVirtualHost ? Sanitization.trimToLengthOrNull(virtualHost, virtualHostMaxLength) : null;
+    }
+
+    /**
+     * Normalizes a backend server name for session storage.
+     */
+    public String sanitizeServerName(String serverName) {
+        return Sanitization.trimToLengthOrNull(serverName, serverNameMaxLength);
+    }
+
+    /**
+     * Returns the registry backing this internal helper service.
+     */
+    public DataRegistry dataRegistry() {
+        return dataRegistry;
+    }
+
+    private static Optional<PlayerSessionEntity> findOpenSession(Session session, Long playerId) {
+        return session.createQuery(
+                        "SELECT s FROM PlayerSessionEntity s " +
+                                "WHERE s.player.id = :playerId AND s.endedAt IS NULL " +
+                                "ORDER BY s.startedAt DESC, s.id DESC",
+                        PlayerSessionEntity.class)
+                .setParameter("playerId", playerId)
+                .setMaxResults(1)
+                .uniqueResultOptional();
     }
 
     private void updateSessionVisitOnSwitch(

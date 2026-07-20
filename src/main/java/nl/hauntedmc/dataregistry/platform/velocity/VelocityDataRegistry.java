@@ -20,6 +20,7 @@ import nl.hauntedmc.dataregistry.api.entities.ServiceProbeStatus;
 import nl.hauntedmc.dataregistry.backend.service.PlayerActivitySummaryService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerConnectionInfoService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerNameHistoryService;
+import nl.hauntedmc.dataregistry.backend.lifecycle.PlayerLifecycleWriter;
 import nl.hauntedmc.dataregistry.backend.playtime.PlaytimeGamemodeResolver;
 import nl.hauntedmc.dataregistry.backend.service.PlayerPlaytimeService;
 import nl.hauntedmc.dataregistry.backend.service.PlayerPresenceRecoveryResult;
@@ -236,14 +237,21 @@ public class VelocityDataRegistry implements PlatformPlugin {
                 settings.serverNameMaxLength(),
                 settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
         );
-
-        PlayerStatusListener listener = new PlayerStatusListener(
+        PlayerLifecycleWriter lifecycleWriter = new PlayerLifecycleWriter(
+                registry,
                 playerService,
                 nameHistoryService,
                 activitySummaryService,
                 statusService,
                 connectionService,
                 sessionService,
+                playtimeService,
+                getPlatformLogger()
+        );
+
+        PlayerStatusListener listener = new PlayerStatusListener(
+                playerService,
+                lifecycleWriter,
                 playtimeService,
                 getPlatformLogger(),
                 playerEventExecutor
