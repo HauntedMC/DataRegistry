@@ -172,7 +172,7 @@
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>3.5.6</version>
                     <configuration>
-                        <argLine>@{argLine} -javaagent:${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar --enable-final-field-mutation=ALL-UNNAMED -Dnet.bytebuddy.experimental=true</argLine>
+                        <argLine>@{argLine} -Dnet.bytebuddy.experimental=true</argLine>
                     </configuration>
                 </plugin>
                 <plugin>
