@@ -2,7 +2,8 @@
 set -euo pipefail
 
 readonly POM_FILE="pom.xml"
-readonly VELOCITY_FILE="src/main/java/nl/hauntedmc/dataregistry/platform/velocity/VelocityDataRegistry.java"
+readonly VELOCITY_FILE="dataregistry-platform-velocity/src/main/java/nl/hauntedmc/dataregistry/platform/velocity/VelocityDataRegistry.java"
+readonly VERSION_PROPERTY="revision"
 
 die() {
   echo "Error: $*" >&2
@@ -137,8 +138,8 @@ fi
 echo "Current version: ${current_version}"
 echo "Bumping to: ${new_version}"
 
-# Use Maven's versions plugin so pom.xml remains the single source of truth.
-mvn -B -ntp versions:set -DnewVersion="${new_version}" -DgenerateBackupPoms=false -DprocessAllModules=true
+# The root POM's revision property is the single source of truth for every module.
+mvn -B -ntp versions:set-property -Dproperty="${VERSION_PROPERTY}" -DnewVersion="${new_version}" -DgenerateBackupPoms=false
 
 resolved_after_bump="$(resolve_maven_version)"
 [[ "$resolved_after_bump" == "$new_version" ]] || {

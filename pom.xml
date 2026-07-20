@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>nl.hauntedmc.dataregistry</groupId>
-    <artifactId>dataregistry</artifactId>
-    <version>1.10.4</version>
-    <packaging>jar</packaging>
+    <artifactId>dataregistry-parent</artifactId>
+    <version>${revision}</version>
+    <packaging>pom</packaging>
     <name>DataRegistry</name>
     <description>Keeps up-to-date player data records, game-state metadata, and related events.</description>
     <url>https://github.com/HauntedMC/DataRegistry</url>
@@ -20,21 +20,6 @@
         </license>
     </licenses>
 
-    <properties>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <java.version>25</java.version>
-        <maven.compiler.release>${java.version}</maven.compiler.release>
-        <checkstyle.version>13.8.0</checkstyle.version>
-        <paper.version>26.1.2.build.72-stable</paper.version>
-        <velocity.version>4.0.0-SNAPSHOT</velocity.version>
-        <mockito.version>5.14.2</mockito.version>
-        <mockito.agent.path>
-            ${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar
-        </mockito.agent.path>
-        <snakeyaml.version>2.4</snakeyaml.version>
-        <jacoco.version>0.8.15</jacoco.version>
-    </properties>
-
     <distributionManagement>
         <repository>
             <id>github</id>
@@ -43,32 +28,47 @@
         </repository>
     </distributionManagement>
 
-    <build>
-        <finalName>${project.name}</finalName>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.15.0</version>
-                <configuration>
-                    <release>${maven.compiler.release}</release>
-                    <parameters>true</parameters>
-                    <proc>full</proc>
-                    <annotationProcessors>
-                        <annotationProcessor>com.velocitypowered.api.plugin.ap.PluginAnnotationProcessor</annotationProcessor>
-                    </annotationProcessors>
-                    <annotationProcessorPaths>
-                        <path>
-                            <groupId>com.velocitypowered</groupId>
-                            <artifactId>velocity-api</artifactId>
-                            <version>${velocity.version}</version>
-                        </path>
-                    </annotationProcessorPaths>
-                    <useIncrementalCompilation>false</useIncrementalCompilation>
-                    <forceLegacyJavacApi>true</forceLegacyJavacApi>
-                </configuration>
-            </plugin>
+    <modules>
+        <module>dataregistry-api</module>
+        <module>dataregistry-platform-common</module>
+        <module>dataregistry-migrations</module>
+        <module>dataregistry-core</module>
+        <module>dataregistry-platform-velocity</module>
+        <module>dataregistry-platform-paper</module>
+        <module>dataregistry-testkit</module>
+    </modules>
 
+    <properties>
+        <!-- Single source of truth for every module's release version. -->
+        <revision>1.11.0</revision>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <java.version>25</java.version>
+        <maven.compiler.release>${java.version}</maven.compiler.release>
+        <dataprovider.version>2.1.4</dataprovider.version>
+        <jakarta.persistence.version>3.1.0</jakarta.persistence.version>
+        <snakeyaml.version>2.4</snakeyaml.version>
+        <paper.version>26.1.2.build.72-stable</paper.version>
+        <velocity.version>4.0.0-SNAPSHOT</velocity.version>
+        <junit.version>6.1.2</junit.version>
+        <mockito.version>5.14.2</mockito.version>
+        <checkstyle.version>13.8.0</checkstyle.version>
+        <maven.shade.version>3.6.2</maven.shade.version>
+        <maven.jar.version>3.4.2</maven.jar.version>
+    </properties>
+
+    <repositories>
+        <repository>
+            <id>github</id>
+            <url>https://maven.pkg.github.com/HauntedMC/DataProvider</url>
+        </repository>
+        <repository>
+            <id>papermc</id>
+            <url>https://repo.papermc.io/repository/maven-public/</url>
+        </repository>
+    </repositories>
+
+    <build>
+        <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-enforcer-plugin</artifactId>
@@ -77,29 +77,22 @@
                     <execution>
                         <id>enforce-build-environment</id>
                         <phase>validate</phase>
-                        <goals>
-                            <goal>enforce</goal>
-                        </goals>
+                        <goals><goal>enforce</goal></goals>
                         <configuration>
                             <rules>
-                                <requireJavaVersion>
-                                    <version>[25,)</version>
-                                </requireJavaVersion>
-                                <requireMavenVersion>
-                                    <version>[3.8.6,)</version>
-                                </requireMavenVersion>
+                                <requireJavaVersion><version>[25,)</version></requireJavaVersion>
+                                <requireMavenVersion><version>[3.8.6,)</version></requireMavenVersion>
                             </rules>
                         </configuration>
                     </execution>
                 </executions>
             </plugin>
-
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
                 <version>3.6.0</version>
                 <configuration>
-                    <configLocation>${basedir}/checkstyle.xml</configLocation>
+                    <configLocation>${maven.multiModuleProjectDirectory}/checkstyle.xml</configLocation>
                     <includeTestSourceDirectory>true</includeTestSourceDirectory>
                     <failOnViolation>true</failOnViolation>
                     <violationSeverity>warning</violationSeverity>
@@ -116,148 +109,43 @@
                     <execution>
                         <id>checkstyle-verify</id>
                         <phase>verify</phase>
-                        <goals>
-                            <goal>check</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.5.6</version>
-                <configuration>
-                    <argLine>@{argLine} -javaagent:${mockito.agent.path}</argLine>
-                </configuration>
-            </plugin>
-
-            <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
-                <version>${jacoco.version}</version>
-                <executions>
-                    <execution>
-                        <id>jacoco-prepare-agent</id>
-                        <goals>
-                            <goal>prepare-agent</goal>
-                        </goals>
-                    </execution>
-                    <execution>
-                        <id>jacoco-report-and-check</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>report</goal>
-                            <goal>check</goal>
-                        </goals>
-                        <configuration>
-                            <rules>
-                                <rule>
-                                    <element>BUNDLE</element>
-                                    <limits>
-                                        <limit>
-                                            <counter>LINE</counter>
-                                            <value>COVEREDRATIO</value>
-                                            <minimum>0.75</minimum>
-                                        </limit>
-                                        <limit>
-                                            <counter>BRANCH</counter>
-                                            <value>COVEREDRATIO</value>
-                                            <minimum>0.55</minimum>
-                                        </limit>
-                                    </limits>
-                                </rule>
-                            </rules>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-shade-plugin</artifactId>
-                <version>3.6.0</version>
-                <configuration>
-                    <createDependencyReducedPom>false</createDependencyReducedPom>
-                </configuration>
-                <executions>
-                    <execution>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>shade</goal>
-                        </goals>
+                        <goals><goal>check</goal></goals>
                     </execution>
                 </executions>
             </plugin>
         </plugins>
-
-        <resources>
-            <resource>
-                <directory>src/main/resources</directory>
-                <filtering>true</filtering>
-            </resource>
-        </resources>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>3.15.0</version>
+                    <configuration>
+                        <release>${maven.compiler.release}</release>
+                        <parameters>true</parameters>
+                        <useIncrementalCompilation>false</useIncrementalCompilation>
+                        <forceLegacyJavacApi>true</forceLegacyJavacApi>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-shade-plugin</artifactId>
+                    <version>${maven.shade.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>${maven.jar.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>3.5.6</version>
+                    <configuration>
+                        <argLine>-Dnet.bytebuddy.experimental=true</argLine>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
     </build>
-
-    <repositories>
-        <repository>
-            <id>github</id>
-            <name>GitHub Packages - DataProvider</name>
-            <url>https://maven.pkg.github.com/HauntedMC/DataProvider</url>
-        </repository>
-        <repository>
-            <id>papermc</id>
-            <url>https://repo.papermc.io/repository/maven-public/</url>
-        </repository>
-    </repositories>
-
-    <dependencies>
-        <dependency>
-            <groupId>jakarta.persistence</groupId>
-            <artifactId>jakarta.persistence-api</artifactId>
-            <version>3.1.0</version>
-            <scope>provided</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>nl.hauntedmc.dataprovider</groupId>
-            <artifactId>dataprovider</artifactId>
-            <version>2.1.4</version>
-            <scope>provided</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.yaml</groupId>
-            <artifactId>snakeyaml</artifactId>
-            <version>${snakeyaml.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>com.velocitypowered</groupId>
-            <artifactId>velocity-api</artifactId>
-            <version>${velocity.version}</version>
-            <scope>provided</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>io.papermc.paper</groupId>
-            <artifactId>paper-api</artifactId>
-            <version>${paper.version}</version>
-            <scope>provided</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <version>6.1.2</version>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-core</artifactId>
-            <version>${mockito.version}</version>
-            <scope>test</scope>
-        </dependency>
-    </dependencies>
 </project>

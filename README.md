@@ -22,7 +22,7 @@ players by the stable scalar `playerId`.
 
 - Java 25
 - Maven 3.8.6+
-- DataProvider `2.0.0`
+- DataProvider `2.1.4`
 - Velocity `4.0.0-SNAPSHOT` and/or Paper `26.1.2+`
 
 ## Configuration
@@ -30,26 +30,27 @@ players by the stable scalar `playerId`.
 Start the server once to generate `plugins/DataRegistry/config.yml`, then review the database, feature,
 privacy, playtime, service-registry, and platform sections.
 
-Defaults and comments live in [src/main/resources/config.yml](src/main/resources/config.yml). Missing supported
+Defaults and comments live in [dataregistry-core/src/main/resources/config.yml](dataregistry-core/src/main/resources/config.yml). Missing supported
 keys are restored on load and stale keys are removed.
 
 ## Developer API
 
-Depend on DataRegistry as `provided`:
+Depend only on `dataregistry-api` as `provided`:
 
 ```xml
 <dependency>
   <groupId>nl.hauntedmc.dataregistry</groupId>
-  <artifactId>dataregistry</artifactId>
-  <version>1.9.6</version>
+  <artifactId>dataregistry-api</artifactId>
+  <version>1.10.4</version>
   <scope>provided</scope>
 </dependency>
 ```
 
-Use `DataRegistry#players()` for player data:
+Use `DataRegistryApi#players()` for player data:
 
 ```java
-PlayerData players = platformPlugin.getDataRegistry().players();
+DataRegistryApiProvider apiProvider = /* platform plugin instance */;
+PlayerData players = apiProvider.getDataRegistry().players();
 
 UUID uuid = player.getUniqueId(); // snapshot platform state before async continuations
 players.whenReady(uuid).thenAccept(identity -> {
@@ -60,6 +61,26 @@ players.whenReady(uuid).thenAccept(identity -> {
     });
 });
 ```
+
+### Artifact boundaries
+
+- `dataregistry-api` is the only dependency for ProxyFeatures, ServerFeatures, and other consumers. It has no
+  DataProvider, Hibernate/Jakarta Persistence, Velocity, or Paper dependency.
+- `dataregistry-core` owns entities, repositories, ORM wiring, lifecycle writers, recovery, and query execution.
+  It is an implementation dependency of the platform modules, never a feature dependency.
+- `dataregistry-platform-velocity` owns authoritative proxy lifecycle listeners, including
+  `PlayerStatusListener`; `dataregistry-platform-paper` provides the Paper identity bridge.
+- `dataregistry-migrations` contains ordered schema migration resources; the default core schema mode is `validate`.
+- `dataregistry-testkit` supplies `FakeDataRegistryApi`, immutable player fixtures, temporary IDs, and async failure
+  simulation for feature contract tests.
+
+`DataRegistryApiProvider#getDataRegistry()` returns `DataRegistryApi`, not the core runtime. Platform plugins
+implement that provider capability; consumers can depend on `dataregistry-api` alone. There is deliberately no
+public path from that type to an ORM context, entity, repository, lifecycle writer, or DataProvider handle.
+
+Feature maintainers migrating from the former monolithic artifact should follow
+[DOWNSTREAM_MIGRATION.md](DOWNSTREAM_MIGRATION.md). A dependency-coordinate change alone is not valid for a feature
+that currently maps `PlayerEntity` in its own ORM model.
 
 ### Identity
 
@@ -165,12 +186,19 @@ Authenticated GitHub Packages access may be required for private HauntedMC depen
 `github` in `~/.m2/settings.xml`, then run:
 
 ```bash
-mvn clean test checkstyle:check
+mvn clean test package
 ```
 
 Build output:
 
-- `target/DataRegistry.jar`
+- `dataregistry-api/target/dataregistry-api-*.jar`
+- `dataregistry-core/target/dataregistry-core-*.jar`
+- `dataregistry-platform-velocity/target/dataregistry-platform-velocity-*-bundled.jar`
+- `dataregistry-platform-paper/target/dataregistry-platform-paper-*-bundled.jar`
+
+Deploy the `bundled` platform JAR only. It embeds the platform's relocated core implementation while retaining the
+public `DataRegistryApi` namespace. Do not deploy `dataregistry-core` as a separate server plugin and do not add it
+as a dependency to feature plugins.
 
 ## License
 

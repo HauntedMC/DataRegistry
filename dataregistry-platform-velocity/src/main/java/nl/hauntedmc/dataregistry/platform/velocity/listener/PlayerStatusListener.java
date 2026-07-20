@@ -1,0 +1,358 @@
+package nl.hauntedmc.dataregistry.platform.velocity.listener;
+
+import com.velocitypowered.api.event.Subscribe;
+import com.velocitypowered.api.event.connection.DisconnectEvent;
+import com.velocitypowered.api.event.connection.PostLoginEvent;
+import com.velocitypowered.api.event.player.ServerConnectedEvent;
+import com.velocitypowered.api.proxy.Player;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
+import nl.hauntedmc.dataregistry.core.lifecycle.DisconnectCommand;
+import nl.hauntedmc.dataregistry.core.lifecycle.LoginCommand;
+import nl.hauntedmc.dataregistry.core.lifecycle.PlayerIdentityInitializationTracker.PlayerIdentityInitialization;
+import nl.hauntedmc.dataregistry.core.lifecycle.PlayerLifecycleWriteResult;
+import nl.hauntedmc.dataregistry.core.lifecycle.PlayerLifecycleWriter;
+import nl.hauntedmc.dataregistry.core.lifecycle.TransferCommand;
+import nl.hauntedmc.dataregistry.core.service.PlayerActivitySummaryService;
+import nl.hauntedmc.dataregistry.core.service.PlayerConnectionInfoService;
+import nl.hauntedmc.dataregistry.core.service.PlayerNameHistoryService;
+import nl.hauntedmc.dataregistry.core.service.PlayerPlaytimeService;
+import nl.hauntedmc.dataregistry.core.service.PlayerService;
+import nl.hauntedmc.dataregistry.core.service.PlayerSessionService;
+import nl.hauntedmc.dataregistry.core.service.PlayerStatusService;
+import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
+
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+
+/**
+ * Serializes Velocity player lifecycle persistence off the proxy event thread.
+ * <p>
+ * Velocity can emit login, server switch, and disconnect events in quick succession. This listener snapshots the
+ * platform state synchronously, then processes all database-backed lifecycle work through a per-player queue so
+ * dependent feature tables observe identity creation before later lifecycle updates.
+ */
+public class PlayerStatusListener {
+
+    private static final int MAX_LOG_VALUE_LENGTH = 256;
+    public static final short PLAYER_LIFECYCLE_EVENT_PRIORITY = 1000;
+
+    private final PlayerService playerService;
+    private final PlayerLifecycleWriter lifecycleWriter;
+    private final PlayerPlaytimeService playtimeService;
+    private final ILoggerAdapter logger;
+    private final Executor eventExecutor;
+    private final ConcurrentMap<String, CompletableFuture<Void>> playerEventPipelines = new ConcurrentHashMap<>();
+    /**
+     * The current Velocity connection for each UUID. Presence is owned by a concrete proxy connection, rather than
+     * {@link DisconnectEvent.LoginStatus}: a backend connection failure can use a non-successful login status even
+     * after this player has been established at the proxy. Comparing player instances also prevents an obsolete
+     * connection from taking a newer login for the same UUID offline.
+     */
+    private final ConcurrentMap<String, Player> currentPlayerConnections = new ConcurrentHashMap<>();
+    private final AtomicBoolean acceptingEvents = new AtomicBoolean(true);
+
+    public PlayerStatusListener(
+            PlayerService playerService,
+            PlayerNameHistoryService nameHistoryService,
+            PlayerActivitySummaryService activitySummaryService,
+            PlayerStatusService statusService,
+            PlayerConnectionInfoService connectionService,
+            PlayerSessionService sessionService,
+            PlayerPlaytimeService playtimeService,
+            ILoggerAdapter logger,
+            Executor eventExecutor
+    ) {
+        this(
+                playerService,
+                new PlayerLifecycleWriter(
+                        Objects.requireNonNull(sessionService, "sessionService must not be null").dataRegistry(),
+                        playerService,
+                        nameHistoryService,
+                        activitySummaryService,
+                        statusService,
+                        connectionService,
+                        sessionService,
+                        playtimeService,
+                        logger
+                ),
+                playtimeService,
+                logger,
+                eventExecutor
+        );
+    }
+
+    public PlayerStatusListener(
+            PlayerService playerService,
+            PlayerLifecycleWriter lifecycleWriter,
+            PlayerPlaytimeService playtimeService,
+            ILoggerAdapter logger,
+            Executor eventExecutor
+    ) {
+        this.playerService = Objects.requireNonNull(playerService, "playerService must not be null");
+        this.lifecycleWriter = Objects.requireNonNull(lifecycleWriter, "lifecycleWriter must not be null");
+        this.playtimeService = Objects.requireNonNull(playtimeService, "playtimeService must not be null");
+        this.logger = Objects.requireNonNull(logger, "logger must not be null");
+        this.eventExecutor = Objects.requireNonNull(eventExecutor, "eventExecutor must not be null");
+    }
+
+    @Subscribe(priority = PLAYER_LIFECYCLE_EVENT_PRIORITY)
+    public void onPlayerJoin(PostLoginEvent event) {
+        Player player = event.getPlayer();
+        String uuid = player.getUniqueId().toString();
+        String username = player.getUsername();
+        String ip = extractIp(player);
+        String vhost = extractVirtualHost(player);
+        if (!acceptingEvents.get()) {
+            return;
+        }
+
+        currentPlayerConnections.put(uuid, player);
+        PlayerIdentityInitialization initialization = playerService.beginIdentityInitialization(player.getUniqueId());
+        Optional<CompletableFuture<Void>> queuedLogin = enqueuePlayerEvent(uuid, () -> {
+            PlayerLifecycleWriteResult result = lifecycleWriter.login(LoginCommand.create(uuid, username, ip, vhost));
+            if (!result.succeeded()) {
+                playerService.failIdentityInitialization(initialization, result.failure());
+                return;
+            }
+            result.identityOptional().ifPresentOrElse(
+                    identity -> playerService.completeIdentityInitialization(initialization, identity),
+                    () -> playerService.failIdentityInitialization(
+                            initialization,
+                            new IllegalStateException("Lifecycle login completed without an identity.")
+                    )
+            );
+        });
+        if (queuedLogin.isEmpty()) {
+            playerService.completeIdentityInitializationUnavailable(initialization);
+            return;
+        }
+        queuedLogin.get().whenComplete((ignored, failure) -> {
+            if (failure != null) {
+                playerService.failIdentityInitialization(initialization, failure);
+            }
+        });
+    }
+
+    @Subscribe(priority = PLAYER_LIFECYCLE_EVENT_PRIORITY)
+    public void onServerSwitch(ServerConnectedEvent event) {
+        Player player = event.getPlayer();
+        String uuid = player.getUniqueId().toString();
+        String username = player.getUsername();
+        String serverName = event.getServer().getServerInfo().getName();
+        if (!isCurrentConnection(uuid, player)) {
+            return;
+        }
+
+        enqueuePlayerEvent(uuid, () -> {
+            if (isCurrentConnection(uuid, player)) {
+                lifecycleWriter.transfer(TransferCommand.create(uuid, username, serverName));
+            }
+        });
+    }
+
+    @Subscribe(priority = PLAYER_LIFECYCLE_EVENT_PRIORITY)
+    public void onPlayerQuit(DisconnectEvent event) {
+        Player player = event.getPlayer();
+        String uuid = player.getUniqueId().toString();
+        String username = player.getUsername();
+        if (!removeCurrentConnection(uuid, player)) {
+            return;
+        }
+
+        enqueuePlayerEvent(uuid, () -> {
+            try {
+                lifecycleWriter.disconnect(DisconnectCommand.create(uuid, username));
+            } finally {
+                playerService.onPlayerQuit(username, uuid);
+            }
+        });
+    }
+
+    private boolean isCurrentConnection(String uuid, Player player) {
+        return currentPlayerConnections.get(uuid) == player;
+    }
+
+    private boolean removeCurrentConnection(String uuid, Player player) {
+        AtomicBoolean removed = new AtomicBoolean();
+        currentPlayerConnections.compute(uuid, (key, currentPlayer) -> {
+            if (currentPlayer == player) {
+                removed.set(true);
+                return null;
+            }
+            return currentPlayer;
+        });
+        return removed.get();
+    }
+
+    private Optional<CompletableFuture<Void>> enqueuePlayerEvent(String uuid, Runnable task) {
+        return enqueuePlayerEvent(uuid, task, false);
+    }
+
+    private Optional<CompletableFuture<Void>> enqueuePlayerEvent(
+            String uuid,
+            Runnable task,
+            boolean allowDuringShutdown
+    ) {
+        AtomicReference<CompletableFuture<Void>> queuedPipeline = new AtomicReference<>();
+        AtomicReference<String> queuedKey = new AtomicReference<>();
+        AtomicReference<RuntimeException> schedulingFailure = new AtomicReference<>();
+        playerEventPipelines.compute(uuid, (key, currentPipeline) -> {
+            if (!allowDuringShutdown && !acceptingEvents.get()) {
+                return currentPipeline;
+            }
+            CompletableFuture<Void> base = currentPipeline == null
+                    ? CompletableFuture.completedFuture(null)
+                    : currentPipeline.exceptionally(throwable -> null);
+            CompletableFuture<Void> next;
+            try {
+                next = base.thenRunAsync(task, eventExecutor);
+            } catch (RuntimeException exception) {
+                next = new CompletableFuture<>();
+                schedulingFailure.set(exception);
+            }
+            CompletableFuture<Void> scheduledPipeline = next;
+            queuedPipeline.set(scheduledPipeline);
+            queuedKey.set(key);
+            return scheduledPipeline;
+        });
+
+        CompletableFuture<Void> scheduledPipeline = queuedPipeline.get();
+        String key = queuedKey.get();
+        if (scheduledPipeline != null && key != null) {
+            scheduledPipeline.whenComplete((ignored, throwable) -> {
+                if (throwable != null) {
+                    logger.error(
+                            "Unhandled exception while processing queued lifecycle event for uuid=" + safeForLog(uuid),
+                            throwable
+                    );
+                }
+                playerEventPipelines.remove(key, scheduledPipeline);
+            });
+            RuntimeException failure = schedulingFailure.get();
+            if (failure != null) {
+                scheduledPipeline.completeExceptionally(failure);
+            }
+        }
+        return Optional.ofNullable(scheduledPipeline);
+    }
+
+    public void beginShutdown() {
+        acceptingEvents.set(false);
+    }
+
+    /**
+     * Enqueues a lightweight playtime accrual flush for currently active players.
+     */
+    public void flushActivePlaytime() {
+        for (Map.Entry<String, PlayerEntity> entry : playerService.snapshotActivePlayers().entrySet()) {
+            PlayerEntity player = entry.getValue();
+            if (player == null) {
+                continue;
+            }
+            enqueuePlayerEvent(entry.getKey(), () -> playtimeService.flushActivePlaytime(player));
+        }
+    }
+
+    /**
+     * Enqueues full disconnect persistence for active players that did not emit a disconnect event before shutdown.
+     */
+    public void closeActivePresenceForShutdown() {
+        for (Map.Entry<String, PlayerEntity> entry : playerService.snapshotActivePlayers().entrySet()) {
+            PlayerEntity player = entry.getValue();
+            if (player == null) {
+                continue;
+            }
+            String uuid = player.getUuid() == null ? entry.getKey() : player.getUuid();
+            enqueuePlayerEvent(uuid, () -> {
+                try {
+                    lifecycleWriter.disconnect(DisconnectCommand.create(uuid, player.getUsername()));
+                } finally {
+                    playerService.onPlayerQuit(player.getUsername(), uuid);
+                }
+            }, true);
+        }
+    }
+
+    public boolean awaitPipelineDrain(long timeout, TimeUnit unit) {
+        Objects.requireNonNull(unit, "unit must not be null");
+        if (timeout < 0L) {
+            throw new IllegalArgumentException("timeout must be non-negative");
+        }
+        long deadlineNanos = System.nanoTime() + unit.toNanos(timeout);
+        while (true) {
+            CompletableFuture<?>[] pendingPipelines = playerEventPipelines.values().toArray(CompletableFuture[]::new);
+            if (pendingPipelines.length == 0) {
+                return true;
+            }
+
+            long remainingNanos = deadlineNanos - System.nanoTime();
+            if (remainingNanos <= 0L) {
+                return false;
+            }
+
+            try {
+                CompletableFuture.allOf(pendingPipelines).get(remainingNanos, TimeUnit.NANOSECONDS);
+            } catch (ExecutionException ignored) {
+                // Individual pipeline failures are logged by enqueuePlayerEvent and still count as completed work.
+            } catch (TimeoutException timeoutException) {
+                return false;
+            } catch (InterruptedException interruptedException) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+    }
+
+    private static String safeForLog(String value) {
+        if (value == null) {
+            return "<null>";
+        }
+        int outputLimit = Math.min(value.length(), MAX_LOG_VALUE_LENGTH);
+        StringBuilder sanitized = new StringBuilder(outputLimit + 3);
+        for (int i = 0; i < value.length() && sanitized.length() < outputLimit; i++) {
+            char character = value.charAt(i);
+            sanitized.append(Character.isISOControl(character) ? '_' : character);
+        }
+        if (value.length() > outputLimit) {
+            sanitized.append("...");
+        }
+        return sanitized.toString();
+    }
+
+    private String extractIp(Player player) {
+        try {
+            SocketAddress sa = player.getRemoteAddress();
+            if (sa instanceof InetSocketAddress isa) {
+                if (isa.getAddress() != null) {
+                    return isa.getAddress().getHostAddress();
+                }
+                return isa.getHostString();
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+        return null;
+    }
+
+    private String extractVirtualHost(Player player) {
+        try {
+            return player.getVirtualHost()
+                    .map(addr -> addr.getHostString() + ":" + addr.getPort())
+                    .orElse(null);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+}

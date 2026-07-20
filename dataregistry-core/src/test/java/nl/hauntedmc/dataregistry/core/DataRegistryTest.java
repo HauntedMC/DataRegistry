@@ -1,0 +1,615 @@
+package nl.hauntedmc.dataregistry.core;
+
+import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
+import nl.hauntedmc.dataprovider.api.DataProviderAPI;
+import nl.hauntedmc.dataprovider.api.orm.ORMContext;
+import nl.hauntedmc.dataprovider.database.DatabaseType;
+import nl.hauntedmc.dataprovider.database.relational.RelationalDatabaseProvider;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerActivitySummaryEntity;
+import nl.hauntedmc.dataprovider.logging.LogLevel;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerConnectionInfoEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLanguageEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerNameHistoryEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerNicknameEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionVisitEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.NetworkServiceEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceInstanceEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceProbeEntity;
+import nl.hauntedmc.dataregistry.core.persistence.repository.NetworkServiceRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerActivitySummaryRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerConnectionInfoRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerLanguageRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerNameHistoryRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerNicknameRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerOnlineStatusRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerSessionVisitRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.ServiceInstanceRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.ServiceProbeRepository;
+import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
+import nl.hauntedmc.dataregistry.core.service.ServiceRegistryService;
+import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
+import org.junit.jupiter.api.Test;
+
+import javax.sql.DataSource;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.Optional;
+import java.util.Set;
+
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class DataRegistryTest {
+
+    @Test
+    void constructorRejectsNullArguments() {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+        DataRegistrySettings settings = DataRegistrySettings.defaults();
+
+        assertThrows(NullPointerException.class, () -> new DataRegistry(null, "DataRegistry", api));
+        assertThrows(NullPointerException.class, () -> new DataRegistry(logger, null, api));
+        assertThrows(NullPointerException.class, () -> new DataRegistry(logger, "DataRegistry", null));
+        assertThrows(NullPointerException.class, () -> new DataRegistry(logger, "DataRegistry", api, null));
+        assertThrows(IllegalArgumentException.class, () -> new DataRegistry(logger, "   ", api));
+        assertDoesNotThrow(() -> new DataRegistry(logger, "DataRegistry", api, settings));
+    }
+
+    @Test
+    void shutdownClearsFeatureServiceDirectory() {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+        DataRegistry registry = new DataRegistry(logger, "DataRegistry", api);
+        Runnable service = () -> { };
+
+        registry.featureServices().register("ProxyFeatures", "Example", Runnable.class, service);
+
+        registry.shutdown();
+
+        assertTrue(registry.featureServices().find(Runnable.class).isEmpty());
+    }
+
+    @Test
+    void initializeCreatesOrmContextAndRepositoryWhenProviderIsReady() {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+        RelationalDatabaseProvider provider = mock(RelationalDatabaseProvider.class);
+        DataSource dataSource = mock(DataSource.class);
+        ORMContext ormContext = mock(ORMContext.class);
+        PlayerRepository repository = mock(PlayerRepository.class);
+
+        when(api.registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class))
+                .thenReturn(Optional.of(provider));
+        when(provider.isConnected()).thenReturn(true);
+        when(provider.getDataSourceOptional()).thenReturn(Optional.of(dataSource));
+
+        TestableDataRegistry registry = new TestableDataRegistry(logger, "DataRegistry", api, ormContext, repository);
+
+        assertTrue(registry.initialize());
+        assertSame(ormContext, registry.getORM());
+        assertNotNull(registry.players());
+        assertNotNull(registry.players().identities());
+        assertNotNull(registry.newPlayerService(logger));
+        assertSame(dataSource, registry.lastPlayerDataSource);
+        assertSame(registry.testServiceOrmContext(), registry.getServiceORM());
+        assertSame(registry.testNetworkServiceRepository(), registry.getNetworkServiceRepository());
+        assertSame(registry.testServiceInstanceRepository(), registry.getServiceInstanceRepository());
+        assertSame(registry.testServiceProbeRepository(), registry.getServiceProbeRepository());
+        assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerActivitySummaryEntity.class));
+        assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerLanguageEntity.class));
+        assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerNicknameEntity.class));
+        assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerSessionVisitEntity.class));
+        assertEquals(3, registry.lastServiceEntityClasses.length);
+        assertTrue(Arrays.asList(registry.lastServiceEntityClasses).contains(NetworkServiceEntity.class));
+        assertTrue(Arrays.asList(registry.lastServiceEntityClasses).contains(ServiceInstanceEntity.class));
+        assertTrue(Arrays.asList(registry.lastServiceEntityClasses).contains(ServiceProbeEntity.class));
+        assertTrue(registry.isInitialized());
+    }
+
+    @Test
+    void initializeRegistersOnlyEnabledBuiltInEntities() {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+        RelationalDatabaseProvider provider = mock(RelationalDatabaseProvider.class);
+        DataSource dataSource = mock(DataSource.class);
+        ORMContext ormContext = mock(ORMContext.class);
+        PlayerRepository repository = mock(PlayerRepository.class);
+        DataRegistrySettings settings = DataRegistrySettings.builder()
+                .enabledFeatures(Set.of(DataRegistryFeature.CONNECTION_INFO))
+                .build();
+
+        when(api.registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class))
+                .thenReturn(Optional.of(provider));
+        when(provider.isConnected()).thenReturn(true);
+        when(provider.getDataSourceOptional()).thenReturn(Optional.of(dataSource));
+
+        TestableDataRegistry registry = new TestableDataRegistry(
+                logger,
+                "DataRegistry",
+                api,
+                ormContext,
+                repository,
+                settings
+        );
+
+        assertTrue(registry.initialize());
+        assertEquals(3, registry.lastPlayerEntityClasses.length);
+        assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerEntity.class));
+        assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerLifecycleOutboxEntity.class));
+        assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerConnectionInfoEntity.class));
+        assertFalse(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerActivitySummaryEntity.class));
+        assertFalse(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerNameHistoryEntity.class));
+        assertFalse(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerLanguageEntity.class));
+        assertFalse(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerNicknameEntity.class));
+        assertFalse(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerSessionVisitEntity.class));
+        assertEquals(0, registry.lastServiceEntityClasses.length);
+        assertFalse(registry.isFeatureEnabled(DataRegistryFeature.SESSIONS));
+        assertFalse(registry.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS));
+    }
+
+    @Test
+    void initializeReturnsFalseWhenProviderCannotBeResolved() {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+        when(api.registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class))
+                .thenReturn(Optional.empty());
+
+        DataRegistry registry = new DataRegistry(logger, "DataRegistry", api);
+        assertFalse(registry.initialize());
+        assertFalse(registry.isInitialized());
+        verify(api).unregisterAllDatabasesForPlugin();
+    }
+
+    @Test
+    void initializeReturnsFalseWhenProviderIsDisconnected() {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+        RelationalDatabaseProvider provider = mock(RelationalDatabaseProvider.class);
+        when(api.registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class))
+                .thenReturn(Optional.of(provider));
+        when(provider.isConnected()).thenReturn(false);
+
+        DataRegistry registry = new DataRegistry(logger, "DataRegistry", api);
+
+        assertFalse(registry.initialize());
+        verify(logger).error(org.mockito.ArgumentMatchers.eq("Failed to initialize DataRegistry."), any(Exception.class));
+        verify(api).unregisterAllDatabasesForPlugin();
+    }
+
+    @Test
+    void initializeReturnsFalseWhenProviderHasNoDataSource() {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+        RelationalDatabaseProvider provider = mock(RelationalDatabaseProvider.class);
+        when(api.registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class))
+                .thenReturn(Optional.of(provider));
+        when(provider.isConnected()).thenReturn(true);
+        when(provider.getDataSourceOptional()).thenReturn(Optional.empty());
+
+        DataRegistry registry = new DataRegistry(logger, "DataRegistry", api);
+
+        assertFalse(registry.initialize());
+        verify(api).unregisterAllDatabasesForPlugin();
+    }
+
+    @Test
+    void initializeIsIdempotentOnceOrmAndRepositoryExist() {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+        RelationalDatabaseProvider provider = mock(RelationalDatabaseProvider.class);
+        DataSource dataSource = mock(DataSource.class);
+        ORMContext ormContext = mock(ORMContext.class);
+        PlayerRepository repository = mock(PlayerRepository.class);
+
+        when(api.registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class))
+                .thenReturn(Optional.of(provider));
+        when(provider.isConnected()).thenReturn(true);
+        when(provider.getDataSourceOptional()).thenReturn(Optional.of(dataSource));
+
+        TestableDataRegistry registry = new TestableDataRegistry(logger, "DataRegistry", api, ormContext, repository);
+
+        assertTrue(registry.initialize());
+        assertTrue(registry.initialize());
+        verify(api).registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class);
+        verify(logger).warn("DataRegistry is already initialized.");
+    }
+
+    @Test
+    void initializeCleansUpPartiallyInitializedStateBeforeRetrying() throws Exception {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+        RelationalDatabaseProvider provider = mock(RelationalDatabaseProvider.class);
+        DataSource dataSource = mock(DataSource.class);
+        ORMContext staleOrm = mock(ORMContext.class);
+        ORMContext freshOrm = mock(ORMContext.class);
+        PlayerRepository repository = mock(PlayerRepository.class);
+
+        when(api.registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class))
+                .thenReturn(Optional.of(provider));
+        when(provider.isConnected()).thenReturn(true);
+        when(provider.getDataSourceOptional()).thenReturn(Optional.of(dataSource));
+
+        TestableDataRegistry registry = new TestableDataRegistry(logger, "DataRegistry", api, freshOrm, repository);
+        setField(registry, "ormContext", staleOrm);
+        setField(registry, "playerRepository", null);
+
+        assertTrue(registry.initialize());
+        verify(logger).warn("Detected partially initialized DataRegistry state; forcing cleanup.");
+        verify(staleOrm).shutdown();
+        verify(api).unregisterAllDatabasesForPlugin();
+    }
+
+    @Test
+    void initializeUsesConfiguredDatabaseConnectionId() {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+        RelationalDatabaseProvider provider = mock(RelationalDatabaseProvider.class);
+        DataSource dataSource = mock(DataSource.class);
+        ORMContext ormContext = mock(ORMContext.class);
+        PlayerRepository repository = mock(PlayerRepository.class);
+        DataRegistrySettings settings = DataRegistrySettings.builder()
+                .playerDatabaseConnectionId("custom_player_rw")
+                .serviceDatabaseConnectionId("custom_player_rw")
+                .ormSchemaMode("update")
+                .build();
+
+        when(api.registerDatabaseAs(DatabaseType.MYSQL, "custom_player_rw", RelationalDatabaseProvider.class))
+                .thenReturn(Optional.of(provider));
+        when(provider.isConnected()).thenReturn(true);
+        when(provider.getDataSourceOptional()).thenReturn(Optional.of(dataSource));
+
+        TestableDataRegistry registry = new TestableDataRegistry(
+                logger,
+                "DataRegistry",
+                api,
+                ormContext,
+                repository,
+                settings
+        );
+
+        assertTrue(registry.initialize());
+        verify(api).registerDatabaseAs(DatabaseType.MYSQL, "custom_player_rw", RelationalDatabaseProvider.class);
+        assertEquals("update", registry.getSettings().ormSchemaMode());
+    }
+
+    @Test
+    void initializeReturnsFalseAndCleansUpWhenSetupThrows() {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+        RelationalDatabaseProvider provider = mock(RelationalDatabaseProvider.class);
+        DataSource dataSource = mock(DataSource.class);
+        ORMContext ormContext = mock(ORMContext.class);
+
+        when(api.registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class))
+                .thenReturn(Optional.of(provider));
+        when(provider.isConnected()).thenReturn(true);
+        when(provider.getDataSourceOptional()).thenReturn(Optional.of(dataSource));
+
+        DataRegistry registry = new FailingRepositoryDataRegistry(logger, "DataRegistry", api, ormContext);
+
+        assertFalse(registry.initialize());
+        verify(ormContext).shutdown();
+        verify(api).unregisterAllDatabasesForPlugin();
+        verify(logger).error(org.mockito.ArgumentMatchers.eq("Failed to initialize DataRegistry."), any(Exception.class));
+    }
+
+    @Test
+    void gettersThrowWhenRegistryIsNotInitialized() {
+        DataRegistry registry = new DataRegistry(mock(ILoggerAdapter.class), "DataRegistry", mock(DataProviderAPI.class));
+
+        assertThrows(IllegalStateException.class, registry::getORM);
+        assertThrows(IllegalStateException.class, registry::players);
+        assertThrows(IllegalStateException.class, () -> registry.newPlayerService(mock(ILoggerAdapter.class)));
+        assertThrows(IllegalStateException.class, registry::getServiceORM);
+        assertThrows(IllegalStateException.class, registry::getNetworkServiceRepository);
+        assertThrows(IllegalStateException.class, registry::getServiceInstanceRepository);
+        assertThrows(IllegalStateException.class, registry::getServiceProbeRepository);
+        assertFalse(registry.isInitialized());
+    }
+
+    @Test
+    void newServiceRegistryServiceReflectsFeatureToggleState() {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+
+        DataRegistry enabledRegistry = new DataRegistry(logger, "DataRegistry", api);
+        ServiceRegistryService enabledService = enabledRegistry.newServiceRegistryService();
+        assertTrue(enabledService.isFeatureEnabled());
+
+        DataRegistrySettings disabledSettings = DataRegistrySettings.builder()
+                .enabledFeatures(Set.of(
+                        DataRegistryFeature.ONLINE_STATUS,
+                        DataRegistryFeature.CONNECTION_INFO,
+                        DataRegistryFeature.ACTIVITY_SUMMARY,
+                        DataRegistryFeature.SESSIONS,
+                        DataRegistryFeature.LANGUAGE,
+                        DataRegistryFeature.NICKNAMES,
+                        DataRegistryFeature.NAME_HISTORY
+                ))
+                .build();
+        DataRegistry disabledRegistry = new DataRegistry(logger, "DataRegistry", api, disabledSettings);
+        ServiceRegistryService disabledService = disabledRegistry.newServiceRegistryService();
+        assertFalse(disabledService.isFeatureEnabled());
+    }
+
+    @Test
+    void shutdownClosesOrmAndUnregistersAllPluginDatabases() {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+        RelationalDatabaseProvider provider = mock(RelationalDatabaseProvider.class);
+        DataSource dataSource = mock(DataSource.class);
+        ORMContext ormContext = mock(ORMContext.class);
+        PlayerRepository repository = mock(PlayerRepository.class);
+
+        when(api.registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class))
+                .thenReturn(Optional.of(provider));
+        when(provider.isConnected()).thenReturn(true);
+        when(provider.getDataSourceOptional()).thenReturn(Optional.of(dataSource));
+
+        TestableDataRegistry registry = new TestableDataRegistry(logger, "DataRegistry", api, ormContext, repository);
+        assertTrue(registry.initialize());
+
+        registry.shutdown();
+
+        verify(ormContext).shutdown();
+        verify(registry.testServiceOrmContext()).shutdown();
+        verify(api).unregisterAllDatabasesForPlugin();
+        assertFalse(registry.isInitialized());
+    }
+
+    @Test
+    void shutdownClearsStaleRepositoryReferenceWhenOrmContextIsMissing() throws Exception {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+        DataRegistry registry = new DataRegistry(logger, "DataRegistry", api);
+        setField(registry, "playerRepository", mock(PlayerRepository.class));
+        setField(registry, "ormContext", null);
+
+        registry.shutdown();
+
+        assertThrows(IllegalStateException.class, registry::players);
+        assertFalse(registry.isInitialized());
+        verify(api).unregisterAllDatabasesForPlugin();
+    }
+
+    @Test
+    void shutdownContinuesWhenOrmOrApiCleanupThrows() {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+        DataRegistry registry = new DataRegistry(logger, "DataRegistry", api);
+
+        doThrow(new RuntimeException("api cleanup failed")).when(api).unregisterAllDatabasesForPlugin();
+        assertDoesNotThrow(registry::shutdown);
+        verify(logger).warn(
+                org.mockito.ArgumentMatchers.eq("Failed to unregister DataProvider plugin-scoped databases."),
+                org.mockito.ArgumentMatchers.any(RuntimeException.class)
+        );
+    }
+
+    @Test
+    void dataProviderLoggerAdapterMapsLevelsToPlatformLogger() throws Exception {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataRegistry registry = new DataRegistry(logger, "DataRegistry", mock(DataProviderAPI.class));
+
+        Field ormLoggerField = DataRegistry.class.getDeclaredField("ormLogger");
+        ormLoggerField.setAccessible(true);
+        Object ormLogger = ormLoggerField.get(registry);
+
+        Method logMethod = ormLogger.getClass().getDeclaredMethod("log", LogLevel.class, String.class, Throwable.class);
+        logMethod.setAccessible(true);
+
+        RuntimeException problem = new RuntimeException("boom");
+        logMethod.invoke(ormLogger, LogLevel.INFO, "i1", null);
+        logMethod.invoke(ormLogger, LogLevel.INFO, "i2", problem);
+        logMethod.invoke(ormLogger, LogLevel.WARN, "w1", null);
+        logMethod.invoke(ormLogger, LogLevel.WARN, "w2", problem);
+        logMethod.invoke(ormLogger, LogLevel.ERROR, "e1", null);
+        logMethod.invoke(ormLogger, LogLevel.ERROR, "e2", problem);
+        logMethod.invoke(ormLogger, null, "fallback", problem);
+
+        verify(logger).info("i1");
+        verify(logger).info("i2", problem);
+        verify(logger).warn("w1");
+        verify(logger).warn("w2", problem);
+        verify(logger).error("e1");
+        verify(logger).error("e2", problem);
+        verify(logger).warn("fallback", problem);
+    }
+
+    private static void setField(Object target, String fieldName, Object value) throws Exception {
+        Field field = DataRegistry.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
+    private static final class TestableDataRegistry extends DataRegistry {
+        private final ORMContext playerOrmContext;
+        private final ORMContext serviceOrmContext;
+        private final PlayerRepository playerRepository;
+        private final PlayerActivitySummaryRepository playerActivitySummaryRepository;
+        private final PlayerOnlineStatusRepository playerOnlineStatusRepository;
+        private final PlayerConnectionInfoRepository playerConnectionInfoRepository;
+        private final PlayerLanguageRepository playerLanguageRepository;
+        private final PlayerNicknameRepository playerNicknameRepository;
+        private final PlayerNameHistoryRepository playerNameHistoryRepository;
+        private final PlayerSessionVisitRepository playerSessionVisitRepository;
+        private final NetworkServiceRepository networkServiceRepository;
+        private final ServiceInstanceRepository serviceInstanceRepository;
+        private final ServiceProbeRepository serviceProbeRepository;
+        private DataSource lastPlayerDataSource;
+        private DataSource lastServiceDataSource;
+        private Class<?>[] lastPlayerEntityClasses = new Class<?>[0];
+        private Class<?>[] lastServiceEntityClasses = new Class<?>[0];
+
+        private TestableDataRegistry(
+                ILoggerAdapter logger,
+                String pluginName,
+                DataProviderAPI dataProviderAPI,
+                ORMContext ormContext,
+                PlayerRepository repository
+        ) {
+            super(logger, pluginName, dataProviderAPI);
+            this.playerOrmContext = ormContext;
+            this.playerRepository = repository;
+            this.playerActivitySummaryRepository = mock(PlayerActivitySummaryRepository.class);
+            this.playerOnlineStatusRepository = mock(PlayerOnlineStatusRepository.class);
+            this.playerConnectionInfoRepository = mock(PlayerConnectionInfoRepository.class);
+            this.playerLanguageRepository = mock(PlayerLanguageRepository.class);
+            this.playerNicknameRepository = mock(PlayerNicknameRepository.class);
+            this.serviceOrmContext = mock(ORMContext.class);
+            this.playerNameHistoryRepository = mock(PlayerNameHistoryRepository.class);
+            this.playerSessionVisitRepository = mock(PlayerSessionVisitRepository.class);
+            this.networkServiceRepository = mock(NetworkServiceRepository.class);
+            this.serviceInstanceRepository = mock(ServiceInstanceRepository.class);
+            this.serviceProbeRepository = mock(ServiceProbeRepository.class);
+        }
+
+        private TestableDataRegistry(
+                ILoggerAdapter logger,
+                String pluginName,
+                DataProviderAPI dataProviderAPI,
+                ORMContext ormContext,
+                PlayerRepository repository,
+                DataRegistrySettings settings
+        ) {
+            super(logger, pluginName, dataProviderAPI, settings);
+            this.playerOrmContext = ormContext;
+            this.playerRepository = repository;
+            this.playerActivitySummaryRepository = mock(PlayerActivitySummaryRepository.class);
+            this.playerOnlineStatusRepository = mock(PlayerOnlineStatusRepository.class);
+            this.playerConnectionInfoRepository = mock(PlayerConnectionInfoRepository.class);
+            this.playerLanguageRepository = mock(PlayerLanguageRepository.class);
+            this.playerNicknameRepository = mock(PlayerNicknameRepository.class);
+            this.serviceOrmContext = mock(ORMContext.class);
+            this.playerNameHistoryRepository = mock(PlayerNameHistoryRepository.class);
+            this.playerSessionVisitRepository = mock(PlayerSessionVisitRepository.class);
+            this.networkServiceRepository = mock(NetworkServiceRepository.class);
+            this.serviceInstanceRepository = mock(ServiceInstanceRepository.class);
+            this.serviceProbeRepository = mock(ServiceProbeRepository.class);
+        }
+
+        @Override
+        ORMContext newOrmContext(DataSource dataSource, Class<?>... entityClasses) {
+            this.lastPlayerDataSource = dataSource;
+            this.lastPlayerEntityClasses = entityClasses;
+            return playerOrmContext;
+        }
+
+        @Override
+        ORMContext newServiceOrmContext(DataSource dataSource, Class<?>... entityClasses) {
+            this.lastServiceDataSource = dataSource;
+            this.lastServiceEntityClasses = entityClasses;
+            return serviceOrmContext;
+        }
+
+        @Override
+        PlayerRepository newPlayerRepository(ORMContext context) {
+            return playerRepository;
+        }
+
+        @Override
+        PlayerActivitySummaryRepository newPlayerActivitySummaryRepository(ORMContext context) {
+            return playerActivitySummaryRepository;
+        }
+
+        @Override
+        PlayerOnlineStatusRepository newPlayerOnlineStatusRepository(ORMContext context) {
+            return playerOnlineStatusRepository;
+        }
+
+        @Override
+        PlayerConnectionInfoRepository newPlayerConnectionInfoRepository(ORMContext context) {
+            return playerConnectionInfoRepository;
+        }
+
+        @Override
+        PlayerLanguageRepository newPlayerLanguageRepository(ORMContext context) {
+            return playerLanguageRepository;
+        }
+
+        @Override
+        PlayerNicknameRepository newPlayerNicknameRepository(ORMContext context) {
+            return playerNicknameRepository;
+        }
+
+        @Override
+        PlayerNameHistoryRepository newPlayerNameHistoryRepository(ORMContext context) {
+            return playerNameHistoryRepository;
+        }
+
+        @Override
+        PlayerSessionVisitRepository newPlayerSessionVisitRepository(ORMContext context) {
+            return playerSessionVisitRepository;
+        }
+
+        @Override
+        NetworkServiceRepository newNetworkServiceRepository(ORMContext context) {
+            return networkServiceRepository;
+        }
+
+        @Override
+        ServiceInstanceRepository newServiceInstanceRepository(ORMContext context) {
+            return serviceInstanceRepository;
+        }
+
+        @Override
+        ServiceProbeRepository newServiceProbeRepository(ORMContext context) {
+            return serviceProbeRepository;
+        }
+
+        private ORMContext testServiceOrmContext() {
+            return serviceOrmContext;
+        }
+
+        private NetworkServiceRepository testNetworkServiceRepository() {
+            return networkServiceRepository;
+        }
+
+        private ServiceInstanceRepository testServiceInstanceRepository() {
+            return serviceInstanceRepository;
+        }
+
+        private ServiceProbeRepository testServiceProbeRepository() {
+            return serviceProbeRepository;
+        }
+    }
+
+    private static final class FailingRepositoryDataRegistry extends DataRegistry {
+        private final ORMContext ormContext;
+
+        private FailingRepositoryDataRegistry(
+                ILoggerAdapter logger,
+                String pluginName,
+                DataProviderAPI dataProviderAPI,
+                ORMContext ormContext
+        ) {
+            super(logger, pluginName, dataProviderAPI);
+            this.ormContext = ormContext;
+        }
+
+        @Override
+        ORMContext newOrmContext(DataSource dataSource, Class<?>... entityClasses) {
+            return ormContext;
+        }
+
+        @Override
+        PlayerRepository newPlayerRepository(ORMContext context) {
+            throw new RuntimeException("repository creation failed");
+        }
+    }
+
+}

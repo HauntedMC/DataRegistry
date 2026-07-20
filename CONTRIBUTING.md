@@ -10,9 +10,9 @@
 ## Architecture Rules
 
 - Keep platform modules (`platform.bukkit`, `platform.velocity`) thin.
-- Put persistence/business behavior in `backend.service`.
-- Keep settings validation in `backend.config`.
-- Keep repository responsibilities in `api.repository`.
+- Put core business behavior in `core.service`.
+- Keep settings validation in `core.config`.
+- Keep ORM entities and repositories in `core.persistence`.
 - New built-in data domains must be feature-toggleable through `DataRegistrySettings`.
 
 ## Feature Toggle Policy
@@ -38,9 +38,9 @@ Database profile policy:
 
 ## Adding New Data Domains
 
-1. Create entity class in `api.entities`.
-2. Create repository abstraction in `api.repository` if needed.
-3. Add a focused service in `backend.service`.
+1. Create entity class in `core.persistence.entity`.
+2. Create repository abstraction in `core.persistence.repository` if needed.
+3. Add a focused service in `core.service`.
 4. Add a feature toggle in `DataRegistryFeature`, `DataRegistrySettings`, and `DataRegistrySettingsLoader`.
 5. Wire feature-aware behavior in runtime startup (`DataRegistry` and platform module).
 6. Add unit tests for settings parsing, service behavior, and runtime registration.

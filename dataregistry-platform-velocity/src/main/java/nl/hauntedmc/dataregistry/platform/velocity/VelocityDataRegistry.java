@@ -1,0 +1,775 @@
+package nl.hauntedmc.dataregistry.platform.velocity;
+
+import com.google.inject.Inject;
+import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
+import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
+import com.velocitypowered.api.event.Subscribe;
+import com.velocitypowered.api.plugin.PluginContainer;
+import com.velocitypowered.api.plugin.Dependency;
+import com.velocitypowered.api.plugin.Plugin;
+import com.velocitypowered.api.plugin.annotation.DataDirectory;
+import com.velocitypowered.api.proxy.ProxyServer;
+import com.velocitypowered.api.proxy.server.RegisteredServer;
+import com.velocitypowered.api.proxy.server.ServerInfo;
+import nl.hauntedmc.dataprovider.api.DataProviderAPI;
+import nl.hauntedmc.dataprovider.api.DataProviderApiSupplier;
+import nl.hauntedmc.dataregistry.core.DataRegistry;
+import nl.hauntedmc.dataregistry.api.DataRegistryApi;
+import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
+import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceKind;
+import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceProbeStatus;
+import nl.hauntedmc.dataregistry.core.service.PlayerActivitySummaryService;
+import nl.hauntedmc.dataregistry.core.service.PlayerConnectionInfoService;
+import nl.hauntedmc.dataregistry.core.service.PlayerNameHistoryService;
+import nl.hauntedmc.dataregistry.core.lifecycle.PlayerLifecycleWriter;
+import nl.hauntedmc.dataregistry.core.playtime.PlaytimeGamemodeResolver;
+import nl.hauntedmc.dataregistry.core.service.PlayerPlaytimeService;
+import nl.hauntedmc.dataregistry.core.service.PlayerPresenceRecoveryResult;
+import nl.hauntedmc.dataregistry.core.service.PlayerPresenceRecoveryService;
+import nl.hauntedmc.dataregistry.core.service.PlayerService;
+import nl.hauntedmc.dataregistry.core.service.PlayerSessionService;
+import nl.hauntedmc.dataregistry.core.service.PlayerStatusService;
+import nl.hauntedmc.dataregistry.core.service.ServiceRegistryService;
+import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
+import nl.hauntedmc.dataregistry.core.config.DataRegistrySettingsLoader;
+import nl.hauntedmc.dataregistry.platform.common.PlatformPlugin;
+import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
+import nl.hauntedmc.dataregistry.core.runtime.PlatformDataRegistryRuntime;
+import nl.hauntedmc.dataregistry.platform.velocity.listener.PlayerStatusListener;
+import nl.hauntedmc.dataregistry.platform.velocity.logger.SLF4JLoggerAdapter;
+import nl.hauntedmc.dataregistry.platform.velocity.util.VelocityPlayerAdapter;
+import org.slf4j.Logger;
+
+import java.net.InetSocketAddress;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+
+@Plugin(
+        id = "dataregistry",
+        name = "DataRegistry",
+        version = "1.10.4",
+        description = "DataRegistry for cross-platform data handling.",
+        authors = {"HauntedMC"},
+        dependencies = @Dependency(id = "dataprovider")
+)
+public class VelocityDataRegistry implements PlatformPlugin {
+
+    static final int INITIALIZE_EVENT_PRIORITY = 1000;
+    static final int SHUTDOWN_EVENT_PRIORITY = -1000;
+    static final long EVENT_PIPELINE_DRAIN_TIMEOUT_SECONDS = 5L;
+    static final long PLAYTIME_FLUSH_SHUTDOWN_TIMEOUT_SECONDS = 2L;
+    static final long SERVICE_REGISTRY_SHUTDOWN_TIMEOUT_SECONDS = 2L;
+    static final long SERVICE_PROBE_SHUTDOWN_TIMEOUT_SECONDS = 2L;
+
+    private final ProxyServer proxyServer;
+    private final Logger logger;
+    private final Path dataDirectory;
+    private final PlatformDataRegistryRuntime runtime = new PlatformDataRegistryRuntime();
+    private final DataRegistrySettingsLoader settingsLoader = new DataRegistrySettingsLoader();
+
+    private SLF4JLoggerAdapter logInstance;
+    private DataRegistrySettings settings = DataRegistrySettings.defaults();
+    private ExecutorService playerEventExecutor;
+    private ScheduledExecutorService playerPlaytimeFlushExecutor;
+    private ScheduledExecutorService serviceRegistryHeartbeatExecutor;
+    private ScheduledExecutorService serviceRegistryProbeExecutor;
+    private PlayerStatusListener playerStatusListener;
+    private ServiceRegistryService serviceRegistryService;
+    private final AtomicReference<String> localServiceInstanceId = new AtomicReference<>();
+    private final AtomicLong nextProbePurgeAtEpochMillis = new AtomicLong(0L);
+
+    @Inject
+    public VelocityDataRegistry(ProxyServer proxyServer, Logger logger, @DataDirectory Path dataDirectory) {
+        this.proxyServer = proxyServer;
+        this.logger = logger;
+        this.dataDirectory = dataDirectory;
+    }
+
+    @Subscribe(priority = INITIALIZE_EVENT_PRIORITY)
+    public void onProxyInitialize(ProxyInitializeEvent event) {
+        logInstance = new SLF4JLoggerAdapter(logger);
+        VelocityPlayerAdapter.setProxy(proxyServer);
+        settings = settingsLoader.load(dataDirectory, getClass().getClassLoader(), logInstance);
+
+        DataProviderAPI dataProviderAPI = resolveDataProviderApi();
+        if (dataProviderAPI == null) {
+            logger.error("DataProvider API not available; DataRegistry startup aborted.");
+            return;
+        }
+
+        try {
+            runtime.start(
+                    () -> createDataRegistry(dataProviderAPI),
+                    this::initializeRuntime,
+                    getPlatformLogger()
+            );
+            recoverPlayerPresenceStateOnStartup();
+            registerPlayerStatusListener();
+            startPlaytimeFlushLifecycle();
+            startServiceRegistryLifecycle();
+        } catch (RuntimeException | Error startupFailure) {
+            rollbackFailedStartup();
+            logger.error("DataRegistry startup failed on Velocity.", startupFailure);
+            return;
+        }
+
+        logger.info("DataRegistry enabled successfully on Velocity.");
+        logger.info("Enabled built-in data domains: {}", settings.enabledFeatures());
+    }
+
+    @Subscribe(priority = SHUTDOWN_EVENT_PRIORITY)
+    public void onProxyShutdown(ProxyShutdownEvent event) {
+        stopPlaytimeFlushLifecycle();
+        stopAcceptingAndDrainPlayerEvents();
+        stopServiceRegistryLifecycle();
+        runtime.stop(getPlatformLogger());
+        shutdownPlayerEventExecutor();
+        shutdownPlayerPlaytimeFlushExecutor();
+        shutdownServiceRegistryHeartbeatExecutor();
+        shutdownServiceRegistryProbeExecutor();
+        logger.info("DataRegistry disabled on Velocity.");
+    }
+
+    @Override
+    public DataRegistryApi getDataRegistry() {
+        return runtime.getDataRegistry();
+    }
+
+    /**
+     * Internal platform wiring access. This method is intentionally not part of {@link PlatformPlugin}.
+     */
+    protected DataRegistry runtimeDataRegistry() {
+        DataRegistryApi api = getDataRegistry();
+        if (api instanceof DataRegistry registry) {
+            return registry;
+        }
+        throw new IllegalStateException("Platform runtime did not provide the DataRegistry core implementation.");
+    }
+
+    @Override
+    public ILoggerAdapter getPlatformLogger() {
+        if (logInstance == null) {
+            logInstance = new SLF4JLoggerAdapter(logger);
+        }
+        return logInstance;
+    }
+
+    static String resolvePluginVersion(ProxyServer proxyServer, Object pluginInstance) {
+        return proxyServer.getPluginManager()
+                .fromInstance(pluginInstance)
+                .map(PluginContainer::getDescription)
+                .flatMap(description -> description.getVersion())
+                .orElse("unknown");
+    }
+
+    DataProviderAPI resolveDataProviderApi() {
+        Optional<DataProviderApiSupplier> supplier = proxyServer.getPluginManager()
+                .getPlugin("dataprovider")
+                .flatMap(container -> container.getInstance()
+                        .filter(instance -> instance instanceof DataProviderApiSupplier)
+                        .map(instance -> (DataProviderApiSupplier) instance));
+
+        if (supplier.isEmpty()) {
+            logger.error("Failed to resolve DataProvider API supplier from plugin container.");
+            return null;
+        }
+
+        try {
+            return supplier.get().dataProviderApi();
+        } catch (RuntimeException exception) {
+            logger.error("Failed to resolve DataProvider API from supplier.", exception);
+            return null;
+        }
+    }
+
+    DataRegistry createDataRegistry(DataProviderAPI dataProviderAPI) {
+        String pluginVersion = resolvePluginVersion(proxyServer, this);
+        logger.info("Booting DataRegistry version {}.", pluginVersion);
+        return new DataRegistry(getPlatformLogger(), "DataRegistry", dataProviderAPI, settings);
+    }
+
+    void registerPlayerStatusListener() {
+        ensurePlayerEventExecutor();
+        DataRegistry registry = runtimeDataRegistry();
+        PlayerService playerService = registry.newPlayerService(getPlatformLogger());
+        PlayerNameHistoryService nameHistoryService = new PlayerNameHistoryService(
+                registry,
+                getPlatformLogger(),
+                settings.usernameMaxLength(),
+                settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY)
+        );
+        PlayerActivitySummaryService activitySummaryService = new PlayerActivitySummaryService(
+                registry,
+                getPlatformLogger(),
+                settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)
+        );
+        PlayerStatusService statusService = new PlayerStatusService(
+                registry,
+                getPlatformLogger(),
+                settings.serverNameMaxLength(),
+                settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)
+        );
+        PlayerConnectionInfoService connectionService = new PlayerConnectionInfoService(
+                registry,
+                getPlatformLogger(),
+                settings.persistIpAddress(),
+                settings.persistVirtualHost(),
+                settings.ipAddressMaxLength(),
+                settings.virtualHostMaxLength(),
+                settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO)
+        );
+        PlayerSessionService sessionService = new PlayerSessionService(
+                registry,
+                getPlatformLogger(),
+                settings.persistIpAddress(),
+                settings.persistVirtualHost(),
+                settings.ipAddressMaxLength(),
+                settings.virtualHostMaxLength(),
+                settings.serverNameMaxLength(),
+                settings.isFeatureEnabled(DataRegistryFeature.SESSIONS),
+                settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS)
+        );
+        PlayerPlaytimeService playtimeService = new PlayerPlaytimeService(
+                registry,
+                getPlatformLogger(),
+                new PlaytimeGamemodeResolver(settings.playtimeTrackingSettings()),
+                settings.serverNameMaxLength(),
+                settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
+        );
+        PlayerLifecycleWriter lifecycleWriter = new PlayerLifecycleWriter(
+                registry,
+                playerService,
+                nameHistoryService,
+                activitySummaryService,
+                statusService,
+                connectionService,
+                sessionService,
+                playtimeService,
+                getPlatformLogger()
+        );
+
+        PlayerStatusListener listener = new PlayerStatusListener(
+                playerService,
+                lifecycleWriter,
+                playtimeService,
+                getPlatformLogger(),
+                playerEventExecutor
+        );
+        proxyServer.getEventManager().register(this, listener);
+        playerStatusListener = listener;
+    }
+
+    void stopAcceptingAndDrainPlayerEvents() {
+        PlayerStatusListener listener = playerStatusListener;
+        playerStatusListener = null;
+        if (listener == null) {
+            return;
+        }
+        listener.beginShutdown();
+        boolean queuedEventsDrained = listener.awaitPipelineDrain(EVENT_PIPELINE_DRAIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        if (!queuedEventsDrained) {
+            logger.warn("Timed out waiting for queued player lifecycle events to drain before shutdown.");
+        }
+        listener.closeActivePresenceForShutdown();
+        boolean shutdownPresenceDrained = listener.awaitPipelineDrain(
+                EVENT_PIPELINE_DRAIN_TIMEOUT_SECONDS,
+                TimeUnit.SECONDS
+        );
+        if (!shutdownPresenceDrained) {
+            logger.warn("Timed out waiting for active player presence cleanup to drain before shutdown.");
+        }
+    }
+
+    void recoverPlayerPresenceStateOnStartup() {
+        DataRegistry registry = runtimeDataRegistry();
+        PlayerPresenceRecoveryService recoveryService = new PlayerPresenceRecoveryService(
+                registry,
+                settings
+        );
+        PlayerPresenceRecoveryResult result = recoveryService.recoverAfterUncleanShutdown();
+        if (result.recoveredAnyState()) {
+            logger.warn(
+                    "Recovered stale player presence state left by a previous unclean shutdown: " +
+                            "playtimeSegments={}, sessions={}, sessionVisits={}, onlineStatuses={}, " +
+                            "activitySummaries={}, connectionInfos={}.",
+                    result.playtimeSegmentsClosed(),
+                    result.sessionsClosed(),
+                    result.sessionVisitsClosed(),
+                    result.onlineStatusesCleared(),
+                    result.activitySummariesUpdated(),
+                    result.connectionInfosUpdated()
+            );
+        }
+    }
+
+    private void initializeRuntime(DataRegistry registry) {
+        if (!registry.initialize()) {
+            throw new IllegalStateException("Database connection not established.");
+        }
+    }
+
+    private void rollbackFailedStartup() {
+        stopPlaytimeFlushLifecycle();
+        stopAcceptingAndDrainPlayerEvents();
+        stopServiceRegistryLifecycle();
+        runtime.stop(getPlatformLogger());
+        shutdownPlayerEventExecutor();
+        shutdownPlayerPlaytimeFlushExecutor();
+        shutdownServiceRegistryHeartbeatExecutor();
+        shutdownServiceRegistryProbeExecutor();
+    }
+
+    private void startServiceRegistryLifecycle() {
+        if (!settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY)) {
+            serviceRegistryService = null;
+            localServiceInstanceId.set(null);
+            return;
+        }
+        ensureServiceRegistryHeartbeatExecutor();
+        ensureServiceRegistryProbeExecutor();
+        DataRegistry registry = runtimeDataRegistry();
+        ServiceRegistryService registryService = registry.newServiceRegistryService();
+        serviceRegistryService = registryService;
+
+        String instanceId = java.util.UUID.randomUUID().toString();
+        localServiceInstanceId.set(instanceId);
+        InetSocketAddress address = proxyServer.getBoundAddress();
+        String host = address == null ? null : address.getHostString();
+        Integer port = address == null ? null : address.getPort();
+        String serviceName = resolveProxyServiceName(settings.velocityServiceName(), host, port);
+        if (settings.isVelocityServiceNameAuto()) {
+            logger.warn(
+                    "platform.velocity.service-name is set to 'auto'; using host:port fallback '" + serviceName +
+                            "'. Set platform.velocity.service-name explicitly for stable identity."
+            );
+        }
+        int heartbeatIntervalSeconds = settings.serviceHeartbeatIntervalSeconds();
+        int probeIntervalSeconds = settings.serviceProbeIntervalSeconds();
+        int probeTimeoutMillis = settings.serviceProbeTimeoutMillis();
+        int probeRetentionHours = settings.serviceProbeRetentionHours();
+        int probePurgeIntervalHours = settings.serviceProbePurgeIntervalHours();
+        Duration endpointCorrelationFreshness = Duration.ofSeconds(
+                Math.max(15L, Math.max(1L, heartbeatIntervalSeconds) * 3L)
+        );
+        nextProbePurgeAtEpochMillis.set(0L);
+
+        registryService.refreshRunningInstance(
+                ServiceKind.PROXY,
+                serviceName,
+                "VELOCITY",
+                instanceId,
+                host,
+                port
+        );
+        serviceRegistryHeartbeatExecutor.scheduleAtFixedRate(
+                () -> registryService.refreshRunningInstance(
+                        ServiceKind.PROXY,
+                        serviceName,
+                        "VELOCITY",
+                        instanceId,
+                        host,
+                        port
+                ),
+                heartbeatIntervalSeconds,
+                heartbeatIntervalSeconds,
+                TimeUnit.SECONDS
+        );
+        serviceRegistryProbeExecutor.scheduleAtFixedRate(
+                () -> runBackendProbePass(
+                        registryService,
+                        instanceId,
+                        probeTimeoutMillis,
+                        probeRetentionHours,
+                        probePurgeIntervalHours,
+                        endpointCorrelationFreshness
+                ),
+                probeIntervalSeconds,
+                probeIntervalSeconds,
+                TimeUnit.SECONDS
+        );
+    }
+
+    private void startPlaytimeFlushLifecycle() {
+        if (!settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)) {
+            return;
+        }
+        ensurePlayerPlaytimeFlushExecutor();
+        PlayerStatusListener listener = playerStatusListener;
+        if (listener == null) {
+            return;
+        }
+        int flushIntervalSeconds = settings.playtimeTrackingSettings().flushIntervalSeconds();
+        playerPlaytimeFlushExecutor.scheduleAtFixedRate(
+                listener::flushActivePlaytime,
+                flushIntervalSeconds,
+                flushIntervalSeconds,
+                TimeUnit.SECONDS
+        );
+    }
+
+    private void stopPlaytimeFlushLifecycle() {
+        ScheduledExecutorService executor = playerPlaytimeFlushExecutor;
+        if (executor != null) {
+            executor.shutdown();
+        }
+    }
+
+    private static String resolveProxyServiceName(String configuredServiceName, String host, Integer port) {
+        if (configuredServiceName != null && !"auto".equalsIgnoreCase(configuredServiceName.trim())) {
+            return configuredServiceName.trim();
+        }
+        String hostPart = host == null || host.isBlank() ? "unknown-host" : host;
+        String portPart = port == null ? "unknown-port" : Integer.toString(port);
+        return "velocity-" + hostPart + ":" + portPart;
+    }
+
+    private void runBackendProbePass(
+            ServiceRegistryService registryService,
+            String observerInstanceId,
+            int timeoutMillis,
+            int retentionHours,
+            int purgeIntervalHours,
+            Duration endpointCorrelationFreshness
+    ) {
+        try {
+            Iterable<RegisteredServer> servers = proxyServer.getAllServers();
+            if (servers == null) {
+                logger.warn("Velocity returned null backend server list during probe pass.");
+                return;
+            }
+            List<PendingBackendProbe> pendingProbes = new ArrayList<>();
+            for (RegisteredServer registeredServer : servers) {
+                try {
+                    pendingProbes.add(
+                            prepareBackendProbe(
+                                    registryService,
+                                    registeredServer,
+                                    timeoutMillis,
+                                    endpointCorrelationFreshness
+                            )
+                    );
+                } catch (RuntimeException exception) {
+                    String serverLabel = describeServer(registeredServer);
+                    logger.error(
+                            "Failed to prepare backend probe for server '" + serverLabel + "'.",
+                            exception
+                    );
+                }
+            }
+            for (PendingBackendProbe pendingProbe : pendingProbes) {
+                try {
+                    BackendProbeOutcome outcome = pendingProbe.outcomeFuture().join();
+                    registryService.recordProbe(
+                            ServiceKind.BACKEND,
+                            pendingProbe.serviceName(),
+                            pendingProbe.platform(),
+                            observerInstanceId,
+                            outcome.status(),
+                            pendingProbe.host(),
+                            pendingProbe.port(),
+                            pendingProbe.targetInstanceId(),
+                            outcome.latencyMillis(),
+                            outcome.errorCode(),
+                            outcome.errorDetail()
+                    );
+                } catch (RuntimeException exception) {
+                    logger.error(
+                            "Failed to record backend probe for service '" + pendingProbe.serviceName() + "'.",
+                            exception
+                    );
+                }
+            }
+            purgeStaleProbesIfDue(registryService, retentionHours, purgeIntervalHours);
+        } catch (RuntimeException exception) {
+            logger.error("Service registry backend probe pass failed.", exception);
+        }
+    }
+
+    private void purgeStaleProbesIfDue(
+            ServiceRegistryService registryService,
+            int retentionHours,
+            int purgeIntervalHours
+    ) {
+        long nowEpochMillis = System.currentTimeMillis();
+        long nextPurgeAt = nextProbePurgeAtEpochMillis.get();
+        if (nextPurgeAt > nowEpochMillis) {
+            return;
+        }
+        long purgeIntervalMillis = TimeUnit.HOURS.toMillis(Math.max(1L, purgeIntervalHours));
+        if (!nextProbePurgeAtEpochMillis.compareAndSet(nextPurgeAt, nowEpochMillis + purgeIntervalMillis)) {
+            return;
+        }
+
+        int deleted = registryService.purgeProbesOlderThan(Duration.ofHours(retentionHours), 500);
+        if (deleted > 0) {
+            logger.info("Purged {} stale service probe rows older than {} hours.", deleted, retentionHours);
+        }
+    }
+
+    private PendingBackendProbe prepareBackendProbe(
+            ServiceRegistryService registryService,
+            RegisteredServer registeredServer,
+            int timeoutMillis,
+            Duration endpointCorrelationFreshness
+    ) {
+        ServerInfo serverInfo = registeredServer.getServerInfo();
+        String configuredServerName = serverInfo == null ? null : serverInfo.getName();
+        InetSocketAddress address = serverInfo == null ? null : serverInfo.getAddress();
+        String host = address == null ? null : address.getHostString();
+        Integer port = address == null ? null : address.getPort();
+        Optional<ServiceRegistryService.ServiceInstanceView> endpointInstance = registryService
+                .findMostRecentRunningInstanceByEndpointWithin(
+                        ServiceKind.BACKEND,
+                        host,
+                        port,
+                        endpointCorrelationFreshness
+                );
+        String serviceName = endpointInstance
+                .map(ServiceRegistryService.ServiceInstanceView::serviceName)
+                .orElseGet(() -> resolveBackendProbeServiceName(configuredServerName, host, port));
+        String targetInstanceId = endpointInstance
+                .map(ServiceRegistryService.ServiceInstanceView::instanceId)
+                .orElse(null);
+        String platform = endpointInstance
+                .map(ServiceRegistryService.ServiceInstanceView::platform)
+                .orElse("PAPER");
+        long startedAtNanos = System.nanoTime();
+        CompletableFuture<BackendProbeOutcome> outcomeFuture = registeredServer.ping()
+                .orTimeout(Math.max(1L, timeoutMillis), TimeUnit.MILLISECONDS)
+                .handle((ignored, probeFailure) -> {
+                    if (probeFailure == null) {
+                        Long latencyMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos);
+                        return new BackendProbeOutcome(ServiceProbeStatus.UP, latencyMillis, null, null);
+                    }
+                    Throwable cause = unwrapProbeFailure(probeFailure);
+                    if (cause instanceof TimeoutException) {
+                        return new BackendProbeOutcome(
+                                ServiceProbeStatus.TIMEOUT,
+                                null,
+                                "timeout",
+                                cause.getMessage()
+                        );
+                    }
+                    String errorDetail = cause == null ? probeFailure.getMessage() : cause.getMessage();
+                    return new BackendProbeOutcome(
+                            ServiceProbeStatus.DOWN,
+                            null,
+                            "probe-failed",
+                            errorDetail
+                    );
+                });
+
+        return new PendingBackendProbe(
+                serviceName,
+                platform,
+                host,
+                port,
+                targetInstanceId,
+                outcomeFuture
+        );
+    }
+
+    private static String resolveBackendProbeServiceName(String configuredServerName, String host, Integer port) {
+        if (configuredServerName != null) {
+            String normalized = configuredServerName.trim();
+            if (!normalized.isEmpty()) {
+                return normalized;
+            }
+        }
+        String hostPart = host == null || host.isBlank() ? "unknown-host" : host;
+        String portPart = port == null ? "unknown-port" : Integer.toString(port);
+        return "paper-" + hostPart + ":" + portPart;
+    }
+
+    private static String describeServer(RegisteredServer registeredServer) {
+        if (registeredServer == null) {
+            return "unknown";
+        }
+        ServerInfo serverInfo = registeredServer.getServerInfo();
+        if (serverInfo == null) {
+            return "unknown";
+        }
+        String name = serverInfo.getName();
+        InetSocketAddress address = serverInfo.getAddress();
+        String host = address == null ? "unknown-host" : address.getHostString();
+        String port = address == null ? "unknown-port" : Integer.toString(address.getPort());
+        String normalizedName = name == null || name.isBlank() ? "unnamed" : name.trim();
+        return normalizedName + " (" + host + ":" + port + ")";
+    }
+
+    private static Throwable unwrapProbeFailure(Throwable failure) {
+        Throwable current = failure;
+        while (current.getCause() != null && current != current.getCause()) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private record PendingBackendProbe(
+            String serviceName,
+            String platform,
+            String host,
+            Integer port,
+            String targetInstanceId,
+            CompletableFuture<BackendProbeOutcome> outcomeFuture
+    ) {
+    }
+
+    private record BackendProbeOutcome(
+            ServiceProbeStatus status,
+            Long latencyMillis,
+            String errorCode,
+            String errorDetail
+    ) {
+    }
+
+    private void stopServiceRegistryLifecycle() {
+        ServiceRegistryService registryService = serviceRegistryService;
+        serviceRegistryService = null;
+        String instanceId = localServiceInstanceId.getAndSet(null);
+        nextProbePurgeAtEpochMillis.set(0L);
+        if (registryService == null || instanceId == null) {
+            return;
+        }
+        registryService.markStopped(instanceId);
+    }
+
+    private void ensurePlayerEventExecutor() {
+        if (playerEventExecutor != null && !playerEventExecutor.isShutdown()) {
+            return;
+        }
+        int workerCount = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
+        ThreadFactory threadFactory = new ThreadFactory() {
+            private final AtomicInteger workerIndex = new AtomicInteger();
+
+            @Override
+            public Thread newThread(Runnable runnable) {
+                Thread thread = new Thread(runnable);
+                thread.setName("DataRegistry-velocity-events-" + workerIndex.incrementAndGet());
+                thread.setDaemon(true);
+                return thread;
+            }
+        };
+        playerEventExecutor = Executors.newFixedThreadPool(workerCount, threadFactory);
+    }
+
+    private void ensureServiceRegistryHeartbeatExecutor() {
+        if (serviceRegistryHeartbeatExecutor != null && !serviceRegistryHeartbeatExecutor.isShutdown()) {
+            return;
+        }
+        ThreadFactory threadFactory = runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("DataRegistry-velocity-service-heartbeat");
+            thread.setDaemon(true);
+            return thread;
+        };
+        serviceRegistryHeartbeatExecutor = Executors.newSingleThreadScheduledExecutor(threadFactory);
+    }
+
+    private void ensureServiceRegistryProbeExecutor() {
+        if (serviceRegistryProbeExecutor != null && !serviceRegistryProbeExecutor.isShutdown()) {
+            return;
+        }
+        ThreadFactory threadFactory = runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("DataRegistry-velocity-service-probe");
+            thread.setDaemon(true);
+            return thread;
+        };
+        serviceRegistryProbeExecutor = Executors.newSingleThreadScheduledExecutor(threadFactory);
+    }
+
+    private void ensurePlayerPlaytimeFlushExecutor() {
+        if (playerPlaytimeFlushExecutor != null && !playerPlaytimeFlushExecutor.isShutdown()) {
+            return;
+        }
+        ThreadFactory threadFactory = runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("DataRegistry-velocity-playtime-flush");
+            thread.setDaemon(true);
+            return thread;
+        };
+        playerPlaytimeFlushExecutor = Executors.newSingleThreadScheduledExecutor(threadFactory);
+    }
+
+    private void shutdownPlayerEventExecutor() {
+        ExecutorService executor = playerEventExecutor;
+        playerEventExecutor = null;
+        if (executor == null) {
+            return;
+        }
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            executor.shutdownNow();
+        }
+    }
+
+    private void shutdownServiceRegistryHeartbeatExecutor() {
+        ScheduledExecutorService executor = serviceRegistryHeartbeatExecutor;
+        serviceRegistryHeartbeatExecutor = null;
+        if (executor == null) {
+            return;
+        }
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(SERVICE_REGISTRY_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            executor.shutdownNow();
+        }
+    }
+
+    private void shutdownPlayerPlaytimeFlushExecutor() {
+        ScheduledExecutorService executor = playerPlaytimeFlushExecutor;
+        playerPlaytimeFlushExecutor = null;
+        if (executor == null) {
+            return;
+        }
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(PLAYTIME_FLUSH_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            executor.shutdownNow();
+        }
+    }
+
+    private void shutdownServiceRegistryProbeExecutor() {
+        ScheduledExecutorService executor = serviceRegistryProbeExecutor;
+        serviceRegistryProbeExecutor = null;
+        if (executor == null) {
+            return;
+        }
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(SERVICE_PROBE_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            executor.shutdownNow();
+        }
+    }
+}
