@@ -2,10 +2,10 @@
 
 ## Development Standards
 
-- Java: `21`
+- Java: `25`
 - Build tool: `Maven 3.8.6+`
 - Required quality gate before merge: `mvn verify`
-- Coverage gate is enforced by JaCoCo during `verify`.
+- JaCoCo HTML reports are generated during `verify` under each module's `target/site/jacoco` directory.
 
 ## Architecture Rules
 

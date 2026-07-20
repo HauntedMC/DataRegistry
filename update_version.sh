@@ -2,6 +2,7 @@
 set -euo pipefail
 
 readonly POM_FILE="pom.xml"
+readonly API_POM_FILE="dataregistry-api/pom.xml"
 readonly VELOCITY_FILE="dataregistry-platform-velocity/src/main/java/nl/hauntedmc/dataregistry/platform/velocity/VelocityDataRegistry.java"
 readonly VERSION_PROPERTY="revision"
 
@@ -35,6 +36,16 @@ resolve_maven_version() {
       | awk '/^[0-9]+\.[0-9]+\.[0-9]+$/ { print; exit }'
   )"
   [[ -n "$version" ]] || die "Unable to resolve a release semantic version from Maven."
+  echo "$version"
+}
+
+resolve_api_version() {
+  local version
+  version="$(
+    mvn -q -ntp -pl dataregistry-api -DforceStdout help:evaluate -Dexpression=project.version \
+      | awk '/^[0-9]+\.[0-9]+\.[0-9]+$/ { print; exit }'
+  )"
+  [[ -n "$version" ]] || die "Unable to resolve a release semantic version for the API module."
   echo "$version"
 }
 
@@ -118,6 +129,7 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 require_file "$POM_FILE"
+require_file "$API_POM_FILE"
 require_file "$VELOCITY_FILE"
 require_clean_worktree
 
@@ -144,6 +156,11 @@ mvn -B -ntp versions:set-property -Dproperty="${VERSION_PROPERTY}" -DnewVersion=
 resolved_after_bump="$(resolve_maven_version)"
 [[ "$resolved_after_bump" == "$new_version" ]] || {
   die "Maven version after bump is '${resolved_after_bump}', expected '${new_version}'."
+}
+
+resolved_api_version="$(resolve_api_version)"
+[[ "$resolved_api_version" == "$new_version" ]] || {
+  die "API module version after bump is '${resolved_api_version}', expected '${new_version}'."
 }
 
 update_velocity_plugin_annotation "$new_version"

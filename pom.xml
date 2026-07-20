@@ -42,18 +42,24 @@
         <!-- Single source of truth for every module's release version. -->
         <revision>1.11.1</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <java.version>25</java.version>
         <maven.compiler.release>${java.version}</maven.compiler.release>
         <dataprovider.version>2.1.4</dataprovider.version>
         <jakarta.persistence.version>3.1.0</jakarta.persistence.version>
-        <snakeyaml.version>2.4</snakeyaml.version>
+        <snakeyaml.version>2.6</snakeyaml.version>
         <paper.version>26.1.2.build.72-stable</paper.version>
-        <velocity.version>4.0.0-SNAPSHOT</velocity.version>
+        <velocity.version>4.0.0</velocity.version>
         <junit.version>6.1.2</junit.version>
-        <mockito.version>5.14.2</mockito.version>
+        <mockito.version>5.23.0</mockito.version>
         <checkstyle.version>13.8.0</checkstyle.version>
         <maven.shade.version>3.6.2</maven.shade.version>
-        <maven.jar.version>3.4.2</maven.jar.version>
+        <maven.jar.version>3.5.0</maven.jar.version>
+        <maven.clean.version>3.5.0</maven.clean.version>
+        <maven.resources.version>3.5.0</maven.resources.version>
+        <maven.install.version>3.1.4</maven.install.version>
+        <maven.deploy.version>3.1.4</maven.deploy.version>
+        <jacoco.version>0.8.15</jacoco.version>
     </properties>
 
     <repositories>
@@ -113,9 +119,29 @@
                     </execution>
                 </executions>
             </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <executions>
+                    <execution>
+                        <id>prepare-coverage-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>generate-coverage-report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
         <pluginManagement>
             <plugins>
+                <plugin>
+                    <artifactId>maven-clean-plugin</artifactId>
+                    <version>${maven.clean.version}</version>
+                </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
@@ -138,12 +164,24 @@
                     <version>${maven.jar.version}</version>
                 </plugin>
                 <plugin>
+                    <artifactId>maven-resources-plugin</artifactId>
+                    <version>${maven.resources.version}</version>
+                </plugin>
+                <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>3.5.6</version>
                     <configuration>
-                        <argLine>-Dnet.bytebuddy.experimental=true</argLine>
+                        <argLine>@{argLine} -javaagent:${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar --enable-final-field-mutation=ALL-UNNAMED -Dnet.bytebuddy.experimental=true</argLine>
                     </configuration>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-install-plugin</artifactId>
+                    <version>${maven.install.version}</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-deploy-plugin</artifactId>
+                    <version>${maven.deploy.version}</version>
                 </plugin>
             </plugins>
         </pluginManagement>
