@@ -28,7 +28,7 @@ public final class DataRegistrySettings {
     private static final String DEFAULT_VELOCITY_SERVICE_NAME = "auto";
     private static final int DEFAULT_QUERY_EXECUTOR_THREADS = 2;
     private static final int DEFAULT_QUERY_TIMEOUT_MILLIS = 3000;
-    private static final boolean DEFAULT_QUERY_DEVELOPMENT_THREAD_CHECKS = true;
+    private static final boolean DEFAULT_QUERY_DEVELOPMENT_THREAD_CHECKS = false;
     private static final int DEFAULT_USERNAME_MAX_LENGTH = 32;
     private static final int DEFAULT_SERVER_NAME_MAX_LENGTH = 64;
     private static final int DEFAULT_VIRTUAL_HOST_MAX_LENGTH = 255;
