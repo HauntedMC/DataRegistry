@@ -288,8 +288,7 @@ class PlayerStatusListenerTest {
         String uuid = UUID.randomUUID().toString();
         PlayerEntity persistent = persistedPlayer(uuid, "Alice");
         when(context.repository.getActivePlayer(uuid)).thenReturn(Optional.of(persistent));
-        reset(context.ormContext);
-        executeTransactionsWithSession(context.ormContext, context.session);
+        when(context.repository.getOrCreatePlayer(eq(context.session), eq(uuid), eq("Alice"))).thenReturn(persistent);
 
         Player player = mock(Player.class);
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
@@ -297,6 +296,9 @@ class PlayerStatusListenerTest {
         RegisteredServer server = mock(RegisteredServer.class);
         when(server.getServerInfo()).thenReturn(new ServerInfo("lobby-1", new InetSocketAddress("127.0.0.1", 25567)));
 
+        context.listener.onPlayerJoin(new PostLoginEvent(player));
+        reset(context.ormContext);
+        executeTransactionsWithSession(context.ormContext, context.session);
         context.listener.onServerSwitch(new ServerConnectedEvent(player, server, null));
 
         verify(context.ormContext).runInTransaction(any());
@@ -309,8 +311,6 @@ class PlayerStatusListenerTest {
         PlayerEntity persistent = persistedPlayer(uuid, "Alice");
         when(context.repository.getActivePlayer(uuid)).thenReturn(Optional.empty());
         when(context.repository.getOrCreatePlayer(eq(context.session), eq(uuid), eq("Alice"))).thenReturn(persistent);
-        reset(context.ormContext);
-        executeTransactionsWithSession(context.ormContext, context.session);
 
         Player player = mock(Player.class);
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
@@ -318,9 +318,12 @@ class PlayerStatusListenerTest {
         RegisteredServer server = mock(RegisteredServer.class);
         when(server.getServerInfo()).thenReturn(new ServerInfo("lobby-1", new InetSocketAddress("127.0.0.1", 25567)));
 
+        context.listener.onPlayerJoin(new PostLoginEvent(player));
+        reset(context.ormContext);
+        executeTransactionsWithSession(context.ormContext, context.session);
         context.listener.onServerSwitch(new ServerConnectedEvent(player, server, null));
 
-        verify(context.repository).getOrCreatePlayer(context.session, uuid, "Alice");
+        verify(context.repository, times(2)).getOrCreatePlayer(context.session, uuid, "Alice");
         verify(context.ormContext).runInTransaction(any());
     }
 
@@ -432,6 +435,7 @@ class PlayerStatusListenerTest {
         RegisteredServer server = mock(RegisteredServer.class);
         when(server.getServerInfo()).thenReturn(new ServerInfo("lobby-1", new InetSocketAddress("127.0.0.1", 25567)));
 
+        listener.onPlayerJoin(new PostLoginEvent(player));
         listener.onServerSwitch(new ServerConnectedEvent(player, server, null));
 
         InOrder inOrder = inOrder(session, sessionUpdateQuery, sessionVisitQuery, playtimeSessionQuery, playtimeSegmentQuery);
@@ -448,13 +452,15 @@ class PlayerStatusListenerTest {
         String uuid = UUID.randomUUID().toString();
         PlayerEntity persistent = persistedPlayer(uuid, "Alice");
         when(context.repository.getActivePlayer(uuid)).thenReturn(Optional.of(persistent));
-        reset(context.ormContext);
-        executeTransactionsWithSession(context.ormContext, context.session);
+        when(context.repository.getOrCreatePlayer(eq(context.session), eq(uuid), eq("Alice"))).thenReturn(persistent);
 
         Player player = mock(Player.class);
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
         when(player.getUsername()).thenReturn("Alice");
 
+        context.listener.onPlayerJoin(new PostLoginEvent(player));
+        reset(context.ormContext);
+        executeTransactionsWithSession(context.ormContext, context.session);
         context.listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN));
 
         verify(context.ormContext).runInTransaction(any());
@@ -468,16 +474,17 @@ class PlayerStatusListenerTest {
         PlayerEntity persistent = persistedPlayer(uuid, "Alice");
         when(context.repository.getActivePlayer(uuid)).thenReturn(Optional.empty());
         when(context.repository.getOrCreatePlayer(eq(context.session), eq(uuid), eq("Alice"))).thenReturn(persistent);
-        reset(context.ormContext);
-        executeTransactionsWithSession(context.ormContext, context.session);
 
         Player player = mock(Player.class);
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
         when(player.getUsername()).thenReturn("Alice");
 
+        context.listener.onPlayerJoin(new PostLoginEvent(player));
+        reset(context.ormContext);
+        executeTransactionsWithSession(context.ormContext, context.session);
         context.listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN));
 
-        verify(context.repository).getOrCreatePlayer(context.session, uuid, "Alice");
+        verify(context.repository, times(2)).getOrCreatePlayer(context.session, uuid, "Alice");
         verify(context.ormContext).runInTransaction(any());
         verify(context.repository).removeActivePlayer(uuid);
     }
@@ -606,6 +613,7 @@ class PlayerStatusListenerTest {
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
         when(player.getUsername()).thenReturn("Alice");
 
+        listener.onPlayerJoin(new PostLoginEvent(player));
         listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN));
 
         InOrder inOrder = inOrder(
@@ -644,6 +652,68 @@ class PlayerStatusListenerTest {
 
         verify(context.ormContext, never()).runInTransaction(any());
         verify(context.repository, never()).getOrCreatePlayer(any(), anyString(), anyString());
+        verify(context.repository, never()).removeActivePlayer(uuid);
+    }
+
+    @Test
+    void onPlayerQuitMarksPlayerOfflineWhenBackendConnectionFailsAfterLobbyJoin() {
+        TestContext context = createContext();
+        String uuid = UUID.randomUUID().toString();
+        PlayerEntity persistent = persistedPlayer(uuid, "Alice");
+        when(context.repository.getOrCreatePlayer(eq(context.session), eq(uuid), eq("Alice"))).thenReturn(persistent);
+        PlayerOnlineStatusEntity onlineStatus = new PlayerOnlineStatusEntity();
+        onlineStatus.setOnline(false);
+        when(context.session.find(eq(PlayerOnlineStatusEntity.class), any())).thenReturn(onlineStatus);
+
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
+        when(player.getUsername()).thenReturn("Alice");
+        RegisteredServer lobby = mock(RegisteredServer.class);
+        when(lobby.getServerInfo()).thenReturn(new ServerInfo("lobby-1", new InetSocketAddress("127.0.0.1", 25567)));
+
+        context.listener.onPlayerJoin(new PostLoginEvent(player));
+        context.listener.onServerSwitch(new ServerConnectedEvent(player, lobby, null));
+        context.listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.CANCELLED_BY_PROXY));
+
+        verify(context.ormContext, times(3)).runInTransaction(any());
+        assertFalse(onlineStatus.isOnline());
+        assertEquals("", onlineStatus.getCurrentServer());
+        verify(context.repository).removeActivePlayer(uuid);
+    }
+
+    @Test
+    void staleDisconnectFromSupersededConnectionDoesNotTakeNewConnectionOffline() {
+        TestContext context = createContext();
+        String uuid = UUID.randomUUID().toString();
+        PlayerEntity persistent = persistedPlayer(uuid, "Alice");
+        when(context.repository.getOrCreatePlayer(eq(context.session), eq(uuid), eq("Alice"))).thenReturn(persistent);
+
+        Player originalConnection = mock(Player.class);
+        when(originalConnection.getUniqueId()).thenReturn(UUID.fromString(uuid));
+        when(originalConnection.getUsername()).thenReturn("Alice");
+        Player replacementConnection = mock(Player.class);
+        when(replacementConnection.getUniqueId()).thenReturn(UUID.fromString(uuid));
+        when(replacementConnection.getUsername()).thenReturn("Alice");
+
+        context.listener.onPlayerJoin(new PostLoginEvent(originalConnection));
+        context.listener.onPlayerJoin(new PostLoginEvent(replacementConnection));
+        reset(context.ormContext);
+        executeTransactionsWithSession(context.ormContext, context.session);
+
+        context.listener.onPlayerQuit(new DisconnectEvent(
+                originalConnection,
+                DisconnectEvent.LoginStatus.CONFLICTING_LOGIN
+        ));
+
+        verify(context.ormContext, never()).runInTransaction(any());
+        verify(context.repository, never()).removeActivePlayer(uuid);
+
+        context.listener.onPlayerQuit(new DisconnectEvent(
+                replacementConnection,
+                DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN
+        ));
+
+        verify(context.ormContext).runInTransaction(any());
         verify(context.repository).removeActivePlayer(uuid);
     }
 
@@ -752,8 +822,13 @@ class PlayerStatusListenerTest {
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
         when(player.getUsername()).thenReturn("Alice");
 
+        context.listener.onPlayerJoin(new PostLoginEvent(player));
         context.listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN));
         context.listener.onPlayerJoin(new PostLoginEvent(player));
+
+        assertEquals(1, queuedTasks.size());
+        queuedTasks.removeFirst().run();
+        assertEquals(persistent, activePlayers.get(uuid));
 
         assertEquals(1, queuedTasks.size());
         queuedTasks.removeFirst().run();
@@ -762,7 +837,7 @@ class PlayerStatusListenerTest {
         assertEquals(1, queuedTasks.size());
         queuedTasks.removeFirst().run();
         assertEquals(persistent, activePlayers.get(uuid));
-        verify(context.repository, times(2)).getOrCreatePlayer(context.session, uuid, "Alice");
+        verify(context.repository, times(3)).getOrCreatePlayer(context.session, uuid, "Alice");
     }
 
     @Test

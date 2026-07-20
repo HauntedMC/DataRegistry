@@ -54,6 +54,13 @@ public class PlayerStatusListener {
     private final ILoggerAdapter logger;
     private final Executor eventExecutor;
     private final ConcurrentMap<String, CompletableFuture<Void>> playerEventPipelines = new ConcurrentHashMap<>();
+    /**
+     * The current Velocity connection for each UUID. Presence is owned by a concrete proxy connection, rather than
+     * {@link DisconnectEvent.LoginStatus}: a backend connection failure can use a non-successful login status even
+     * after this player has been established at the proxy. Comparing player instances also prevents an obsolete
+     * connection from taking a newer login for the same UUID offline.
+     */
+    private final ConcurrentMap<String, Player> currentPlayerConnections = new ConcurrentHashMap<>();
     private final AtomicBoolean acceptingEvents = new AtomicBoolean(true);
 
     public PlayerStatusListener(
@@ -111,6 +118,7 @@ public class PlayerStatusListener {
             return;
         }
 
+        currentPlayerConnections.put(uuid, player);
         PlayerIdentityInitialization initialization = playerService.beginIdentityInitialization(player.getUniqueId());
         Optional<CompletableFuture<Void>> queuedLogin = enqueuePlayerEvent(uuid, () -> {
             PlayerLifecycleWriteResult result = lifecycleWriter.login(LoginCommand.create(uuid, username, ip, vhost));
@@ -143,9 +151,14 @@ public class PlayerStatusListener {
         String uuid = player.getUniqueId().toString();
         String username = player.getUsername();
         String serverName = event.getServer().getServerInfo().getName();
+        if (!isCurrentConnection(uuid, player)) {
+            return;
+        }
 
         enqueuePlayerEvent(uuid, () -> {
-            lifecycleWriter.transfer(TransferCommand.create(uuid, username, serverName));
+            if (isCurrentConnection(uuid, player)) {
+                lifecycleWriter.transfer(TransferCommand.create(uuid, username, serverName));
+            }
         });
     }
 
@@ -154,8 +167,7 @@ public class PlayerStatusListener {
         Player player = event.getPlayer();
         String uuid = player.getUniqueId().toString();
         String username = player.getUsername();
-        if (event.getLoginStatus() != DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN) {
-            playerService.onPlayerQuit(username, uuid);
+        if (!removeCurrentConnection(uuid, player)) {
             return;
         }
 
@@ -166,6 +178,22 @@ public class PlayerStatusListener {
                 playerService.onPlayerQuit(username, uuid);
             }
         });
+    }
+
+    private boolean isCurrentConnection(String uuid, Player player) {
+        return currentPlayerConnections.get(uuid) == player;
+    }
+
+    private boolean removeCurrentConnection(String uuid, Player player) {
+        AtomicBoolean removed = new AtomicBoolean();
+        currentPlayerConnections.compute(uuid, (key, currentPlayer) -> {
+            if (currentPlayer == player) {
+                removed.set(true);
+                return null;
+            }
+            return currentPlayer;
+        });
+        return removed.get();
     }
 
     private Optional<CompletableFuture<Void>> enqueuePlayerEvent(String uuid, Runnable task) {
