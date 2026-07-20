@@ -27,7 +27,7 @@ class DataRegistrySettingsTest {
         assertEquals("auto", settings.velocityServiceName());
         assertEquals(2, settings.queryExecutorThreads());
         assertEquals(3000, settings.queryTimeoutMillis());
-        assertTrue(settings.queryDevelopmentThreadChecks());
+        assertFalse(settings.queryDevelopmentThreadChecks());
         assertEquals(32, settings.usernameMaxLength());
         assertEquals(64, settings.serverNameMaxLength());
         assertEquals(255, settings.virtualHostMaxLength());
