@@ -30,3 +30,4 @@ plugins/
 
 pom.xml.versionsBackup
 dependency-reduced-pom.xml
+.flattened-pom.xml
