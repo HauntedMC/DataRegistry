@@ -466,7 +466,7 @@ public class DataRegistry implements DataRegistryApi {
     }
 
     ORMContext newOrmContext(DataSource dataSource, Class<?>... entityClasses) {
-        return new ORMContext(
+        return dataProviderAPI.createOrmContext(
                 pluginName,
                 dataSource,
                 ormLogger,
@@ -544,7 +544,7 @@ public class DataRegistry implements DataRegistryApi {
     }
 
     ORMContext newServiceOrmContext(DataSource dataSource, Class<?>... entityClasses) {
-        return new ORMContext(
+        return dataProviderAPI.createOrmContext(
                 pluginName + "-service",
                 dataSource,
                 ormLogger,
