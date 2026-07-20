@@ -40,7 +40,7 @@
 
     <properties>
         <!-- Single source of truth for every module's release version. -->
-        <revision>1.11.0</revision>
+        <revision>1.11.1</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <java.version>25</java.version>
         <maven.compiler.release>${java.version}</maven.compiler.release>
