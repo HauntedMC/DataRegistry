@@ -6,15 +6,50 @@
         <artifactId>dataregistry-parent</artifactId>
         <version>${revision}</version>
     </parent>
+
     <artifactId>dataregistry-platform-velocity</artifactId>
     <name>DataRegistry Velocity Platform</name>
+
     <dependencies>
-        <dependency><groupId>${project.groupId}</groupId><artifactId>dataregistry-core</artifactId><version>${project.version}</version><optional>true</optional></dependency>
-        <dependency><groupId>nl.hauntedmc.dataprovider</groupId><artifactId>dataprovider-api</artifactId><version>${dataprovider.version}</version><scope>provided</scope></dependency>
-        <dependency><groupId>com.velocitypowered</groupId><artifactId>velocity-api</artifactId><version>${velocity.version}</version><scope>provided</scope></dependency>
-        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>${junit.version}</version><scope>test</scope></dependency>
-        <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><version>${mockito.version}</version><scope>test</scope></dependency>
-        <dependency><groupId>${project.groupId}</groupId><artifactId>dataregistry-core</artifactId><version>${project.version}</version><classifier>tests</classifier><type>test-jar</type><scope>test</scope></dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>dataregistry-core</artifactId>
+            <version>${project.version}</version>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>nl.hauntedmc.dataprovider</groupId>
+            <artifactId>dataprovider-api</artifactId>
+            <version>${dataprovider.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.velocitypowered</groupId>
+            <artifactId>velocity-api</artifactId>
+            <version>${velocity.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>${mockito.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Reuse core test fixtures in this platform module. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>dataregistry-core</artifactId>
+            <version>${project.version}</version>
+            <classifier>tests</classifier>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
     <build>
         <plugins>
@@ -22,8 +57,16 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
                     <proc>full</proc>
-                    <annotationProcessors><annotationProcessor>com.velocitypowered.api.plugin.ap.PluginAnnotationProcessor</annotationProcessor></annotationProcessors>
-                    <annotationProcessorPaths><path><groupId>com.velocitypowered</groupId><artifactId>velocity-api</artifactId><version>${velocity.version}</version></path></annotationProcessorPaths>
+                    <annotationProcessors>
+                        <annotationProcessor>com.velocitypowered.api.plugin.ap.PluginAnnotationProcessor</annotationProcessor>
+                    </annotationProcessors>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>com.velocitypowered</groupId>
+                            <artifactId>velocity-api</artifactId>
+                            <version>${velocity.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
                 </configuration>
             </plugin>
             <plugin>
@@ -49,7 +92,12 @@
                     </relocations>
                 </configuration>
                 <executions>
-                    <execution><phase>package</phase><goals><goal>shade</goal></goals></execution>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>

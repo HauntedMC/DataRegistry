@@ -8,17 +8,23 @@
     </parent>
     <artifactId>dataregistry-core</artifactId>
     <name>DataRegistry Core</name>
+
     <dependencies>
+        <!-- Internal modules. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>dataregistry-api</artifactId>
             <version>${project.version}</version>
         </dependency>
+
+        <!-- APIs required by registry implementations at runtime. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>dataregistry-platform-common</artifactId>
             <version>${project.version}</version>
         </dependency>
+
+        <!-- Serialization and unit-test support. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>dataregistry-migrations</artifactId>
@@ -54,11 +60,14 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
     <build>
         <resources>
             <resource>
                 <directory>src/main/resources</directory>
-                <includes><include>config.yml</include></includes>
+                <includes>
+                    <include>config.yml</include>
+                </includes>
             </resource>
         </resources>
         <plugins>
@@ -66,7 +75,9 @@
                 <artifactId>maven-jar-plugin</artifactId>
                 <executions>
                     <execution>
-                        <goals><goal>test-jar</goal></goals>
+                        <goals>
+                            <goal>test-jar</goal>
+                        </goals>
                     </execution>
                 </executions>
             </plugin>

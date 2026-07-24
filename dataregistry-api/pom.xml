@@ -6,6 +6,7 @@
         <artifactId>dataregistry-parent</artifactId>
         <version>${revision}</version>
     </parent>
+
     <artifactId>dataregistry-api</artifactId>
     <name>DataRegistry API</name>
 </project>
