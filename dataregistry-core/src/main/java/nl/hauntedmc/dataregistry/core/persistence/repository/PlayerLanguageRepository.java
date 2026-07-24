@@ -29,7 +29,10 @@ public class PlayerLanguageRepository extends AbstractRepository<PlayerLanguageE
                 entity = new PlayerLanguageEntity();
                 entity.setPlayerId(playerId);
                 entity.setPlayer(session.getReference(PlayerEntity.class, playerId));
+                entity.setLanguage(normalizedLanguage);
+                entity.setEffectiveLanguage(normalizedEffectiveLanguage);
                 session.persist(entity);
+                return entity;
             }
             entity.setLanguage(normalizedLanguage);
             entity.setEffectiveLanguage(normalizedEffectiveLanguage);

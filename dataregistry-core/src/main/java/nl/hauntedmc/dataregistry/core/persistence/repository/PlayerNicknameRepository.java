@@ -32,7 +32,9 @@ public class PlayerNicknameRepository extends AbstractRepository<PlayerNicknameE
                 entity = new PlayerNicknameEntity();
                 entity.setPlayerId(playerId);
                 entity.setPlayer(session.getReference(PlayerEntity.class, playerId));
+                entity.setNickname(normalizedNickname);
                 session.persist(entity);
+                return entity;
             }
             entity.setNickname(normalizedNickname);
             return entity;

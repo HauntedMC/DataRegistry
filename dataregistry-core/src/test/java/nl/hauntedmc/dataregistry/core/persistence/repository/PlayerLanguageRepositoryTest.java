@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test;
 import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.executeTransactionsWithSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -32,6 +34,12 @@ class PlayerLanguageRepositoryTest {
         executeTransactionsWithSession(ormContext, session);
         when(session.find(PlayerLanguageEntity.class, 4L)).thenReturn(null);
         when(session.getReference(PlayerEntity.class, 4L)).thenReturn(player);
+        doAnswer(invocation -> {
+            PlayerLanguageEntity persisted = invocation.getArgument(0);
+            assertEquals("AUTO", persisted.getLanguage());
+            assertEquals("EN", persisted.getEffectiveLanguage());
+            return null;
+        }).when(session).persist(any(PlayerLanguageEntity.class));
 
         PlayerLanguageEntity entity = repository.saveOrUpdate(4L, "AUTO", "EN");
 

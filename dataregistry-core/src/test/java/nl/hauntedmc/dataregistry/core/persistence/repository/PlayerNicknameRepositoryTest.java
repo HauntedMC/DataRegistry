@@ -11,6 +11,8 @@ import java.util.Optional;
 import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.executeTransactionsWithSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -45,6 +47,11 @@ class PlayerNicknameRepositoryTest {
         executeTransactionsWithSession(ormContext, session);
         when(session.find(PlayerNicknameEntity.class, 4L)).thenReturn(null);
         when(session.getReference(PlayerEntity.class, 4L)).thenReturn(player);
+        doAnswer(invocation -> {
+            PlayerNicknameEntity persisted = invocation.getArgument(0);
+            assertEquals("Ghost", persisted.getNickname());
+            return null;
+        }).when(session).persist(any(PlayerNicknameEntity.class));
 
         PlayerNicknameEntity entity = repository.saveOrUpdate(4L, "Ghost");
 
