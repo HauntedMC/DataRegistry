@@ -53,7 +53,7 @@ playtime:
   # Applies to: Velocity.
   # Periodic flush cadence for active online playtime (seconds, 5-300).
   flush-interval-seconds: 30
-  # When true, unknown server names fall back to their normalized server name as gamemode key.
+  # When true, unknown server names fall back to their normalized name only when it is a valid gamemode key.
   resolve-unknown-servers-as-gamemode: true
   # Gamemode keys that should never accrue tracked playtime.
   ignored-gamemodes: []
@@ -89,12 +89,12 @@ platform:
     # Register Paper backend heartbeats in the service registry.
     # Leave disabled when Velocity should own backend service identity.
     register-service-instance: false
-    # Backend logical service name; set equal to the Velocity server name for stable identity.
+    # Backend logical service name (up to 96 characters); set equal to the Velocity server name for stable identity.
     # Required when register-service-instance is true; 'auto' is only a placeholder default.
     service-name: auto
   velocity:
     # Applies to: Velocity.
-    # Proxy logical service name; set to 'auto' to derive from host:port fallback naming.
+    # Proxy logical service name (up to 96 characters); set to 'auto' to derive from host:port fallback naming.
     service-name: auto
 
 query:

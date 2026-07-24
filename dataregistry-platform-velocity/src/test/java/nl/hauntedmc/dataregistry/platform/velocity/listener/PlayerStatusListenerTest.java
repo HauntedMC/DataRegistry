@@ -11,6 +11,7 @@ import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerActivitySummaryEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerNameHistoryEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerOnlineStatusEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
@@ -335,7 +336,7 @@ class PlayerStatusListenerTest {
         ORMContext ormContext = mock(ORMContext.class);
         Session session = mock(Session.class);
         @SuppressWarnings("unchecked")
-        Query<Long> outboxQuery = mock(Query.class);
+        Query<PlayerLifecycleOutboxEntity> outboxQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
         Query<PlayerSessionEntity> sessionUpdateQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
@@ -351,10 +352,10 @@ class PlayerStatusListenerTest {
         when(session.merge(any(PlayerEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(session.find(eq(PlayerOnlineStatusEntity.class), any())).thenReturn(null);
         when(session.find(eq(PlayerActivitySummaryEntity.class), any())).thenReturn(null);
-        when(session.createQuery(anyString(), eq(Long.class))).thenReturn(outboxQuery);
+        when(session.createQuery(anyString(), eq(PlayerLifecycleOutboxEntity.class))).thenReturn(outboxQuery);
         when(outboxQuery.setParameter(anyString(), any())).thenReturn(outboxQuery);
         when(outboxQuery.setMaxResults(anyInt())).thenReturn(outboxQuery);
-        when(outboxQuery.uniqueResultOptional()).thenReturn(Optional.empty());
+        when(outboxQuery.uniqueResult()).thenReturn(null);
         when(session.createQuery(
                 "SELECT s FROM PlayerSessionEntity s " +
                         "WHERE s.player.id = :playerId AND s.endedAt IS NULL " +
@@ -497,7 +498,7 @@ class PlayerStatusListenerTest {
         ORMContext ormContext = mock(ORMContext.class);
         Session session = mock(Session.class);
         @SuppressWarnings("unchecked")
-        Query<Long> outboxQuery = mock(Query.class);
+        Query<PlayerLifecycleOutboxEntity> outboxQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
         Query<PlayerPlaytimeSegmentEntity> playtimeSegmentQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
@@ -511,10 +512,10 @@ class PlayerStatusListenerTest {
         when(registry.getORM()).thenReturn(ormContext);
         executeTransactionsWithSession(ormContext, session);
         when(session.merge(any(PlayerEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(session.createQuery(anyString(), eq(Long.class))).thenReturn(outboxQuery);
+        when(session.createQuery(anyString(), eq(PlayerLifecycleOutboxEntity.class))).thenReturn(outboxQuery);
         when(outboxQuery.setParameter(anyString(), any())).thenReturn(outboxQuery);
         when(outboxQuery.setMaxResults(anyInt())).thenReturn(outboxQuery);
-        when(outboxQuery.uniqueResultOptional()).thenReturn(Optional.empty());
+        when(outboxQuery.uniqueResult()).thenReturn(null);
         PlayerOnlineStatusEntity onlineStatus = new PlayerOnlineStatusEntity();
         onlineStatus.setCurrentServer("lobby-1");
         when(session.find(eq(PlayerOnlineStatusEntity.class), any())).thenReturn(onlineStatus);
@@ -876,7 +877,7 @@ class PlayerStatusListenerTest {
         Session session = mock(Session.class);
         MutationQuery mutationQuery = mock(MutationQuery.class);
         @SuppressWarnings("unchecked")
-        Query<Long> outboxQuery = mock(Query.class);
+        Query<PlayerLifecycleOutboxEntity> outboxQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
         Query<PlayerSessionEntity> sessionQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
@@ -896,10 +897,10 @@ class PlayerStatusListenerTest {
         when(session.find(eq(PlayerActivitySummaryEntity.class), any())).thenReturn(null);
         when(session.find(eq(PlayerOnlineStatusEntity.class), any())).thenReturn(null);
         when(session.find(eq(PlayerConnectionInfoEntity.class), any())).thenReturn(null);
-        when(session.createQuery(anyString(), eq(Long.class))).thenReturn(outboxQuery);
+        when(session.createQuery(anyString(), eq(PlayerLifecycleOutboxEntity.class))).thenReturn(outboxQuery);
         when(outboxQuery.setParameter(anyString(), any())).thenReturn(outboxQuery);
         when(outboxQuery.setMaxResults(anyInt())).thenReturn(outboxQuery);
-        when(outboxQuery.uniqueResultOptional()).thenReturn(Optional.empty());
+        when(outboxQuery.uniqueResult()).thenReturn(null);
         when(session.createMutationQuery(anyString())).thenReturn(mutationQuery);
         when(mutationQuery.setParameter(anyString(), any())).thenReturn(mutationQuery);
         when(mutationQuery.executeUpdate()).thenReturn(0);

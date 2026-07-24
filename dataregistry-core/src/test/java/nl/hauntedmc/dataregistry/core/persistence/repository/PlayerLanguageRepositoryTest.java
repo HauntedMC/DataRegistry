@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Test;
 
 import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.executeTransactionsWithSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -68,6 +70,33 @@ class PlayerLanguageRepositoryTest {
         assertEquals(existing, updated);
         assertEquals("AUTO", updated.getLanguage());
         assertEquals("NL", updated.getEffectiveLanguage());
+    }
+
+    @Test
+    void saveOrUpdateAllowsAnUnavailableEffectiveLanguage() {
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        PlayerLanguageRepository repository = new PlayerLanguageRepository(ormContext);
+        PlayerEntity player = new PlayerEntity();
+        player.setId(4L);
+
+        executeTransactionsWithSession(ormContext, session);
+        when(session.find(PlayerLanguageEntity.class, 4L)).thenReturn(null);
+        when(session.getReference(PlayerEntity.class, 4L)).thenReturn(player);
+
+        PlayerLanguageEntity entity = repository.saveOrUpdate(4L, "AUTO", null);
+
+        assertNull(entity.getEffectiveLanguage());
+    }
+
+    @Test
+    void saveOrUpdateRejectsInvalidPlayerIdsAndOverlongCodesBeforeOpeningATransaction() {
+        ORMContext ormContext = mock(ORMContext.class);
+        PlayerLanguageRepository repository = new PlayerLanguageRepository(ormContext);
+
+        assertThrows(IllegalArgumentException.class, () -> repository.saveOrUpdate(0L, "AUTO", "EN"));
+        assertThrows(IllegalArgumentException.class, () -> repository.saveOrUpdate(1L, "x".repeat(17), "EN"));
+        assertThrows(IllegalArgumentException.class, () -> repository.saveOrUpdate(1L, "AUTO", "x".repeat(17)));
     }
 
     @Test

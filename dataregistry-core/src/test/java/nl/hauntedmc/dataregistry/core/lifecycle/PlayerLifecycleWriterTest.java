@@ -3,6 +3,8 @@ package nl.hauntedmc.dataregistry.core.lifecycle;
 import jakarta.persistence.PersistenceException;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEventType;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
 import nl.hauntedmc.dataregistry.core.playtime.PlaytimeGamemodeResolver;
@@ -26,6 +28,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.executeTransactionsWithSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -48,13 +51,13 @@ class PlayerLifecycleWriterTest {
         PlayerRepository playerRepository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
         @SuppressWarnings("unchecked")
-        Query<Long> outboxQuery = mock(Query.class);
+        Query<PlayerLifecycleOutboxEntity> outboxQuery = mock(Query.class);
 
         when(dataRegistry.getORM()).thenReturn(ormContext);
-        when(session.createQuery(anyString(), eq(Long.class))).thenReturn(outboxQuery);
+        when(session.createQuery(anyString(), eq(PlayerLifecycleOutboxEntity.class))).thenReturn(outboxQuery);
         when(outboxQuery.setParameter(anyString(), any())).thenReturn(outboxQuery);
         when(outboxQuery.setMaxResults(1)).thenReturn(outboxQuery);
-        when(outboxQuery.uniqueResultOptional()).thenReturn(Optional.empty());
+        when(outboxQuery.uniqueResult()).thenReturn(null);
 
         String uuid = UUID.randomUUID().toString();
         PlayerEntity player = new PlayerEntity();
@@ -141,5 +144,69 @@ class PlayerLifecycleWriterTest {
         assertEquals("Alice", identity.username());
         verify(ormContext, times(2)).runInTransaction(any());
         verify(logger).warn(anyString(), any(RuntimeException.class));
+    }
+
+    @Test
+    void rejectsEventIdReusedForADifferentPlayer() {
+        DataRegistry dataRegistry = mock(DataRegistry.class);
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        PlayerRepository playerRepository = mock(PlayerRepository.class);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerLifecycleOutboxEntity> outboxQuery = mock(Query.class);
+        String commandUuid = UUID.randomUUID().toString();
+        String eventId = "login:" + commandUuid + ":reused";
+        PlayerLifecycleOutboxEntity existingEvent = new PlayerLifecycleOutboxEntity();
+        existingEvent.setEventId(eventId);
+        existingEvent.setEventType(PlayerLifecycleOutboxEventType.LOGIN);
+        existingEvent.setPlayerUuid(UUID.randomUUID().toString());
+
+        when(dataRegistry.getORM()).thenReturn(ormContext);
+        executeTransactionsWithSession(ormContext, session);
+        when(session.createQuery(anyString(), eq(PlayerLifecycleOutboxEntity.class))).thenReturn(outboxQuery);
+        when(outboxQuery.setParameter(anyString(), any())).thenReturn(outboxQuery);
+        when(outboxQuery.setMaxResults(1)).thenReturn(outboxQuery);
+        when(outboxQuery.uniqueResult()).thenReturn(existingEvent);
+
+        PlayerLifecycleWriter writer = newWriter(dataRegistry, playerRepository, logger);
+
+        PlayerLifecycleWriteResult result = writer.login(new LoginCommand(
+                eventId,
+                commandUuid,
+                "Alice",
+                null,
+                null,
+                Instant.parse("2026-07-20T07:30:00Z")
+        ));
+
+        assertEquals(PlayerLifecycleWriteStatus.PERMANENT_FAILURE, result.status());
+        assertTrue(result.failure() instanceof IllegalArgumentException);
+        verify(logger).error(anyString(), any(IllegalArgumentException.class));
+    }
+
+    private static PlayerLifecycleWriter newWriter(
+            DataRegistry dataRegistry,
+            PlayerRepository playerRepository,
+            ILoggerAdapter logger
+    ) {
+        PlayerService playerService = new PlayerService(playerRepository, new PlayerIdentityInitializationTracker(), logger);
+        return new PlayerLifecycleWriter(
+                dataRegistry,
+                playerService,
+                new PlayerNameHistoryService(dataRegistry, logger, 32, false),
+                new PlayerActivitySummaryService(dataRegistry, logger, false),
+                new PlayerStatusService(dataRegistry, logger, 64, false),
+                new PlayerConnectionInfoService(dataRegistry, logger, true, true, 45, 255, false),
+                new PlayerSessionService(dataRegistry, logger, true, true, 45, 255, 64, false),
+                new PlayerPlaytimeService(
+                        dataRegistry,
+                        logger,
+                        new PlaytimeGamemodeResolver(PlaytimeTrackingSettings.defaults()),
+                        64,
+                        false
+                ),
+                logger
+        );
     }
 }

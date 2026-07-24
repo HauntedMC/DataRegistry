@@ -114,8 +114,15 @@ public final class PlayerLifecycleWriter {
     public PlayerLifecycleWriteResult login(LoginCommand command) {
         Objects.requireNonNull(command, "command must not be null");
         return execute(command.eventId(), () -> dataRegistry.getORM().runInTransaction(session -> {
-            if (outboxEventExists(session, command.eventId())) {
-                return duplicateOutcome(session, command.eventId(), command.playerUuid(), true);
+            PlayerLifecycleOutboxEntity existingEvent = findOutboxEvent(session, command.eventId());
+            if (existingEvent != null) {
+                return duplicateOutcome(
+                        session,
+                        existingEvent,
+                        command.playerUuid(),
+                        PlayerLifecycleOutboxEventType.LOGIN,
+                        true
+                );
             }
 
             Instant now = command.occurredAt();
@@ -164,8 +171,15 @@ public final class PlayerLifecycleWriter {
     public PlayerLifecycleWriteResult transfer(TransferCommand command) {
         Objects.requireNonNull(command, "command must not be null");
         return execute(command.eventId(), () -> dataRegistry.getORM().runInTransaction(session -> {
-            if (outboxEventExists(session, command.eventId())) {
-                return duplicateOutcome(session, command.eventId(), command.playerUuid(), true);
+            PlayerLifecycleOutboxEntity existingEvent = findOutboxEvent(session, command.eventId());
+            if (existingEvent != null) {
+                return duplicateOutcome(
+                        session,
+                        existingEvent,
+                        command.playerUuid(),
+                        PlayerLifecycleOutboxEventType.TRANSFER,
+                        true
+                );
             }
 
             Instant now = command.occurredAt();
@@ -193,8 +207,15 @@ public final class PlayerLifecycleWriter {
     public PlayerLifecycleWriteResult disconnect(DisconnectCommand command) {
         Objects.requireNonNull(command, "command must not be null");
         return execute(command.eventId(), () -> dataRegistry.getORM().runInTransaction(session -> {
-            if (outboxEventExists(session, command.eventId())) {
-                return duplicateOutcome(session, command.eventId(), command.playerUuid(), false);
+            PlayerLifecycleOutboxEntity existingEvent = findOutboxEvent(session, command.eventId());
+            if (existingEvent != null) {
+                return duplicateOutcome(
+                        session,
+                        existingEvent,
+                        command.playerUuid(),
+                        PlayerLifecycleOutboxEventType.DISCONNECT,
+                        false
+                );
             }
 
             Instant now = command.occurredAt();
@@ -259,23 +280,30 @@ public final class PlayerLifecycleWriter {
         );
     }
 
-    private static boolean outboxEventExists(Session session, String eventId) {
+    private static PlayerLifecycleOutboxEntity findOutboxEvent(Session session, String eventId) {
         return session.createQuery(
-                        "SELECT o.id FROM PlayerLifecycleOutboxEntity o WHERE o.eventId = :eventId",
-                        Long.class
+                        "SELECT o FROM PlayerLifecycleOutboxEntity o WHERE o.eventId = :eventId",
+                        PlayerLifecycleOutboxEntity.class
                 )
                 .setParameter("eventId", eventId)
                 .setMaxResults(1)
-                .uniqueResultOptional()
-                .isPresent();
+                .uniqueResult();
     }
 
     private static TransactionOutcome duplicateOutcome(
             Session session,
-            String eventId,
+            PlayerLifecycleOutboxEntity existingEvent,
             String playerUuid,
+            PlayerLifecycleOutboxEventType eventType,
             boolean activeAfterCommit
     ) {
+        if (existingEvent.getEventType() != eventType
+                || !Objects.equals(existingEvent.getPlayerUuid(), playerUuid)) {
+            throw new IllegalArgumentException(
+                    "Lifecycle event id is already associated with a different event type or player: " +
+                            safeForLog(existingEvent.getEventId()) + "."
+            );
+        }
         PlayerEntity player = session.createQuery(
                         "SELECT p FROM PlayerEntity p WHERE p.uuid = :uuid",
                         PlayerEntity.class
@@ -285,7 +313,7 @@ public final class PlayerLifecycleWriter {
                 .uniqueResult();
         if (player == null) {
             throw new IllegalStateException(
-                    "Lifecycle outbox event exists without a player row for eventId=" + eventId + "."
+                    "Lifecycle outbox event exists without a player row for eventId=" + existingEvent.getEventId() + "."
             );
         }
         return new TransactionOutcome(true, activeAfterCommit, player);

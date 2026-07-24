@@ -9,6 +9,8 @@ import java.util.Optional;
 
 public class PlayerLanguageRepository extends AbstractRepository<PlayerLanguageEntity, Long> {
 
+    private static final int LANGUAGE_CODE_MAX_LENGTH = 16;
+
     public PlayerLanguageRepository(ORMContext ormContext) {
         super(ormContext, PlayerLanguageEntity.class);
     }
@@ -21,8 +23,9 @@ public class PlayerLanguageRepository extends AbstractRepository<PlayerLanguageE
     }
 
     public PlayerLanguageEntity saveOrUpdate(long playerId, String language, String effectiveLanguage) {
+        requirePlayerId(playerId);
         String normalizedLanguage = requireCode(language, "language");
-        String normalizedEffectiveLanguage = requireCode(effectiveLanguage, "effectiveLanguage");
+        String normalizedEffectiveLanguage = normalizeOptionalCode(effectiveLanguage, "effectiveLanguage");
         return ormContext.runInTransaction(session -> {
             PlayerLanguageEntity entity = session.find(PlayerLanguageEntity.class, playerId);
             if (entity == null) {
@@ -58,6 +61,22 @@ public class PlayerLanguageRepository extends AbstractRepository<PlayerLanguageE
         if (normalized.isEmpty()) {
             throw new IllegalArgumentException(fieldName + " must not be blank");
         }
+        if (normalized.length() > LANGUAGE_CODE_MAX_LENGTH) {
+            throw new IllegalArgumentException(fieldName + " must be " + LANGUAGE_CODE_MAX_LENGTH + " characters or fewer");
+        }
         return normalized;
+    }
+
+    private static String normalizeOptionalCode(String value, String fieldName) {
+        if (value == null) {
+            return null;
+        }
+        return requireCode(value, fieldName);
+    }
+
+    private static void requirePlayerId(long playerId) {
+        if (playerId <= 0L) {
+            throw new IllegalArgumentException("playerId must be a positive database id.");
+        }
     }
 }

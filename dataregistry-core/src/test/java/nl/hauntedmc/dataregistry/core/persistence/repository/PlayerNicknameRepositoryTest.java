@@ -10,6 +10,7 @@ import java.util.Optional;
 
 import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.executeTransactionsWithSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -75,5 +76,14 @@ class PlayerNicknameRepositoryTest {
         repository.deleteByPlayerId(9L);
 
         verify(session).remove(existing);
+    }
+
+    @Test
+    void saveOrUpdateRejectsInvalidPlayerIdsAndOverlongNicknamesBeforeOpeningATransaction() {
+        ORMContext ormContext = mock(ORMContext.class);
+        PlayerNicknameRepository repository = new PlayerNicknameRepository(ormContext);
+
+        assertThrows(IllegalArgumentException.class, () -> repository.saveOrUpdate(0L, "Ghost"));
+        assertThrows(IllegalArgumentException.class, () -> repository.saveOrUpdate(1L, "x".repeat(256)));
     }
 }

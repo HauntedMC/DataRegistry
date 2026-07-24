@@ -31,6 +31,7 @@ public final class DataRegistrySettings {
     private static final boolean DEFAULT_QUERY_DEVELOPMENT_THREAD_CHECKS = false;
     private static final int DEFAULT_USERNAME_MAX_LENGTH = 32;
     private static final int DEFAULT_SERVER_NAME_MAX_LENGTH = 64;
+    private static final int SERVICE_NAME_MAX_LENGTH = 96;
     private static final int DEFAULT_VIRTUAL_HOST_MAX_LENGTH = 255;
     private static final int DEFAULT_IP_ADDRESS_MAX_LENGTH = 45;
     private static final Set<String> ALLOWED_SCHEMA_MODES =
@@ -332,9 +333,9 @@ public final class DataRegistrySettings {
         if (normalized.isEmpty()) {
             throw new IllegalArgumentException(fieldName + " must not be blank");
         }
-        if (!"auto".equalsIgnoreCase(normalized) && normalized.length() > DEFAULT_SERVER_NAME_MAX_LENGTH) {
+        if (!"auto".equalsIgnoreCase(normalized) && normalized.length() > SERVICE_NAME_MAX_LENGTH) {
             throw new IllegalArgumentException(
-                    fieldName + " must be 'auto' or at most " + DEFAULT_SERVER_NAME_MAX_LENGTH + " characters."
+                    fieldName + " must be 'auto' or at most " + SERVICE_NAME_MAX_LENGTH + " characters."
             );
         }
         return normalized;

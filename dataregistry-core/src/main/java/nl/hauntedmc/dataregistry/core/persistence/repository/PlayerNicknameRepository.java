@@ -9,6 +9,8 @@ import java.util.Optional;
 
 public class PlayerNicknameRepository extends AbstractRepository<PlayerNicknameEntity, Long> {
 
+    private static final int NICKNAME_MAX_LENGTH = 255;
+
     public PlayerNicknameRepository(ORMContext ormContext) {
         super(ormContext, PlayerNicknameEntity.class);
     }
@@ -25,6 +27,7 @@ public class PlayerNicknameRepository extends AbstractRepository<PlayerNicknameE
     }
 
     public PlayerNicknameEntity saveOrUpdate(long playerId, String nickname) {
+        requirePlayerId(playerId);
         String normalizedNickname = requireNickname(nickname);
         return ormContext.runInTransaction(session -> {
             PlayerNicknameEntity entity = session.find(PlayerNicknameEntity.class, playerId);
@@ -59,6 +62,15 @@ public class PlayerNicknameRepository extends AbstractRepository<PlayerNicknameE
         if (normalized.isEmpty()) {
             throw new IllegalArgumentException("nickname must not be blank");
         }
+        if (normalized.length() > NICKNAME_MAX_LENGTH) {
+            throw new IllegalArgumentException("nickname must be " + NICKNAME_MAX_LENGTH + " characters or fewer");
+        }
         return normalized;
+    }
+
+    private static void requirePlayerId(long playerId) {
+        if (playerId <= 0L) {
+            throw new IllegalArgumentException("playerId must be a positive database id.");
+        }
     }
 }

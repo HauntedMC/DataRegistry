@@ -53,6 +53,7 @@ class DataRegistryConfigSchemaTest {
         assertTrue(rendered.contains("playtime:"));
         assertTrue(rendered.contains("flush-interval-seconds: 30"));
         assertTrue(rendered.contains("resolve-unknown-servers-as-gamemode: true"));
+        assertTrue(rendered.contains("only when it is a valid gamemode key"));
         assertTrue(rendered.contains("server-gamemode-rules: []"));
         assertTrue(rendered.contains("activity-summary: true"));
         assertTrue(rendered.contains("session-visits: true"));
@@ -66,6 +67,7 @@ class DataRegistryConfigSchemaTest {
         assertTrue(rendered.contains("probe-purge-interval-hours: 12"));
         assertTrue(rendered.contains("register-service-instance: false"));
         assertTrue(rendered.contains("service-name: auto"));
+        assertTrue(rendered.contains("service name (up to 96 characters)"));
         assertTrue(rendered.contains("max-length: 32"));
         assertTrue(rendered.contains("max-length: 64"));
         assertTrue(rendered.contains("max-length: 255"));

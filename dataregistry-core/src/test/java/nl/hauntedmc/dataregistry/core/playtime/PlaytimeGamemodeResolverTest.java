@@ -66,4 +66,21 @@ class PlaytimeGamemodeResolverTest {
         assertFalse(resolved.tracked());
         assertFalse(resolved.countedTowardsNetworkTotal());
     }
+
+    @Test
+    void resolveDoesNotStoreAnInvalidUnknownServerNameAsAGamemode() {
+        PlaytimeTrackingSettings settings = PlaytimeTrackingSettings.builder()
+                .gamemodeKeyMaxLength(8)
+                .build();
+        PlaytimeGamemodeResolver resolver = new PlaytimeGamemodeResolver(settings);
+
+        PlaytimeGamemodeResolver.ResolvedGamemode invalidCharacters = resolver.resolve("Lobby EU");
+        PlaytimeGamemodeResolver.ResolvedGamemode overlong = resolver.resolve("minigames-01");
+
+        assertEquals("lobby eu", invalidCharacters.serverName());
+        assertNull(invalidCharacters.gamemodeKey());
+        assertFalse(invalidCharacters.tracked());
+        assertNull(overlong.gamemodeKey());
+        assertFalse(overlong.tracked());
+    }
 }

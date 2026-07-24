@@ -51,7 +51,13 @@ public final class PlaytimeGamemodeResolver {
                 return rule.gamemodeKey();
             }
         }
-        return settings.resolveUnknownServersAsGamemode() ? normalizedServerName : null;
+        if (!settings.resolveUnknownServersAsGamemode()) {
+            return null;
+        }
+        return PlaytimeTrackingSettings.normalizeGamemodeKeyOrNull(
+                normalizedServerName,
+                settings.gamemodeKeyMaxLength()
+        );
     }
 
     private static boolean globMatches(String pattern, String value) {

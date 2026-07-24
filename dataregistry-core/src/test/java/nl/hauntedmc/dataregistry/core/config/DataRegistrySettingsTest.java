@@ -136,6 +136,23 @@ class DataRegistrySettingsTest {
     }
 
     @Test
+    void builderAcceptsServiceNamesUpToTheServiceRegistrySchemaLimit() {
+        String serviceName = "s".repeat(96);
+
+        DataRegistrySettings settings = DataRegistrySettings.builder()
+                .bukkitServiceName(serviceName)
+                .velocityServiceName(serviceName)
+                .build();
+
+        assertEquals(serviceName, settings.bukkitServiceName());
+        assertEquals(serviceName, settings.velocityServiceName());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DataRegistrySettings.builder().bukkitServiceName("s".repeat(97)).build()
+        );
+    }
+
+    @Test
     void builderAppliesEnabledFeatureSet() {
         DataRegistrySettings settings = DataRegistrySettings.builder()
                 .enabledFeatures(EnumSet.of(DataRegistryFeature.SESSIONS))

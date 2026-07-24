@@ -177,7 +177,7 @@ final class DataRegistryConfigSchema {
         builder.append("  # Applies to: Velocity.\n");
         builder.append("  # Periodic flush cadence for active online playtime (seconds, 5-300).\n");
         builder.append("  flush-interval-seconds: ").append(playtimeSettings.flushIntervalSeconds()).append('\n');
-        builder.append("  # When true, unknown server names fall back to their normalized server name as gamemode key.\n");
+        builder.append("  # When true, unknown server names fall back to their normalized name only when it is a valid gamemode key.\n");
         builder.append("  resolve-unknown-servers-as-gamemode: ")
                 .append(playtimeSettings.resolveUnknownServersAsGamemode())
                 .append('\n');
@@ -215,12 +215,12 @@ final class DataRegistryConfigSchema {
         builder.append("    # Register Paper backend heartbeats in the service registry.\n");
         builder.append("    # Leave disabled when Velocity should own backend service identity.\n");
         builder.append("    register-service-instance: ").append(settings.bukkitRegisterServiceInstance()).append('\n');
-        builder.append("    # Backend logical service name; set equal to the Velocity server name for stable identity.\n");
+        builder.append("    # Backend logical service name (up to 96 characters); set equal to the Velocity server name for stable identity.\n");
         builder.append("    # Required when register-service-instance is true; 'auto' is only a placeholder default.\n");
         builder.append("    service-name: ").append(settings.bukkitServiceName()).append('\n');
         builder.append("  velocity:\n");
         builder.append("    # Applies to: Velocity.\n");
-        builder.append("    # Proxy logical service name; set to 'auto' to derive from host:port fallback naming.\n");
+        builder.append("    # Proxy logical service name (up to 96 characters); set to 'auto' to derive from host:port fallback naming.\n");
         builder.append("    service-name: ").append(settings.velocityServiceName()).append('\n');
         builder.append('\n');
         builder.append("query:\n");
