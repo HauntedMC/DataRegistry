@@ -60,7 +60,9 @@ fail() {
 require_java_25_or_newer() {
     local version
     version="$("$JAVA_EXECUTABLE" -version 2>&1 | awk -F '[\".]' '/version/ { print $2; exit }')"
-    [[ "$version" =~ ^[0-9]+$ ]] && (( 10#$version >= 25 )) || fail "Platform acceptance requires Java 25 or newer; ${JAVA_EXECUTABLE} reports Java ${version:-unknown}. Set PLATFORM_ACCEPTANCE_JAVA to a Java 25+ executable."
+    if ! [[ "$version" =~ ^[0-9]+$ ]] || (( 10#$version < 25 )); then
+        fail "Platform acceptance requires Java 25 or newer; ${JAVA_EXECUTABLE} reports Java ${version:-unknown}. Set PLATFORM_ACCEPTANCE_JAVA to a Java 25+ executable."
+    fi
 }
 
 require_command() {
