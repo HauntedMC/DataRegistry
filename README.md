@@ -39,13 +39,13 @@ keys are restored on load and stale keys are removed.
 
 ## Developer API
 
-Depend only on `dataregistry-api` as `provided`:
+Depend only on `dataregistry-api` as `provided` (replace the version with the release you target):
 
 ```xml
 <dependency>
   <groupId>nl.hauntedmc.dataregistry</groupId>
   <artifactId>dataregistry-api</artifactId>
-  <version>1.10.4</version>
+  <version>1.11.5</version>
   <scope>provided</scope>
 </dependency>
 ```
@@ -193,21 +193,25 @@ Authenticated GitHub Packages access may be required for private HauntedMC depen
 # Fast reactor verification: unit tests, Checkstyle, coverage and dependency hygiene.
 ./mvnw -B -ntp verify
 
-# Adds a real MySQL 8.4 container. This applies the shipped migration and validates the
+# Adds the MySQL integration suite. It applies the shipped migration and validates the
 # production Hibernate mappings before exercising the public DataRegistry API.
 ./mvnw -B -ntp -Pintegration-tests verify
 
 # Builds the bundled Paper and Velocity artifacts, then boots each in the real target
-# platform with a consumer compiled only against dataregistry-api.
+# platform with a consumer compiled only against dataregistry-api. This suite also runs
+# the fast reactor checks; it does not include the MySQL integration suite.
 ./mvnw -B -ntp -Pplatform-acceptance verify
+
+# Full local release gate: fast checks, MySQL integration, and Paper/Velocity acceptance.
+./mvnw -B -ntp -Pintegration-tests,platform-acceptance verify
 ```
 
-The platform suite needs a reachable Docker daemon, `curl`, `jq`, `sha256sum`, `jar`, and exactly Java 25.
-Java 26 is intentionally rejected because the currently supported DataProvider/Hibernate runtime is qualified
-against Java 25. It downloads the configured
-Paper and Velocity runtime builds, checks their SHA-256 values, provisions MySQL 8.4 from the migration,
-checks public API reads and writes, reloads DataProvider configuration, and requires clean DataRegistry and
-Hikari shutdown. Set `PLATFORM_ACCEPTANCE_KEEP_WORK_DIRECTORY=true` to retain server logs after a local run.
+The integration and platform suites need a reachable Docker daemon. The platform suite additionally needs `curl`,
+`jq`, `sha256sum`, `jar`, and exactly Java 25. Java 26 is intentionally rejected because the currently supported
+DataProvider/Hibernate runtime is qualified against Java 25. The platform suite downloads the configured Paper and
+Velocity runtime builds, checks their SHA-256 values, provisions MySQL 8.4 from the migration, checks public API
+reads and writes, reloads DataProvider configuration, and requires clean DataRegistry and Hikari shutdown. Set
+`PLATFORM_ACCEPTANCE_KEEP_WORK_DIRECTORY=true` to retain server logs after a local run.
 
 The tag release workflow runs both profiles against the exact tagged reactor before Maven deployment. This
 keeps the fast checks, migration/schema compatibility, and real bundled-plugin boot checks in the release gate.
