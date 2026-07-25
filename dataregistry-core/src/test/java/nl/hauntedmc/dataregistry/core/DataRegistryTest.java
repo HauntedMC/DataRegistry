@@ -37,7 +37,6 @@ import javax.sql.DataSource;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Arrays;
-import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -92,10 +91,9 @@ class DataRegistryTest {
         ORMContext ormContext = mock(ORMContext.class);
         PlayerRepository repository = mock(PlayerRepository.class);
 
-        when(api.registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class))
-                .thenReturn(Optional.of(provider));
+        when(api.registerDatabaseOrThrow(DatabaseType.MYSQL, "player_data_rw")).thenReturn(provider);
         when(provider.isConnected()).thenReturn(true);
-        when(provider.getDataSourceOptional()).thenReturn(Optional.of(dataSource));
+        when(provider.getDataSource()).thenReturn(dataSource);
 
         TestableDataRegistry registry = new TestableDataRegistry(logger, "DataRegistry", api, ormContext, repository);
 
@@ -132,10 +130,9 @@ class DataRegistryTest {
                 .enabledFeatures(Set.of(DataRegistryFeature.CONNECTION_INFO))
                 .build();
 
-        when(api.registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class))
-                .thenReturn(Optional.of(provider));
+        when(api.registerDatabaseOrThrow(DatabaseType.MYSQL, "player_data_rw")).thenReturn(provider);
         when(provider.isConnected()).thenReturn(true);
-        when(provider.getDataSourceOptional()).thenReturn(Optional.of(dataSource));
+        when(provider.getDataSource()).thenReturn(dataSource);
 
         TestableDataRegistry registry = new TestableDataRegistry(
                 logger,
@@ -165,8 +162,8 @@ class DataRegistryTest {
     void initializeReturnsFalseWhenProviderCannotBeResolved() {
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
         DataProviderAPI api = mock(DataProviderAPI.class);
-        when(api.registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class))
-                .thenReturn(Optional.empty());
+        when(api.registerDatabaseOrThrow(DatabaseType.MYSQL, "player_data_rw"))
+                .thenThrow(new IllegalStateException("registration failed"));
 
         DataRegistry registry = new DataRegistry(logger, "DataRegistry", api);
         assertFalse(registry.initialize());
@@ -179,8 +176,7 @@ class DataRegistryTest {
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
         DataProviderAPI api = mock(DataProviderAPI.class);
         RelationalDatabaseProvider provider = mock(RelationalDatabaseProvider.class);
-        when(api.registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class))
-                .thenReturn(Optional.of(provider));
+        when(api.registerDatabaseOrThrow(DatabaseType.MYSQL, "player_data_rw")).thenReturn(provider);
         when(provider.isConnected()).thenReturn(false);
 
         DataRegistry registry = new DataRegistry(logger, "DataRegistry", api);
@@ -195,10 +191,9 @@ class DataRegistryTest {
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
         DataProviderAPI api = mock(DataProviderAPI.class);
         RelationalDatabaseProvider provider = mock(RelationalDatabaseProvider.class);
-        when(api.registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class))
-                .thenReturn(Optional.of(provider));
+        when(api.registerDatabaseOrThrow(DatabaseType.MYSQL, "player_data_rw")).thenReturn(provider);
         when(provider.isConnected()).thenReturn(true);
-        when(provider.getDataSourceOptional()).thenReturn(Optional.empty());
+        when(provider.getDataSource()).thenReturn(null);
 
         DataRegistry registry = new DataRegistry(logger, "DataRegistry", api);
 
@@ -215,16 +210,15 @@ class DataRegistryTest {
         ORMContext ormContext = mock(ORMContext.class);
         PlayerRepository repository = mock(PlayerRepository.class);
 
-        when(api.registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class))
-                .thenReturn(Optional.of(provider));
+        when(api.registerDatabaseOrThrow(DatabaseType.MYSQL, "player_data_rw")).thenReturn(provider);
         when(provider.isConnected()).thenReturn(true);
-        when(provider.getDataSourceOptional()).thenReturn(Optional.of(dataSource));
+        when(provider.getDataSource()).thenReturn(dataSource);
 
         TestableDataRegistry registry = new TestableDataRegistry(logger, "DataRegistry", api, ormContext, repository);
 
         assertTrue(registry.initialize());
         assertTrue(registry.initialize());
-        verify(api).registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class);
+        verify(api).registerDatabaseOrThrow(DatabaseType.MYSQL, "player_data_rw");
         verify(logger).warn("DataRegistry is already initialized.");
     }
 
@@ -238,10 +232,9 @@ class DataRegistryTest {
         ORMContext freshOrm = mock(ORMContext.class);
         PlayerRepository repository = mock(PlayerRepository.class);
 
-        when(api.registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class))
-                .thenReturn(Optional.of(provider));
+        when(api.registerDatabaseOrThrow(DatabaseType.MYSQL, "player_data_rw")).thenReturn(provider);
         when(provider.isConnected()).thenReturn(true);
-        when(provider.getDataSourceOptional()).thenReturn(Optional.of(dataSource));
+        when(provider.getDataSource()).thenReturn(dataSource);
 
         TestableDataRegistry registry = new TestableDataRegistry(logger, "DataRegistry", api, freshOrm, repository);
         setField(registry, "ormContext", staleOrm);
@@ -267,10 +260,9 @@ class DataRegistryTest {
                 .ormSchemaMode("update")
                 .build();
 
-        when(api.registerDatabaseAs(DatabaseType.MYSQL, "custom_player_rw", RelationalDatabaseProvider.class))
-                .thenReturn(Optional.of(provider));
+        when(api.registerDatabaseOrThrow(DatabaseType.MYSQL, "custom_player_rw")).thenReturn(provider);
         when(provider.isConnected()).thenReturn(true);
-        when(provider.getDataSourceOptional()).thenReturn(Optional.of(dataSource));
+        when(provider.getDataSource()).thenReturn(dataSource);
 
         TestableDataRegistry registry = new TestableDataRegistry(
                 logger,
@@ -282,7 +274,7 @@ class DataRegistryTest {
         );
 
         assertTrue(registry.initialize());
-        verify(api).registerDatabaseAs(DatabaseType.MYSQL, "custom_player_rw", RelationalDatabaseProvider.class);
+        verify(api).registerDatabaseOrThrow(DatabaseType.MYSQL, "custom_player_rw");
         assertEquals("update", registry.getSettings().ormSchemaMode());
     }
 
@@ -294,10 +286,9 @@ class DataRegistryTest {
         DataSource dataSource = mock(DataSource.class);
         ORMContext ormContext = mock(ORMContext.class);
 
-        when(api.registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class))
-                .thenReturn(Optional.of(provider));
+        when(api.registerDatabaseOrThrow(DatabaseType.MYSQL, "player_data_rw")).thenReturn(provider);
         when(provider.isConnected()).thenReturn(true);
-        when(provider.getDataSourceOptional()).thenReturn(Optional.of(dataSource));
+        when(provider.getDataSource()).thenReturn(dataSource);
 
         DataRegistry registry = new FailingRepositoryDataRegistry(logger, "DataRegistry", api, ormContext);
 
@@ -355,10 +346,9 @@ class DataRegistryTest {
         ORMContext ormContext = mock(ORMContext.class);
         PlayerRepository repository = mock(PlayerRepository.class);
 
-        when(api.registerDatabaseAs(DatabaseType.MYSQL, "player_data_rw", RelationalDatabaseProvider.class))
-                .thenReturn(Optional.of(provider));
+        when(api.registerDatabaseOrThrow(DatabaseType.MYSQL, "player_data_rw")).thenReturn(provider);
         when(provider.isConnected()).thenReturn(true);
-        when(provider.getDataSourceOptional()).thenReturn(Optional.of(dataSource));
+        when(provider.getDataSource()).thenReturn(dataSource);
 
         TestableDataRegistry registry = new TestableDataRegistry(logger, "DataRegistry", api, ormContext, repository);
         assertTrue(registry.initialize());

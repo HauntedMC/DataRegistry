@@ -86,7 +86,7 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
                 .getServicesManager()
                 .getRegistration(DataProviderAPI.class);
         if (registration != null) {
-            return registration.getProvider();
+            return registration.getProvider().forPlugin(this);
         }
 
         Plugin dataProviderPlugin = getServer().getPluginManager().getPlugin("DataProvider");
@@ -94,7 +94,7 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
             return null;
         }
         try {
-            return supplier.dataProviderApi();
+            return supplier.dataProviderApi().forPlugin(this);
         } catch (RuntimeException exception) {
             logInstance.error("Failed to resolve DataProvider API from Bukkit plugin instance.", exception);
             return null;

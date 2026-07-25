@@ -23,7 +23,7 @@ players by the stable scalar `playerId`.
 - Java 25
 - Maven 3.8.6+
 - Docker, for the container-backed and platform-acceptance suites
-- DataProvider `3.0.5`
+- DataProvider `3.1.0`
 - Velocity `4.1.0-SNAPSHOT` and/or Paper `26.2.build.65-beta`
 
 Configure both the shell `JAVA_HOME` and the IDE Maven runner/importer to Java 25. The build deliberately rejects

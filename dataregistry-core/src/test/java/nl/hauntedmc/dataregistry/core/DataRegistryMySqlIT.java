@@ -25,7 +25,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -33,7 +32,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -80,12 +78,11 @@ class DataRegistryMySqlIT {
         DataProviderAPI dataProvider = mock(DataProviderAPI.class);
         RelationalDatabaseProvider provider = mock(RelationalDatabaseProvider.class);
         ILoggerAdapter platformLogger = mock(ILoggerAdapter.class);
-        when(dataProvider.registerDatabaseAs(DatabaseType.MYSQL, CONNECTION_ID, RelationalDatabaseProvider.class))
-                .thenReturn(Optional.of(provider));
+        when(dataProvider.registerDatabaseOrThrow(DatabaseType.MYSQL, CONNECTION_ID)).thenReturn(provider);
         when(provider.isConnected()).thenReturn(true);
-        when(provider.getDataSourceOptional()).thenReturn(Optional.of(dataSource));
+        when(provider.getDataSource()).thenReturn(dataSource);
         when(dataProvider.createOrmContext(
-                anyString(), eq(dataSource), any(LoggerAdapter.class), eq("validate"), any(Class[].class)
+                eq(dataSource), any(LoggerAdapter.class), eq("validate"), any(Class[].class)
         ))
                 .thenAnswer(invocation -> createOrmContext(invocation.getArguments()));
 
@@ -138,12 +135,12 @@ class DataRegistryMySqlIT {
     }
 
     private ORMContext createOrmContext(Object[] arguments) {
-        Class<?>[] entityClasses = new Class<?>[arguments.length - 4];
-        for (int index = 4; index < arguments.length; index++) {
-            entityClasses[index - 4] = (Class<?>) arguments[index];
+        Class<?>[] entityClasses = new Class<?>[arguments.length - 3];
+        for (int index = 3; index < arguments.length; index++) {
+            entityClasses[index - 3] = (Class<?>) arguments[index];
         }
         return new nl.hauntedmc.dataprovider.core.orm.ORMContext(
-                (String) arguments[0], dataSource, (LoggerAdapter) arguments[2], (String) arguments[3], entityClasses
+                "DataRegistry", dataSource, (LoggerAdapter) arguments[1], (String) arguments[2], entityClasses
         );
     }
 

@@ -188,7 +188,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
         }
 
         try {
-            return supplier.get().dataProviderApi();
+            return supplier.get().dataProviderApi().forPlugin(this);
         } catch (RuntimeException exception) {
             logger.error("Failed to resolve DataProvider API from supplier.", exception);
             return null;

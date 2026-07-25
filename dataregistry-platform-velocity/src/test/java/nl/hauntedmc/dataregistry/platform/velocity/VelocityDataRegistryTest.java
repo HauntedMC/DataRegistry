@@ -122,13 +122,14 @@ class VelocityDataRegistryTest {
     }
 
     @Test
-    void resolveDataProviderApiReturnsSupplierApi() {
+    void resolveDataProviderApiReturnsPluginBoundSupplierApi() {
         ProxyServer proxyServer = mock(ProxyServer.class);
         PluginManager pluginManager = mock(PluginManager.class);
         PluginContainer pluginContainer = mock(PluginContainer.class);
         Logger logger = mock(Logger.class);
         DataProviderApiSupplier supplier = mock(DataProviderApiSupplier.class);
         DataProviderAPI api = mock(DataProviderAPI.class);
+        DataProviderAPI pluginApi = mock(DataProviderAPI.class);
 
         when(proxyServer.getPluginManager()).thenReturn(pluginManager);
         when(pluginManager.getPlugin("dataprovider")).thenReturn(Optional.of(pluginContainer));
@@ -137,7 +138,10 @@ class VelocityDataRegistryTest {
 
         VelocityDataRegistry plugin = new VelocityDataRegistry(proxyServer, logger, TEST_DATA_DIRECTORY);
 
-        assertSame(api, plugin.resolveDataProviderApi());
+        when(api.forPlugin(plugin)).thenReturn(pluginApi);
+
+        assertSame(pluginApi, plugin.resolveDataProviderApi());
+        verify(api).forPlugin(plugin);
     }
 
     @Test

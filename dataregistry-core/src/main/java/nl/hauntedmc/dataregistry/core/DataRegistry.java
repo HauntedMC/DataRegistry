@@ -61,7 +61,6 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -70,7 +69,6 @@ import java.util.Set;
 public class DataRegistry implements DataRegistryApi {
 
     private final ILoggerAdapter logger;
-    private final String pluginName;
     private final DataProviderAPI dataProviderAPI;
     private final DataRegistrySettings settings;
     private final nl.hauntedmc.dataprovider.logging.LoggerAdapter ormLogger;
@@ -108,7 +106,7 @@ public class DataRegistry implements DataRegistryApi {
             DataRegistrySettings settings
     ) {
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
-        this.pluginName = normalizePluginName(pluginName);
+        validatePluginName(pluginName);
         this.dataProviderAPI = Objects.requireNonNull(dataProviderAPI, "dataProviderAPI must not be null");
         this.settings = Objects.requireNonNull(settings, "settings must not be null");
         this.ormLogger = new DataProviderLoggerAdapter(this.logger);
@@ -467,7 +465,6 @@ public class DataRegistry implements DataRegistryApi {
 
     ORMContext newOrmContext(DataSource dataSource, Class<?>... entityClasses) {
         return dataProviderAPI.createOrmContext(
-                pluginName,
                 dataSource,
                 ormLogger,
                 settings.ormSchemaMode(),
@@ -545,7 +542,6 @@ public class DataRegistry implements DataRegistryApi {
 
     ORMContext newServiceOrmContext(DataSource dataSource, Class<?>... entityClasses) {
         return dataProviderAPI.createOrmContext(
-                pluginName + "-service",
                 dataSource,
                 ormLogger,
                 settings.ormSchemaMode(),
@@ -609,26 +605,23 @@ public class DataRegistry implements DataRegistryApi {
             return cached;
         }
 
-        Optional<RelationalDatabaseProvider> providerOptional = dataProviderAPI.registerDatabaseAs(
-                settings.databaseType(),
-                connectionId,
-                RelationalDatabaseProvider.class
-        );
-        if (providerOptional.isEmpty()) {
+        var registeredProvider = dataProviderAPI.registerDatabaseOrThrow(settings.databaseType(), connectionId);
+        if (!(registeredProvider instanceof RelationalDatabaseProvider provider)) {
             throw new IllegalStateException(
-                    "Failed to register relational database provider '" + connectionId + "'."
+                    "Registered database provider '" + connectionId + "' is not relational."
             );
         }
 
-        RelationalDatabaseProvider provider = providerOptional.get();
         if (!provider.isConnected()) {
             throw new IllegalStateException("Database provider '" + connectionId + "' is not connected.");
         }
 
-        DataSource dataSource = provider.getDataSourceOptional()
-                .orElseThrow(() -> new IllegalStateException(
-                        "Relational database provider '" + connectionId + "' returned no DataSource."
-                ));
+        DataSource dataSource = provider.getDataSource();
+        if (dataSource == null) {
+            throw new IllegalStateException(
+                    "Relational database provider '" + connectionId + "' returned no DataSource."
+            );
+        }
         dataSourceCache.put(connectionId, dataSource);
         return dataSource;
     }
@@ -703,13 +696,12 @@ public class DataRegistry implements DataRegistryApi {
         return true;
     }
 
-    private static String normalizePluginName(String pluginName) {
+    private static void validatePluginName(String pluginName) {
         Objects.requireNonNull(pluginName, "pluginName must not be null");
         String normalized = pluginName.trim();
         if (normalized.isEmpty()) {
             throw new IllegalArgumentException("pluginName must not be blank");
         }
-        return normalized;
     }
 
     private static final class DataProviderLoggerAdapter
