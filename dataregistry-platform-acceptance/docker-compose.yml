@@ -1,0 +1,15 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: minecraft
+      MYSQL_ROOT_PASSWORD: acceptance-root
+    ports:
+      - "127.0.0.1::3306"
+    volumes:
+      - ../dataregistry-migrations/src/main/resources/db/migration:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -pacceptance-root --silent"]
+      interval: 2s
+      timeout: 5s
+      retries: 30

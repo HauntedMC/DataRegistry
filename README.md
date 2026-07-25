@@ -22,8 +22,12 @@ players by the stable scalar `playerId`.
 
 - Java 25
 - Maven 3.8.6+
-- DataProvider `2.1.4`
-- Velocity `4.0.0-SNAPSHOT` and/or Paper `26.1.2+`
+- Docker, for the container-backed and platform-acceptance suites
+- DataProvider `3.0.5`
+- Velocity `4.1.0-SNAPSHOT` and/or Paper `26.2.build.65-beta`
+
+Configure both the shell `JAVA_HOME` and the IDE Maven runner/importer to Java 25. The build deliberately rejects
+Java 26 or newer until the bundled DataProvider/Hibernate stack is qualified for it.
 
 ## Configuration
 
@@ -186,8 +190,27 @@ Authenticated GitHub Packages access may be required for private HauntedMC depen
 `github` in `~/.m2/settings.xml`, then run:
 
 ```bash
-mvn clean test package
+# Fast reactor verification: unit tests, Checkstyle, coverage and dependency hygiene.
+./mvnw -B -ntp verify
+
+# Adds a real MySQL 8.4 container. This applies the shipped migration and validates the
+# production Hibernate mappings before exercising the public DataRegistry API.
+./mvnw -B -ntp -Pintegration-tests verify
+
+# Builds the bundled Paper and Velocity artifacts, then boots each in the real target
+# platform with a consumer compiled only against dataregistry-api.
+./mvnw -B -ntp -Pplatform-acceptance verify
 ```
+
+The platform suite needs a reachable Docker daemon, `curl`, `jq`, `sha256sum`, `jar`, and exactly Java 25.
+Java 26 is intentionally rejected because the currently supported DataProvider/Hibernate runtime is qualified
+against Java 25. It downloads the configured
+Paper and Velocity runtime builds, checks their SHA-256 values, provisions MySQL 8.4 from the migration,
+checks public API reads and writes, reloads DataProvider configuration, and requires clean DataRegistry and
+Hikari shutdown. Set `PLATFORM_ACCEPTANCE_KEEP_WORK_DIRECTORY=true` to retain server logs after a local run.
+
+The tag release workflow runs both profiles against the exact tagged reactor before Maven deployment. This
+keeps the fast checks, migration/schema compatibility, and real bundled-plugin boot checks in the release gate.
 
 Build output:
 

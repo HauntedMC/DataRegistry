@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>nl.hauntedmc.dataregistry</groupId>
+        <artifactId>dataregistry-platform-acceptance</artifactId>
+        <version>${revision}</version>
+    </parent>
+    <artifactId>dataregistry-acceptance-consumer-paper</artifactId>
+    <name>DataRegistry Acceptance Consumer (Paper)</name>
+    <dependencies>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>dataregistry-api</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.papermc.paper</groupId>
+            <artifactId>paper-api</artifactId>
+            <version>${paper.version}</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+    <build>
+        <resources>
+            <resource><directory>src/main/resources</directory><filtering>true</filtering></resource>
+        </resources>
+    </build>
+</project>

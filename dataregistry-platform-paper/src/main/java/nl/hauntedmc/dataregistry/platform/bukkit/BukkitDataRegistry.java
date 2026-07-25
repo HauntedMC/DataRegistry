@@ -74,6 +74,7 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
         }
         stopServiceRegistryLifecycle();
         runtime.stop(getPlatformLogger());
+        getPlatformLogger().info("DataRegistry disabled on Paper.");
     }
 
     DataRegistry createDataRegistry(DataProviderAPI dataProviderAPI, DataRegistrySettings runtimeSettings) {

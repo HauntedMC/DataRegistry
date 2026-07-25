@@ -1,0 +1,5 @@
+name: DataRegistryAcceptance
+main: nl.hauntedmc.dataregistry.acceptance.paper.PaperAcceptanceConsumer
+version: ${project.version}
+api-version: '1.21'
+depend: [DataRegistry]

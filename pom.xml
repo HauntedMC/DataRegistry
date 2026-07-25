@@ -50,11 +50,18 @@
         <jakarta.persistence.version>3.2.0</jakarta.persistence.version>
         <snakeyaml.version>2.6</snakeyaml.version>
         <paper.version>26.2.build.65-beta</paper.version>
+        <paper.runtime.version>26.2</paper.runtime.version>
+        <paper.runtime.build>65</paper.runtime.build>
+        <paper.runtime.sha256>d290ee2a3ae92fea10afb0c74f797023d74cfd72cbcee44314e0c50d5551f2c6</paper.runtime.sha256>
         <velocity.version>4.1.0-SNAPSHOT</velocity.version>
+        <velocity.runtime.build>9</velocity.runtime.build>
+        <velocity.runtime.sha256>635ffe27b4fe1b97e61479012121d4e7c61a9eec99e6bd5a1f923053c2a259ce</velocity.runtime.sha256>
         <adventure.version>5.2.0</adventure.version>
         <!-- Test libraries. -->
         <junit.version>6.1.2</junit.version>
         <mockito.version>5.23.0</mockito.version>
+        <bytebuddy.version>1.17.7</bytebuddy.version>
+        <testcontainers.version>1.21.4</testcontainers.version>
 
         <!-- Build plugins and their plugin dependencies. -->
         <flatten.plugin.version>1.7.3</flatten.plugin.version>
@@ -69,6 +76,9 @@
         <maven.install.version>3.1.4</maven.install.version>
         <maven.deploy.version>3.1.4</maven.deploy.version>
         <maven.surefire.version>3.5.6</maven.surefire.version>
+        <maven.failsafe.version>3.5.6</maven.failsafe.version>
+        <exec.maven.plugin.version>3.6.2</exec.maven.plugin.version>
+        <duplicate.finder.version>2.0.1</duplicate.finder.version>
         <jacoco.version>0.8.15</jacoco.version>
     </properties>
 
@@ -138,8 +148,10 @@
                         <goals><goal>enforce</goal></goals>
                         <configuration>
                             <rules>
-                                <requireJavaVersion><version>[25,)</version></requireJavaVersion>
+                                <requireJavaVersion><version>[25,26.1)</version></requireJavaVersion>
                                 <requireMavenVersion><version>[3.8.6,)</version></requireMavenVersion>
+                                <dependencyConvergence/>
+                                <requireUpperBoundDeps/>
                                 <bannedDependencies>
                                     <searchTransitive>true</searchTransitive>
                                     <excludes>
@@ -206,7 +218,51 @@
                         <phase>verify</phase>
                         <goals><goal>report</goal></goals>
                     </execution>
+                    <execution>
+                        <id>enforce-coverage-minimum</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.15</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.basepom.maven</groupId>
+                <artifactId>duplicate-finder-maven-plugin</artifactId>
+                <version>${duplicate.finder.version}</version>
+                <executions>
+                    <execution>
+                        <id>reject-duplicate-classes</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <failBuildInCaseOfDifferentContentConflict>true</failBuildInCaseOfDifferentContentConflict>
+                            <failBuildInCaseOfEqualContentConflict>true</failBuildInCaseOfEqualContentConflict>
+                            <!-- DataProvider's test-only runtime dependency has its own unrelated default config. -->
+                            <ignoredResourcePatterns>
+                                <ignoredResourcePattern>config.yml</ignoredResourcePattern>
+                            </ignoredResourcePatterns>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Queue Maven publication until every final-reactor verification gate has passed. -->
+            <plugin>
+                <artifactId>maven-deploy-plugin</artifactId>
+                <configuration><deployAtEnd>true</deployAtEnd></configuration>
             </plugin>
         </plugins>
         <pluginManagement>
@@ -245,12 +301,33 @@
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>${maven.surefire.version}</version>
                     <configuration>
-                        <argLine>@{argLine} -Dnet.bytebuddy.experimental=true</argLine>
+                        <argLine>@{argLine} -javaagent:${settings.localRepository}/net/bytebuddy/byte-buddy-agent/${bytebuddy.version}/byte-buddy-agent-${bytebuddy.version}.jar -Dnet.bytebuddy.experimental=true</argLine>
                     </configuration>
+                    <dependencies>
+                        <dependency>
+                            <groupId>net.bytebuddy</groupId>
+                            <artifactId>byte-buddy-agent</artifactId>
+                            <version>${bytebuddy.version}</version>
+                        </dependency>
+                    </dependencies>
                 </plugin>
                 <plugin>
                     <artifactId>maven-install-plugin</artifactId>
                     <version>${maven.install.version}</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-failsafe-plugin</artifactId>
+                    <version>${maven.failsafe.version}</version>
+                    <configuration>
+                        <argLine>@{argLine} -javaagent:${settings.localRepository}/net/bytebuddy/byte-buddy-agent/${bytebuddy.version}/byte-buddy-agent-${bytebuddy.version}.jar -Dnet.bytebuddy.experimental=true</argLine>
+                    </configuration>
+                    <dependencies>
+                        <dependency>
+                            <groupId>net.bytebuddy</groupId>
+                            <artifactId>byte-buddy-agent</artifactId>
+                            <version>${bytebuddy.version}</version>
+                        </dependency>
+                    </dependencies>
                 </plugin>
                 <plugin>
                     <artifactId>maven-deploy-plugin</artifactId>
@@ -259,4 +336,13 @@
             </plugins>
         </pluginManagement>
     </build>
+
+    <profiles>
+        <profile>
+            <id>platform-acceptance</id>
+            <modules>
+                <module>dataregistry-platform-acceptance</module>
+            </modules>
+        </profile>
+    </profiles>
 </project>

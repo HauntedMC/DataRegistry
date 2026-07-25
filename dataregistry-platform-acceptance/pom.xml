@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>nl.hauntedmc.dataregistry</groupId>
+        <artifactId>dataregistry-parent</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>dataregistry-platform-acceptance</artifactId>
+    <packaging>pom</packaging>
+    <name>DataRegistry Platform Acceptance Fixtures</name>
+
+    <modules>
+        <module>consumer-paper</module>
+        <module>consumer-velocity</module>
+        <!-- Must remain last: it boots the reactor artifacts packaged by the preceding modules. -->
+        <module>runtime</module>
+    </modules>
+
+    <build>
+        <plugins>
+            <plugin>
+                <artifactId>maven-deploy-plugin</artifactId>
+                <configuration><skip>true</skip></configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
