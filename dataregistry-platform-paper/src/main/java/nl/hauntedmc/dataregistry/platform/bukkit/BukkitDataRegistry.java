@@ -21,6 +21,9 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.UUID;
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
 
@@ -35,6 +38,7 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
     private ServiceRegistryService serviceRegistryService;
     private String localServiceInstanceId;
     private BukkitTask serviceRegistryHeartbeatTask;
+    private final AtomicLong nextServiceInstancePurgeAtEpochMillis = new AtomicLong();
     private PlayerStatusListener playerStatusListener;
 
     @Override
@@ -155,18 +159,22 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
                 host,
                 port
         );
+        purgeStoppedServiceInstancesIfDue(registryService);
 
         long intervalTicks = Math.max(20L, settings.serviceHeartbeatIntervalSeconds() * 20L);
         serviceRegistryHeartbeatTask = getServer().getScheduler().runTaskTimerAsynchronously(
                 this,
-                () -> registryService.refreshRunningInstance(
-                        ServiceKind.BACKEND,
-                        serviceName,
-                        "PAPER",
-                        instanceId,
-                        host,
-                        port
-                ),
+                () -> {
+                    registryService.refreshRunningInstance(
+                            ServiceKind.BACKEND,
+                            serviceName,
+                            "PAPER",
+                            instanceId,
+                            host,
+                            port
+                    );
+                    purgeStoppedServiceInstancesIfDue(registryService);
+                },
                 intervalTicks,
                 intervalTicks
         );
@@ -203,6 +211,30 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
         return port >= 0 && port <= 65535 ? port : null;
     }
 
+    private void purgeStoppedServiceInstancesIfDue(ServiceRegistryService registryService) {
+        int retentionDays = settings.serviceInstanceRetentionDays();
+        if (retentionDays < 0) {
+            return;
+        }
+        long nowEpochMillis = System.currentTimeMillis();
+        long nextPurgeAt = nextServiceInstancePurgeAtEpochMillis.get();
+        if (nextPurgeAt > nowEpochMillis) {
+            return;
+        }
+        if (!nextServiceInstancePurgeAtEpochMillis.compareAndSet(
+                nextPurgeAt,
+                nowEpochMillis + TimeUnit.DAYS.toMillis(1L)
+        )) {
+            return;
+        }
+        int deleted = registryService.purgeStoppedInstancesOlderThan(Duration.ofDays(retentionDays), 500);
+        if (deleted > 0) {
+            getPlatformLogger().info(
+                    "Purged " + deleted + " stopped service-instance rows older than " + retentionDays + " days."
+            );
+        }
+    }
+
     void stopServiceRegistryLifecycle() {
         BukkitTask heartbeatTask = serviceRegistryHeartbeatTask;
         serviceRegistryHeartbeatTask = null;
@@ -214,6 +246,7 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
         serviceRegistryService = null;
         String instanceId = localServiceInstanceId;
         localServiceInstanceId = null;
+        nextServiceInstancePurgeAtEpochMillis.set(0L);
         if (registryService != null && instanceId != null) {
             registryService.markStopped(instanceId);
         }

@@ -6,6 +6,7 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceKind;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import org.hibernate.Session;
 import org.hibernate.query.Query;
+import org.hibernate.query.MutationQuery;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -217,6 +218,7 @@ class ServiceInstanceRepositoryTest {
         assertThrows(NullPointerException.class, () -> repository.findSeenAfter(null, 5));
         assertThrows(NullPointerException.class, () -> repository.findRunningSeenBefore((Instant) null, 5));
         assertThrows(NullPointerException.class, () -> repository.findRunningSeenBefore((Instant) null));
+        assertThrows(NullPointerException.class, () -> repository.deleteStoppedBefore(null, 1));
         assertThrows(NullPointerException.class, () -> repository.countByStatus(null));
         assertThrows(
                 NullPointerException.class,
@@ -270,5 +272,37 @@ class ServiceInstanceRepositoryTest {
                 IllegalArgumentException.class,
                 () -> repository.findMostRecentRunningByEndpoint(ServiceKind.BACKEND, "10.0.0.5", 65536)
         );
+    }
+
+    @Test
+    void deleteStoppedBeforeKeepsRunningInstancesAndUsesABoundedBatch() {
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<Long> idsQuery = mock(Query.class);
+        MutationQuery deleteQuery = mock(MutationQuery.class);
+        ServiceInstanceRepository repository = new ServiceInstanceRepository(ormContext);
+        Instant cutoff = Instant.parse("2026-01-01T00:00:00Z");
+
+        executeTransactionsWithSession(ormContext, session);
+        when(session.createQuery(
+                "SELECT i.id FROM ServiceInstanceEntity i " +
+                        "WHERE i.status = :status AND i.stoppedAt < :stoppedBefore " +
+                        "ORDER BY i.stoppedAt ASC, i.id ASC",
+                Long.class
+        )).thenReturn(idsQuery);
+        when(idsQuery.setParameter("status", ServiceInstanceStatus.STOPPED)).thenReturn(idsQuery);
+        when(idsQuery.setParameter("stoppedBefore", cutoff)).thenReturn(idsQuery);
+        when(idsQuery.setMaxResults(1)).thenReturn(idsQuery);
+        when(idsQuery.list()).thenReturn(List.of(7L));
+        when(session.createMutationQuery(
+                "DELETE FROM ServiceInstanceEntity i WHERE i.id IN :ids"
+        )).thenReturn(deleteQuery);
+        when(deleteQuery.setParameter("ids", List.of(7L))).thenReturn(deleteQuery);
+        when(deleteQuery.executeUpdate()).thenReturn(1);
+
+        assertEquals(1, repository.deleteStoppedBefore(cutoff, 0));
+        verify(idsQuery).setParameter("status", ServiceInstanceStatus.STOPPED);
+        verify(idsQuery).setMaxResults(1);
     }
 }

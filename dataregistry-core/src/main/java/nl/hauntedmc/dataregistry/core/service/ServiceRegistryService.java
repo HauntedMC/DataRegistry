@@ -175,6 +175,35 @@ public final class ServiceRegistryService {
     }
 
     /**
+     * Purges a bounded batch of historical stopped instances. Active and uncleanly stopped instances remain visible
+     * so service-health calculations retain their safety signal.
+     *
+     * @return number of removed rows.
+     */
+    public int purgeStoppedInstancesOlderThan(Duration retentionWindow, int batchSize) {
+        Objects.requireNonNull(retentionWindow, "retentionWindow must not be null");
+        if (retentionWindow.isNegative()) {
+            throw new IllegalArgumentException("retentionWindow must not be negative");
+        }
+        if (!featureEnabled) {
+            return 0;
+        }
+        try {
+            int totalDeleted = 0;
+            int deleted;
+            Instant cutoff = Instant.now().minus(retentionWindow);
+            do {
+                deleted = dataRegistry.getServiceInstanceRepository().deleteStoppedBefore(cutoff, batchSize);
+                totalDeleted += deleted;
+            } while (deleted >= Math.max(1, batchSize));
+            return totalDeleted;
+        } catch (RuntimeException exception) {
+            logger.error("Failed to purge stopped service-instance history.", exception);
+            return 0;
+        }
+    }
+
+    /**
      * Appends a proxy-side health probe result for one logical service.
      */
     public void recordProbe(

@@ -74,7 +74,8 @@ class DataRegistrySettingsLoaderTest {
                         "probe-purge-interval-hours", 24
                 ),
                 "retention", Map.of(
-                        "lifecycle-outbox-days", 30
+                        "lifecycle-outbox-days", 30,
+                        "service-instance-days", 14
                 ),
                 "platform", Map.of(
                         "bukkit", Map.of(
@@ -128,6 +129,7 @@ class DataRegistrySettingsLoaderTest {
         assertEquals(336, settings.serviceProbeRetentionHours());
         assertEquals(24, settings.serviceProbePurgeIntervalHours());
         assertEquals(30, settings.lifecycleOutboxRetentionDays());
+        assertEquals(14, settings.serviceInstanceRetentionDays());
         assertEquals(12, settings.bukkitJoinDelayTicks());
         assertTrue(settings.bukkitRegisterServiceInstance());
         assertEquals("lobby-01", settings.bukkitServiceName());
@@ -193,6 +195,7 @@ class DataRegistrySettingsLoaderTest {
         assertEquals(defaults.serviceProbeRetentionHours(), settings.serviceProbeRetentionHours());
         assertEquals(defaults.serviceProbePurgeIntervalHours(), settings.serviceProbePurgeIntervalHours());
         assertEquals(defaults.lifecycleOutboxRetentionDays(), settings.lifecycleOutboxRetentionDays());
+        assertEquals(defaults.serviceInstanceRetentionDays(), settings.serviceInstanceRetentionDays());
         assertEquals(defaults.playerDatabaseConnectionId(), settings.playerDatabaseConnectionId());
         assertEquals("services-rw", settings.serviceDatabaseConnectionId());
         assertEquals(defaults.bukkitJoinDelayTicks(), settings.bukkitJoinDelayTicks());
@@ -235,7 +238,7 @@ class DataRegistrySettingsLoaderTest {
                         "probe-retention-hours", "x",
                         "probe-purge-interval-hours", "x"
                 ),
-                "retention", Map.of("lifecycle-outbox-days", "x"),
+                "retention", Map.of("lifecycle-outbox-days", "x", "service-instance-days", "x"),
                 "platform", Map.of(
                         "bukkit", Map.of(
                                 "join-delay-ticks", "x",
@@ -270,6 +273,7 @@ class DataRegistrySettingsLoaderTest {
         assertEquals(defaults.serviceProbeRetentionHours(), settings.serviceProbeRetentionHours());
         assertEquals(defaults.serviceProbePurgeIntervalHours(), settings.serviceProbePurgeIntervalHours());
         assertEquals(defaults.lifecycleOutboxRetentionDays(), settings.lifecycleOutboxRetentionDays());
+        assertEquals(defaults.serviceInstanceRetentionDays(), settings.serviceInstanceRetentionDays());
         assertEquals(defaults.serviceDatabaseConnectionId(), settings.serviceDatabaseConnectionId());
         assertEquals(defaults.bukkitJoinDelayTicks(), settings.bukkitJoinDelayTicks());
         assertEquals(defaults.bukkitRegisterServiceInstance(), settings.bukkitRegisterServiceInstance());

@@ -157,6 +157,35 @@ public class ServiceInstanceRepository extends AbstractRepository<ServiceInstanc
     }
 
     /**
+     * Deletes up to {@code limit} oldest stopped runtime instances. Running rows are intentionally never removed by
+     * this maintenance operation because they are still needed to detect unclean shutdowns.
+     */
+    public int deleteStoppedBefore(Instant stoppedBefore, int limit) {
+        Objects.requireNonNull(stoppedBefore, "stoppedBefore must not be null");
+        int boundedLimit = Math.max(1, limit);
+        return ormContext.runInTransaction(session -> {
+            List<Long> ids = session.createQuery(
+                            "SELECT i.id FROM ServiceInstanceEntity i " +
+                                    "WHERE i.status = :status AND i.stoppedAt < :stoppedBefore " +
+                                    "ORDER BY i.stoppedAt ASC, i.id ASC",
+                            Long.class
+                    )
+                    .setParameter("status", ServiceInstanceStatus.STOPPED)
+                    .setParameter("stoppedBefore", stoppedBefore)
+                    .setMaxResults(boundedLimit)
+                    .list();
+            if (ids.isEmpty()) {
+                return 0;
+            }
+            return session.createMutationQuery(
+                            "DELETE FROM ServiceInstanceEntity i WHERE i.id IN :ids"
+                    )
+                    .setParameter("ids", ids)
+                    .executeUpdate();
+        });
+    }
+
+    /**
      * Returns the number of instances in the given status.
      */
     public long countByStatus(ServiceInstanceStatus status) {

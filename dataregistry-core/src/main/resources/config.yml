@@ -85,6 +85,9 @@ retention:
   # Applies to: Velocity. The lifecycle table is an idempotency ledger, not a message publisher.
   # Delete lifecycle idempotency rows after this many days; -1 keeps them indefinitely (default).
   lifecycle-outbox-days: -1
+  # Applies to: Both. Delete only STOPPED service-instance history; RUNNING rows remain for health checks.
+  # Delete stopped service-instance rows after this many days; -1 keeps them indefinitely (default).
+  service-instance-days: -1
 
 platform:
   bukkit:

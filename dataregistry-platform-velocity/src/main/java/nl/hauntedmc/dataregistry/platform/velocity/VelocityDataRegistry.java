@@ -550,6 +550,22 @@ public class VelocityDataRegistry implements PlatformPlugin {
         if (deleted > 0) {
             logger.info("Purged {} stale service probe rows older than {} hours.", deleted, retentionHours);
         }
+
+        int instanceRetentionDays = settings.serviceInstanceRetentionDays();
+        if (instanceRetentionDays < 0) {
+            return;
+        }
+        int purgedInstances = registryService.purgeStoppedInstancesOlderThan(
+                Duration.ofDays(instanceRetentionDays),
+                500
+        );
+        if (purgedInstances > 0) {
+            logger.info(
+                    "Purged {} stopped service-instance rows older than {} days.",
+                    purgedInstances,
+                    instanceRetentionDays
+            );
+        }
     }
 
     private PendingBackendProbe prepareBackendProbe(

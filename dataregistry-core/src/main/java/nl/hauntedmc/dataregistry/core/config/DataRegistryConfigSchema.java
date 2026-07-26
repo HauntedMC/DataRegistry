@@ -79,6 +79,7 @@ final class DataRegistryConfigSchema {
 
         Map<String, Object> retention = new LinkedHashMap<>();
         retention.put("lifecycle-outbox-days", defaults.lifecycleOutboxRetentionDays());
+        retention.put("service-instance-days", defaults.serviceInstanceRetentionDays());
         root.put("retention", retention);
 
         Map<String, Object> platform = new LinkedHashMap<>();
@@ -215,6 +216,9 @@ final class DataRegistryConfigSchema {
         builder.append("  # Applies to: Velocity. The lifecycle table is an idempotency ledger, not a message publisher.\n");
         builder.append("  # Delete lifecycle idempotency rows after this many days; -1 keeps them indefinitely (default).\n");
         builder.append("  lifecycle-outbox-days: ").append(settings.lifecycleOutboxRetentionDays()).append('\n');
+        builder.append("  # Applies to: Both. Delete only STOPPED service-instance history; RUNNING rows remain for health checks.\n");
+        builder.append("  # Delete stopped service-instance rows after this many days; -1 keeps them indefinitely (default).\n");
+        builder.append("  service-instance-days: ").append(settings.serviceInstanceRetentionDays()).append('\n');
         builder.append('\n');
         builder.append("platform:\n");
         builder.append("  bukkit:\n");
