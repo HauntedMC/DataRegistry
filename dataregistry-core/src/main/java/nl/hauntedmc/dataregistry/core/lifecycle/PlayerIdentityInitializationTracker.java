@@ -9,7 +9,6 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 /**
@@ -24,7 +23,13 @@ public final class PlayerIdentityInitializationTracker {
 
     private final ConcurrentMap<String, PlayerIdentityInitialization> pendingInitializations =
             new ConcurrentHashMap<>();
-    private final AtomicBoolean closed = new AtomicBoolean();
+    /**
+     * Linearizes shutdown with registering and looking up pending initializations.  A concurrent map alone is not
+     * sufficient here: shutdown can otherwise clear the map between {@link #begin(UUID)} checking {@code closed}
+     * and adding its future.
+     */
+    private final Object lifecycleLock = new Object();
+    private boolean closed;
 
     /**
      * Returns a future that completes when the requested identity is available or known unavailable.
@@ -54,14 +59,16 @@ public final class PlayerIdentityInitializationTracker {
             return CompletableFuture.completedFuture(activeIdentity);
         }
 
-        PlayerIdentityInitialization pending = pendingInitializations.get(uuid.toString());
-        if (pending != null) {
-            return pending.future();
-        }
-        if (closed.get()) {
-            CompletableFuture<Optional<PlayerIdentity>> failed = new CompletableFuture<>();
-            failed.completeExceptionally(new IllegalStateException("DataRegistry is shutting down."));
-            return failed;
+        synchronized (lifecycleLock) {
+            if (closed) {
+                CompletableFuture<Optional<PlayerIdentity>> failed = new CompletableFuture<>();
+                failed.completeExceptionally(new IllegalStateException("DataRegistry is shutting down."));
+                return failed;
+            }
+            PlayerIdentityInitialization pending = pendingInitializations.get(uuid.toString());
+            if (pending != null) {
+                return pending.future();
+            }
         }
         return CompletableFuture.completedFuture(Optional.empty());
     }
@@ -73,17 +80,21 @@ public final class PlayerIdentityInitializationTracker {
      * @return handle that must be used to complete this specific initialization attempt.
      */
     public PlayerIdentityInitialization begin(UUID uuid) {
-        if (uuid == null || closed.get()) {
+        if (uuid == null) {
             return PlayerIdentityInitialization.untracked(uuid);
         }
 
         PlayerIdentityInitialization initialization = PlayerIdentityInitialization.pending(uuid);
-        pendingInitializations.compute(uuid.toString(), (key, existing) -> {
-            if (existing != null) {
-                existing.completeUnavailable();
+        PlayerIdentityInitialization superseded;
+        synchronized (lifecycleLock) {
+            if (closed) {
+                return PlayerIdentityInitialization.untracked(uuid);
             }
-            return initialization;
-        });
+            superseded = pendingInitializations.put(uuid.toString(), initialization);
+        }
+        if (superseded != null) {
+            superseded.completeUnavailable();
+        }
         return initialization;
     }
 
@@ -132,10 +143,19 @@ public final class PlayerIdentityInitializationTracker {
      * Cancels outstanding initialization waiters during plugin shutdown.
      */
     public void shutdown() {
-        closed.set(true);
+        PlayerIdentityInitialization[] pending;
+        synchronized (lifecycleLock) {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            pending = pendingInitializations.values().toArray(PlayerIdentityInitialization[]::new);
+            pendingInitializations.clear();
+        }
         CancellationException cancellation = new CancellationException("DataRegistry is shutting down.");
-        pendingInitializations.forEach((uuid, initialization) -> initialization.completeExceptionally(cancellation));
-        pendingInitializations.clear();
+        for (PlayerIdentityInitialization initialization : pending) {
+            initialization.completeExceptionally(cancellation);
+        }
     }
 
     private void completeIfCurrent(PlayerIdentityInitialization initialization, Runnable completion) {

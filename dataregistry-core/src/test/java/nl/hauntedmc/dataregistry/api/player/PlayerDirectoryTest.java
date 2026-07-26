@@ -105,6 +105,21 @@ class PlayerDirectoryTest {
     }
 
     @Test
+    void initializationStartedAfterShutdownIsImmediatelyUnavailable() throws Exception {
+        UUID uuid = UUID.randomUUID();
+        PlayerIdentityInitializationTracker initialization = new PlayerIdentityInitializationTracker();
+
+        initialization.shutdown();
+        PlayerIdentityInitialization handle = initialization.begin(uuid);
+
+        assertEquals(Optional.empty(), handle.future().get());
+        assertThrows(
+                ExecutionException.class,
+                () -> initialization.whenReady(uuid, Optional::<PlayerIdentity>empty).get()
+        );
+    }
+
+    @Test
     void staleInitializationHandleCannotCompleteReconnectFuture() throws Exception {
         PlayerRepository repository = mock(PlayerRepository.class);
         UUID uuid = UUID.randomUUID();
