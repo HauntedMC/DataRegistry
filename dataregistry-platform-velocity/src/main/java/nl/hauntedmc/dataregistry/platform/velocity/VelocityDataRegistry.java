@@ -138,8 +138,6 @@ public class VelocityDataRegistry implements PlatformPlugin {
         runtime.stop(getPlatformLogger());
         shutdownPlayerEventExecutor();
         shutdownPlayerPlaytimeFlushExecutor();
-        shutdownServiceRegistryHeartbeatExecutor();
-        shutdownServiceRegistryProbeExecutor();
         logger.info("DataRegistry disabled on Velocity.");
     }
 
@@ -328,8 +326,6 @@ public class VelocityDataRegistry implements PlatformPlugin {
         runtime.stop(getPlatformLogger());
         shutdownPlayerEventExecutor();
         shutdownPlayerPlaytimeFlushExecutor();
-        shutdownServiceRegistryHeartbeatExecutor();
-        shutdownServiceRegistryProbeExecutor();
     }
 
     private void startServiceRegistryLifecycle() {
@@ -637,6 +633,10 @@ public class VelocityDataRegistry implements PlatformPlugin {
     }
 
     private void stopServiceRegistryLifecycle() {
+        // Await an already-running heartbeat before recording STOPPED. Otherwise that heartbeat can commit
+        // afterwards and incorrectly reactivate this instance.
+        shutdownServiceRegistryHeartbeatExecutor();
+        shutdownServiceRegistryProbeExecutor();
         ServiceRegistryService registryService = serviceRegistryService;
         serviceRegistryService = null;
         String instanceId = localServiceInstanceId.getAndSet(null);

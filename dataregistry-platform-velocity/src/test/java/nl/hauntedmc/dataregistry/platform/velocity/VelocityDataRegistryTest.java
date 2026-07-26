@@ -17,9 +17,12 @@ import nl.hauntedmc.dataregistry.core.lifecycle.PlayerIdentityInitializationTrac
 import nl.hauntedmc.dataregistry.core.service.ServiceRegistryService;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import nl.hauntedmc.dataregistry.platform.velocity.listener.PlayerStatusListener;
+import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.slf4j.Logger;
+import org.hibernate.Session;
+import org.hibernate.query.Query;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -29,6 +32,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -39,10 +44,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -345,6 +352,49 @@ class VelocityDataRegistryTest {
     }
 
     @Test
+    void stopServiceRegistryLifecycleWaitsForHeartbeatBeforeMarkingInstanceStopped()
+            throws ReflectiveOperationException, InterruptedException {
+        VelocityDataRegistry plugin = new VelocityDataRegistry(
+                mock(ProxyServer.class),
+                mock(Logger.class),
+                TEST_DATA_DIRECTORY
+        );
+        DataRegistry registry = mock(DataRegistry.class);
+        ORMContext serviceOrm = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<nl.hauntedmc.dataregistry.core.persistence.entity.ServiceInstanceEntity> instanceQuery = mock(Query.class);
+        when(registry.getServiceORM()).thenReturn(serviceOrm);
+        doAnswer(invocation -> ((java.util.function.Function<Session, ?>) invocation.getArgument(0)).apply(session))
+                .when(serviceOrm)
+                .runInTransaction(any());
+        when(session.createQuery(anyString(), eq(nl.hauntedmc.dataregistry.core.persistence.entity.ServiceInstanceEntity.class)))
+                .thenReturn(instanceQuery);
+        when(instanceQuery.setParameter(anyString(), any())).thenReturn(instanceQuery);
+        when(instanceQuery.setMaxResults(anyInt())).thenReturn(instanceQuery);
+        ServiceRegistryService registryService = new ServiceRegistryService(registry, mock(ILoggerAdapter.class), true);
+        ScheduledExecutorService heartbeatExecutor = mock(ScheduledExecutorService.class);
+        ScheduledExecutorService probeExecutor = mock(ScheduledExecutorService.class);
+        when(heartbeatExecutor.awaitTermination(anyLong(), eq(TimeUnit.SECONDS))).thenReturn(true);
+        when(probeExecutor.awaitTermination(anyLong(), eq(TimeUnit.SECONDS))).thenReturn(true);
+        setField(plugin, "serviceRegistryService", registryService);
+        setField(plugin, "serviceRegistryHeartbeatExecutor", heartbeatExecutor);
+        setField(plugin, "serviceRegistryProbeExecutor", probeExecutor);
+        @SuppressWarnings("unchecked")
+        AtomicReference<String> instanceId = (AtomicReference<String>) getField(plugin, "localServiceInstanceId");
+        instanceId.set("instance-1");
+
+        Method stopMethod = VelocityDataRegistry.class.getDeclaredMethod("stopServiceRegistryLifecycle");
+        stopMethod.setAccessible(true);
+        stopMethod.invoke(plugin);
+
+        InOrder inOrder = inOrder(heartbeatExecutor, probeExecutor, registry);
+        inOrder.verify(heartbeatExecutor).shutdown();
+        inOrder.verify(probeExecutor).shutdown();
+        inOrder.verify(registry).getServiceORM();
+    }
+
+    @Test
     void purgeStaleProbesIfDueRunsAtMostOncePerConfiguredInterval() throws ReflectiveOperationException {
         VelocityDataRegistry plugin = new VelocityDataRegistry(
                 mock(ProxyServer.class),
@@ -423,6 +473,18 @@ class VelocityDataRegistryTest {
                 throw new IllegalStateException("player presence recovery failed");
             }
         }
+    }
+
+    private static Object getField(Object target, String name) throws ReflectiveOperationException {
+        Field field = VelocityDataRegistry.class.getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(target);
+    }
+
+    private static void setField(Object target, String name, Object value) throws ReflectiveOperationException {
+        Field field = VelocityDataRegistry.class.getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(target, value);
     }
 
     private static final class TestVelocityListenerRegistrationPlugin extends VelocityDataRegistry {
