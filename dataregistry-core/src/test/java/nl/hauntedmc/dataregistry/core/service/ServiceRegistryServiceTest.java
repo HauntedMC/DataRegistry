@@ -314,7 +314,7 @@ class ServiceRegistryServiceTest {
         when(probeRepository.deleteCheckedBefore(any(Instant.class), org.mockito.ArgumentMatchers.eq(2)))
                 .thenReturn(2, 1);
         when(instanceRepository.deleteStoppedBefore(any(Instant.class), org.mockito.ArgumentMatchers.eq(2)))
-                .thenReturn(2, 1);
+                .thenReturn(2);
 
         assertTrue(service.findMostRecentProbe(ServiceKind.BACKEND, "backend-a").isPresent());
         assertEquals(1, service.listRecentProbes(ServiceKind.BACKEND, "backend-a", 1).size());
@@ -322,7 +322,7 @@ class ServiceRegistryServiceTest {
         assertEquals(1L, service.countProbesByStatus().get(ServiceProbeStatus.UP));
         assertTrue(service.findMostRecentRunningInstanceByEndpoint(ServiceKind.BACKEND, "10.0.0.5", 25565).isPresent());
         assertEquals(3, service.purgeProbesOlderThan(Duration.ofHours(24), 2));
-        assertEquals(3, service.purgeStoppedInstancesOlderThan(Duration.ofDays(7), 2));
+        assertEquals(2, service.purgeStoppedInstancesOlderThan(Duration.ofDays(7), 2));
 
         List<ServiceRegistryService.ServiceEffectiveHealthView> effective =
                 service.listServiceEffectiveHealth(Duration.ofSeconds(10), Duration.ofSeconds(10));

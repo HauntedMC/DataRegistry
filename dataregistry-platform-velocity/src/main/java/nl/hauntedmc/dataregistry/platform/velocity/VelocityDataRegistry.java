@@ -76,7 +76,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
     static final long SERVICE_REGISTRY_SHUTDOWN_TIMEOUT_SECONDS = 2L;
     static final long SERVICE_PROBE_SHUTDOWN_TIMEOUT_SECONDS = 2L;
     static final long LIFECYCLE_OUTBOX_RETENTION_SHUTDOWN_TIMEOUT_SECONDS = 2L;
-    private static final long LIFECYCLE_OUTBOX_RETENTION_PURGE_INTERVAL_HOURS = 24L;
+    private static final long LIFECYCLE_OUTBOX_RETENTION_PURGE_INTERVAL_HOURS = 1L;
 
     private final ProxyServer proxyServer;
     private final Logger logger;
@@ -525,9 +525,11 @@ public class VelocityDataRegistry implements PlatformPlugin {
                     );
                 }
             }
-            purgeStaleProbesIfDue(registryService, retentionHours, purgeIntervalHours);
         } catch (RuntimeException exception) {
             logger.error("Service registry backend probe pass failed.", exception);
+        } finally {
+            // Retention must continue even if Velocity has no backends to probe or one probe pass fails.
+            purgeStaleProbesIfDue(registryService, retentionHours, purgeIntervalHours);
         }
     }
 

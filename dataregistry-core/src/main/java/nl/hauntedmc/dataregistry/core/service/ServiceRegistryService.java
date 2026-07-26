@@ -189,14 +189,8 @@ public final class ServiceRegistryService {
             return 0;
         }
         try {
-            int totalDeleted = 0;
-            int deleted;
             Instant cutoff = Instant.now().minus(retentionWindow);
-            do {
-                deleted = dataRegistry.getServiceInstanceRepository().deleteStoppedBefore(cutoff, batchSize);
-                totalDeleted += deleted;
-            } while (deleted >= Math.max(1, batchSize));
-            return totalDeleted;
+            return dataRegistry.getServiceInstanceRepository().deleteStoppedBefore(cutoff, batchSize);
         } catch (RuntimeException exception) {
             logger.error("Failed to purge stopped service-instance history.", exception);
             return 0;
