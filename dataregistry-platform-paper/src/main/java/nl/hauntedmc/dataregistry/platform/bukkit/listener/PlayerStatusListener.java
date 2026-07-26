@@ -20,6 +20,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -28,34 +29,37 @@ import java.util.function.Supplier;
  */
 public class PlayerStatusListener implements Listener {
 
+    private static final long QUIT_GENERATION_CLEANUP_TICKS = 1L;
+
     private final PlayerService playerService;
     private final BukkitDataRegistry plugin;
-    private final long quitGenerationRetentionTicks;
+    private final long joinDelayTicks;
     private final Supplier<BukkitScheduler> schedulerSupplier;
     private final Function<UUID, Player> onlinePlayerLookup;
     private final ConcurrentMap<String, Long> playerLifecycleGenerations = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, PlayerIdentityInitialization> playerIdentityInitializations =
             new ConcurrentHashMap<>();
+    private final AtomicLong lifecycleGenerationSequence = new AtomicLong();
     private final AtomicBoolean acceptingEvents = new AtomicBoolean(true);
 
     public PlayerStatusListener(
             BukkitDataRegistry plugin,
             PlayerService playerService,
-            int quitGenerationRetentionTicks
+            int joinDelayTicks
     ) {
-        this(plugin, playerService, quitGenerationRetentionTicks, Bukkit::getScheduler, Bukkit::getPlayer);
+        this(plugin, playerService, joinDelayTicks, Bukkit::getScheduler, Bukkit::getPlayer);
     }
 
     PlayerStatusListener(
             BukkitDataRegistry plugin,
             PlayerService playerService,
-            int quitGenerationRetentionTicks,
+            int joinDelayTicks,
             Supplier<BukkitScheduler> schedulerSupplier,
             Function<UUID, Player> onlinePlayerLookup
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin must not be null");
         this.playerService = Objects.requireNonNull(playerService, "playerService must not be null");
-        this.quitGenerationRetentionTicks = quitGenerationRetentionTicks;
+        this.joinDelayTicks = joinDelayTicks;
         this.schedulerSupplier = Objects.requireNonNull(schedulerSupplier, "schedulerSupplier must not be null");
         this.onlinePlayerLookup = Objects.requireNonNull(onlinePlayerLookup, "onlinePlayerLookup must not be null");
     }
@@ -71,7 +75,7 @@ public class PlayerStatusListener implements Listener {
         PlayerIdentityInitialization initialization = playerService.beginIdentityInitialization(playerId);
         PlayerIdentityInitialization previousInitialization = playerIdentityInitializations.put(uuid, initialization);
         playerService.completeIdentityInitializationUnavailable(previousInitialization);
-        processJoinIfStillRelevant(playerId, event.getPlayer().getName(), expectedGeneration, initialization);
+        scheduleJoinProcessing(playerId, expectedGeneration, initialization);
     }
 
     @EventHandler(priority = EventPriority.LOWEST)
@@ -98,7 +102,6 @@ public class PlayerStatusListener implements Listener {
 
     private void processJoinIfStillRelevant(
             UUID playerId,
-            String usernameSnapshot,
             long expectedGeneration,
             PlayerIdentityInitialization initialization
     ) {
@@ -113,6 +116,7 @@ public class PlayerStatusListener implements Listener {
             completeUnavailable(uuid, initialization);
             return;
         }
+        String usernameSnapshot = livePlayer.getName();
 
         try {
             schedulerSupplier.get().runTaskAsynchronously(plugin, () -> {
@@ -132,12 +136,14 @@ public class PlayerStatusListener implements Listener {
                 }
 
                 Long currentGeneration = playerLifecycleGenerations.get(uuid);
-                if (currentGeneration != null && currentGeneration > expectedGeneration && currentGeneration % 2L == 0L) {
-                    playerService.onPlayerQuit(usernameSnapshot, uuid);
-                    completeUnavailable(uuid, initialization);
-                    return;
-                }
                 if (!isGenerationCurrent(uuid, expectedGeneration)) {
+                    // A quit can arrive while the persistence work is in flight. Do not close a newer reconnect,
+                    // but undo this stale join when there is no newer active generation.
+                    if (currentGeneration == null
+                            || (currentGeneration > expectedGeneration && currentGeneration % 2L == 0L)) {
+                        playerService.onPlayerQuit(usernameSnapshot, uuid);
+                    }
+                    completeUnavailable(uuid, initialization);
                     return;
                 }
                 playerIdentityInitializations.remove(uuid, initialization);
@@ -188,30 +194,52 @@ public class PlayerStatusListener implements Listener {
     }
 
     private long markJoinGeneration(String uuid) {
-        return playerLifecycleGenerations.compute(uuid, (key, currentGeneration) -> {
-            if (currentGeneration == null) {
-                return 1L;
-            }
-            return currentGeneration % 2L == 0L ? currentGeneration + 1L : currentGeneration + 2L;
-        });
+        long generation = nextGeneration(true);
+        playerLifecycleGenerations.put(uuid, generation);
+        return generation;
     }
 
     private long markQuitGeneration(String uuid) {
-        return playerLifecycleGenerations.compute(uuid, (key, currentGeneration) -> {
-            if (currentGeneration == null) {
-                return 2L;
-            }
-            return currentGeneration % 2L == 1L ? currentGeneration + 1L : currentGeneration + 2L;
+        long generation = nextGeneration(false);
+        playerLifecycleGenerations.put(uuid, generation);
+        return generation;
+    }
+
+    private long nextGeneration(boolean join) {
+        return lifecycleGenerationSequence.updateAndGet(currentGeneration -> {
+            long nextGeneration = currentGeneration + 1L;
+            boolean isJoinGeneration = nextGeneration % 2L == 1L;
+            return isJoinGeneration == join ? nextGeneration : nextGeneration + 1L;
         });
     }
 
+    private void scheduleJoinProcessing(
+            UUID playerId,
+            long expectedGeneration,
+            PlayerIdentityInitialization initialization
+    ) {
+        if (joinDelayTicks == 0L) {
+            processJoinIfStillRelevant(playerId, expectedGeneration, initialization);
+            return;
+        }
+        try {
+            schedulerSupplier.get().runTaskLater(
+                    plugin,
+                    () -> processJoinIfStillRelevant(playerId, expectedGeneration, initialization),
+                    joinDelayTicks
+            );
+        } catch (RuntimeException exception) {
+            plugin.getPlatformLogger().warn("Failed to schedule delayed Bukkit player join processing.", exception);
+            failInitialization(playerId.toString(), initialization, exception);
+        }
+    }
+
     private void scheduleLifecycleGenerationCleanup(String uuid, long expectedGeneration) {
-        long cleanupDelay = Math.max(1L, quitGenerationRetentionTicks + 1L);
         try {
             schedulerSupplier.get().runTaskLater(
                     plugin,
                     () -> cleanupLifecycleGeneration(uuid, expectedGeneration),
-                    cleanupDelay
+                    QUIT_GENERATION_CLEANUP_TICKS
             );
         } catch (RuntimeException exception) {
             plugin.getPlatformLogger().warn("Failed to schedule Bukkit player lifecycle cleanup.", exception);

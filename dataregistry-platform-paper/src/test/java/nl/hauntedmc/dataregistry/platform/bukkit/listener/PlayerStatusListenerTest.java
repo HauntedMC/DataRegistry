@@ -29,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -85,7 +86,7 @@ class PlayerStatusListenerTest {
         listener.onPlayerQuit(new PlayerQuitEvent(player, "quit"));
 
         verify(repository).removeActivePlayer(uuid.toString());
-        verify(scheduler).runTaskLater(eq(plugin), any(Runnable.class), eq(5L));
+        verify(scheduler).runTaskLater(eq(plugin), any(Runnable.class), eq(1L));
     }
 
     @Test
@@ -110,7 +111,7 @@ class PlayerStatusListenerTest {
         when(plugin.getPlatformLogger()).thenReturn(platformLogger);
         when(player.getUniqueId()).thenReturn(uuid);
         when(player.getName()).thenReturn("Alice");
-        when(scheduler.runTaskLater(eq(plugin), any(Runnable.class), eq(5L))).thenThrow(
+        when(scheduler.runTaskLater(eq(plugin), any(Runnable.class), eq(1L))).thenThrow(
                 new IllegalStateException("scheduler stopped")
         );
 
@@ -137,7 +138,7 @@ class PlayerStatusListenerTest {
         PlayerStatusListener listener = new PlayerStatusListener(
                 plugin,
                 playerService,
-                4,
+                0,
                 () -> scheduler,
                 id -> id.equals(uuid) ? livePlayer : null
         );
@@ -161,7 +162,55 @@ class PlayerStatusListenerTest {
         listener.onPlayerJoin(joinEvent);
 
         verify(repository).getOrCreateActivePlayer(uuid.toString(), "Alice");
-        verify(scheduler, never()).runTaskLater(eq(plugin), any(Runnable.class), eq(4L));
+        verify(scheduler, never()).runTaskLater(eq(plugin), any(Runnable.class), anyLong());
+    }
+
+    @Test
+    void onPlayerJoinAppliesConfiguredDelayBeforeTakingLiveSnapshot() {
+        PlayerRepository repository = mock(PlayerRepository.class);
+        PlayerService playerService = new PlayerService(
+                repository,
+                new PlayerIdentityInitializationTracker(),
+                mock(ILoggerAdapter.class)
+        );
+        BukkitDataRegistry plugin = mock(BukkitDataRegistry.class);
+        BukkitScheduler scheduler = mock(BukkitScheduler.class);
+        Player joinedPlayer = mock(Player.class);
+        Player livePlayer = mock(Player.class);
+        UUID uuid = UUID.randomUUID();
+        AtomicReference<Runnable> delayedTask = new AtomicReference<>();
+        PlayerEntity persisted = new PlayerEntity();
+        persisted.setId(1L);
+        persisted.setUuid(uuid.toString());
+        persisted.setUsername("AfterDelay");
+        PlayerStatusListener listener = new PlayerStatusListener(
+                plugin,
+                playerService,
+                4,
+                () -> scheduler,
+                id -> id.equals(uuid) ? livePlayer : null
+        );
+
+        when(joinedPlayer.getUniqueId()).thenReturn(uuid);
+        when(joinedPlayer.getName()).thenReturn("BeforeDelay");
+        when(livePlayer.isOnline()).thenReturn(true);
+        when(livePlayer.getName()).thenReturn("AfterDelay");
+        when(repository.getOrCreateActivePlayer(uuid.toString(), "AfterDelay")).thenReturn(persisted);
+        when(scheduler.runTaskLater(eq(plugin), any(Runnable.class), eq(4L))).thenAnswer(invocation -> {
+            delayedTask.set(invocation.getArgument(1));
+            return mock(BukkitTask.class);
+        });
+        when(scheduler.runTaskAsynchronously(eq(plugin), any(Runnable.class))).thenAnswer(invocation -> {
+            invocation.<Runnable>getArgument(1).run();
+            return mock(BukkitTask.class);
+        });
+
+        listener.onPlayerJoin(new PlayerJoinEvent(joinedPlayer, "join"));
+
+        verify(repository, never()).getOrCreateActivePlayer(any(), any());
+        verify(scheduler).runTaskLater(eq(plugin), any(Runnable.class), eq(4L));
+        delayedTask.get().run();
+        verify(repository).getOrCreateActivePlayer(uuid.toString(), "AfterDelay");
     }
 
     @Test
@@ -177,7 +226,7 @@ class PlayerStatusListenerTest {
         PlayerStatusListener listener = new PlayerStatusListener(
                 plugin,
                 playerService,
-                4,
+                0,
                 () -> scheduler,
                 id -> null
         );
@@ -206,7 +255,7 @@ class PlayerStatusListenerTest {
         PlayerStatusListener listener = new PlayerStatusListener(
                 plugin,
                 playerService,
-                4,
+                0,
                 () -> scheduler,
                 id -> null
         );
@@ -243,7 +292,7 @@ class PlayerStatusListenerTest {
         PlayerStatusListener listener = new PlayerStatusListener(
                 plugin,
                 playerService,
-                4,
+                0,
                 () -> scheduler,
                 id -> id.equals(uuid) ? onlinePlayer.get() : null
         );
@@ -292,7 +341,7 @@ class PlayerStatusListenerTest {
         PlayerStatusListener listener = new PlayerStatusListener(
                 plugin,
                 playerService,
-                4,
+                0,
                 () -> scheduler,
                 id -> id.equals(uuid) ? livePlayer : null
         );
