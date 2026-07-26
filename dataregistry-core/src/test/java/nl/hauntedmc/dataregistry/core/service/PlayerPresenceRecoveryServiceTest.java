@@ -107,11 +107,53 @@ class PlayerPresenceRecoveryServiceTest {
         when(context.visitQuery.list()).thenReturn(List.of());
         when(context.statusQuery.list()).thenReturn(List.of(onlineStatus));
 
-        PlayerPresenceRecoveryResult result = context.service.recoverAfterBackendRecovery(Set.of(player.getUuid()));
+        PlayerPresenceRecoveryResult result = context.service.recoverAfterBackendRecovery(
+                Set.of(player.getUuid()),
+                Set.of(player.getUuid())
+        );
 
         assertEquals(PlayerPresenceRecoveryResult.empty(), result);
         assertNull(openSession.getEndedAt());
         assertTrue(onlineStatus.isOnline());
+    }
+
+    @Test
+    void recoverAfterBackendRecoveryDoesNotSweepUnrelatedPlayers() {
+        TestContext context = createContext(DataRegistrySettings.defaults());
+        PlayerEntity affectedPlayer = persistedPlayer();
+        PlayerEntity unrelatedPlayer = new PlayerEntity();
+        unrelatedPlayer.setId(12L);
+        unrelatedPlayer.setUuid("8f7a9f99-9118-4c9a-b3de-516a9b5a2a2a");
+        unrelatedPlayer.setUsername("Bob");
+        PlayerSessionEntity affectedSession = openSession(
+                affectedPlayer,
+                101L,
+                Instant.parse("2026-07-19T10:00:00Z")
+        );
+        PlayerSessionEntity unrelatedSession = openSession(
+                unrelatedPlayer,
+                102L,
+                Instant.parse("2026-07-19T10:00:00Z")
+        );
+        PlayerOnlineStatusEntity affectedStatus = onlineStatus(affectedPlayer);
+        PlayerOnlineStatusEntity unrelatedStatus = onlineStatus(unrelatedPlayer);
+
+        when(context.segmentQuery.list()).thenReturn(List.of());
+        when(context.sessionQuery.list()).thenReturn(List.of(affectedSession, unrelatedSession));
+        when(context.visitQuery.list()).thenReturn(List.of());
+        when(context.statusQuery.list()).thenReturn(List.of(affectedStatus, unrelatedStatus));
+
+        PlayerPresenceRecoveryResult result = context.service.recoverAfterBackendRecovery(
+                Set.of(affectedPlayer.getUuid()),
+                Set.of()
+        );
+
+        assertEquals(1, result.sessionsClosed());
+        assertEquals(1, result.onlineStatusesCleared());
+        assertTrue(affectedSession.getEndedAt() != null);
+        assertFalse(affectedStatus.isOnline());
+        assertNull(unrelatedSession.getEndedAt());
+        assertTrue(unrelatedStatus.isOnline());
     }
 
     @Test

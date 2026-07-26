@@ -51,40 +51,62 @@ public final class PlayerPresenceRecoveryService {
      * @return counts for each recovered state category.
      */
     public PlayerPresenceRecoveryResult recoverAfterUncleanShutdown() {
-        return recover(Set.of(), "Failed to recover stale player presence state during startup.");
+        return recover(Set.of(), Set.of(), "Failed to recover stale player presence state during startup.");
     }
 
     /**
-     * Reconciles stale presence after a database outage without closing rows belonging to players which the platform
-     * still knows are connected. Unlike startup recovery, backend recovery can occur while the proxy is live.
+     * Reconciles only the supplied players' stale presence after a database outage. Backend recovery can occur while
+     * the proxy is live and alongside other proxy instances, so it must never sweep unrelated players.
      *
+     * @param affectedPlayerUuids UUIDs with retained failed disconnects that may require reconciliation.
      * @param activePlayerUuids UUIDs with a currently live platform connection.
      * @return counts for each recovered state category.
      */
-    public PlayerPresenceRecoveryResult recoverAfterBackendRecovery(Set<String> activePlayerUuids) {
+    public PlayerPresenceRecoveryResult recoverAfterBackendRecovery(
+            Set<String> affectedPlayerUuids,
+            Set<String> activePlayerUuids
+    ) {
+        Objects.requireNonNull(affectedPlayerUuids, "affectedPlayerUuids must not be null");
         Objects.requireNonNull(activePlayerUuids, "activePlayerUuids must not be null");
-        return recover(Set.copyOf(activePlayerUuids), "Failed to recover stale player presence state after backend recovery.");
+        if (affectedPlayerUuids.isEmpty()) {
+            return PlayerPresenceRecoveryResult.empty();
+        }
+        return recover(
+                Set.copyOf(affectedPlayerUuids),
+                Set.copyOf(activePlayerUuids),
+                "Failed to recover stale player presence state after backend recovery."
+        );
     }
 
-    private PlayerPresenceRecoveryResult recover(Set<String> activePlayerUuids, String failureMessage) {
+    private PlayerPresenceRecoveryResult recover(
+            Set<String> affectedPlayerUuids,
+            Set<String> activePlayerUuids,
+            String failureMessage
+    ) {
         if (!hasRecoverableFeatureEnabled()) {
             return PlayerPresenceRecoveryResult.empty();
         }
 
         try {
-            return dataRegistry.getORM().runInTransaction(session -> recoverInTransaction(session, activePlayerUuids));
+            return dataRegistry.getORM().runInTransaction(
+                    session -> recoverInTransaction(session, affectedPlayerUuids, activePlayerUuids)
+            );
         } catch (RuntimeException exception) {
             throw new IllegalStateException(failureMessage, exception);
         }
     }
 
-    private PlayerPresenceRecoveryResult recoverInTransaction(Session session, Set<String> activePlayerUuids) {
+    private PlayerPresenceRecoveryResult recoverInTransaction(
+            Session session,
+            Set<String> affectedPlayerUuids,
+            Set<String> activePlayerUuids
+    ) {
         RecoveryState state = new RecoveryState();
 
-        int segmentsClosed = recoverPlaytimeSegments(session, state, activePlayerUuids);
-        int sessionsClosed = recoverSessions(session, state, activePlayerUuids);
-        int visitsClosed = recoverSessionVisits(session, state, activePlayerUuids);
-        int statusesCleared = recoverOnlineStatuses(session, state, activePlayerUuids);
+        int segmentsClosed = recoverPlaytimeSegments(session, state, affectedPlayerUuids, activePlayerUuids);
+        int sessionsClosed = recoverSessions(session, state, affectedPlayerUuids, activePlayerUuids);
+        int visitsClosed = recoverSessionVisits(session, state, affectedPlayerUuids, activePlayerUuids);
+        int statusesCleared = recoverOnlineStatuses(session, state, affectedPlayerUuids, activePlayerUuids);
         int summariesUpdated = recoverActivitySummaries(session, state);
         int connectionInfosUpdated = recoverConnectionInfos(session, state);
 
@@ -98,7 +120,12 @@ public final class PlayerPresenceRecoveryService {
         );
     }
 
-    private int recoverPlaytimeSegments(Session session, RecoveryState state, Set<String> activePlayerUuids) {
+    private int recoverPlaytimeSegments(
+            Session session,
+            RecoveryState state,
+            Set<String> affectedPlayerUuids,
+            Set<String> activePlayerUuids
+    ) {
         if (!settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)) {
             return 0;
         }
@@ -110,7 +137,7 @@ public final class PlayerPresenceRecoveryService {
                 .list();
         int recovered = 0;
         for (PlayerPlaytimeSegmentEntity segment : openSegments) {
-            if (isActiveConnection(segment.getPlayer(), activePlayerUuids)) {
+            if (!shouldRecover(segment.getPlayer(), affectedPlayerUuids, activePlayerUuids)) {
                 continue;
             }
             Instant recoveredEndTime = recoveredSegmentEndTime(segment);
@@ -123,7 +150,12 @@ public final class PlayerPresenceRecoveryService {
         return recovered;
     }
 
-    private int recoverSessions(Session session, RecoveryState state, Set<String> activePlayerUuids) {
+    private int recoverSessions(
+            Session session,
+            RecoveryState state,
+            Set<String> affectedPlayerUuids,
+            Set<String> activePlayerUuids
+    ) {
         if (!settings.isFeatureEnabled(DataRegistryFeature.SESSIONS)) {
             return 0;
         }
@@ -136,7 +168,7 @@ public final class PlayerPresenceRecoveryService {
         Map<Long, Integer> openSessionCountsByPlayerId = countOpenSessionsByPlayerId(openSessions);
         int recovered = 0;
         for (PlayerSessionEntity openSession : openSessions) {
-            if (isActiveConnection(openSession.getPlayer(), activePlayerUuids)) {
+            if (!shouldRecover(openSession.getPlayer(), affectedPlayerUuids, activePlayerUuids)) {
                 continue;
             }
             state.rememberPlayer(openSession.getPlayer());
@@ -153,7 +185,12 @@ public final class PlayerPresenceRecoveryService {
         return recovered;
     }
 
-    private int recoverSessionVisits(Session session, RecoveryState state, Set<String> activePlayerUuids) {
+    private int recoverSessionVisits(
+            Session session,
+            RecoveryState state,
+            Set<String> affectedPlayerUuids,
+            Set<String> activePlayerUuids
+    ) {
         if (!settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS)) {
             return 0;
         }
@@ -165,7 +202,7 @@ public final class PlayerPresenceRecoveryService {
                 .list();
         int recovered = 0;
         for (PlayerSessionVisitEntity openVisit : openVisits) {
-            if (isActiveConnection(openVisit.getPlayer(), activePlayerUuids)) {
+            if (!shouldRecover(openVisit.getPlayer(), affectedPlayerUuids, activePlayerUuids)) {
                 continue;
             }
             PlayerSessionEntity sessionEntity = openVisit.getSession();
@@ -184,7 +221,12 @@ public final class PlayerPresenceRecoveryService {
         return recovered;
     }
 
-    private int recoverOnlineStatuses(Session session, RecoveryState state, Set<String> activePlayerUuids) {
+    private int recoverOnlineStatuses(
+            Session session,
+            RecoveryState state,
+            Set<String> affectedPlayerUuids,
+            Set<String> activePlayerUuids
+    ) {
         if (!settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)) {
             return 0;
         }
@@ -197,7 +239,7 @@ public final class PlayerPresenceRecoveryService {
         int recovered = 0;
         for (PlayerOnlineStatusEntity onlineStatus : onlineStatuses) {
             PlayerEntity player = onlineStatus.getPlayer();
-            if (isActiveConnection(player, activePlayerUuids)) {
+            if (!shouldRecover(player, affectedPlayerUuids, activePlayerUuids)) {
                 continue;
             }
             Long playerId = resolvePlayerId(player, onlineStatus.getPlayerId());
@@ -214,8 +256,16 @@ public final class PlayerPresenceRecoveryService {
         return recovered;
     }
 
-    private static boolean isActiveConnection(PlayerEntity player, Set<String> activePlayerUuids) {
-        return player != null && player.getUuid() != null && activePlayerUuids.contains(player.getUuid());
+    private static boolean shouldRecover(
+            PlayerEntity player,
+            Set<String> affectedPlayerUuids,
+            Set<String> activePlayerUuids
+    ) {
+        if (player == null || player.getUuid() == null || activePlayerUuids.contains(player.getUuid())) {
+            return false;
+        }
+        // Startup passes an empty scope and intentionally recovers every stale row. Live backend recovery is scoped.
+        return affectedPlayerUuids.isEmpty() || affectedPlayerUuids.contains(player.getUuid());
     }
 
     private int recoverActivitySummaries(Session session, RecoveryState state) {

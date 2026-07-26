@@ -65,6 +65,7 @@ public class PlayerStatusListener {
     private final Executor eventExecutor;
     private final RetainedPlayerLifecycleCommandQueue retainedCommands;
     private final ConcurrentMap<String, CompletableFuture<Void>> playerEventPipelines = new ConcurrentHashMap<>();
+    private final Set<String> disconnectsAwaitingReconciliation = ConcurrentHashMap.newKeySet();
     /**
      * The current Velocity connection for each UUID. Presence is owned by a concrete proxy connection, rather than
      * {@link DisconnectEvent.LoginStatus}: a backend connection failure can use a non-successful login status even
@@ -173,6 +174,8 @@ public class PlayerStatusListener {
                                 new IllegalStateException("Lifecycle login completed without an identity.")
                         )
                 ),
+                ignored -> {
+                },
                 failure -> playerService.failIdentityInitialization(initialization, failure)
         );
     }
@@ -195,6 +198,8 @@ public class PlayerStatusListener {
                 ignored -> {
                 },
                 ignored -> {
+                },
+                ignored -> {
                 }
         );
     }
@@ -213,9 +218,12 @@ public class PlayerStatusListener {
                 uuid,
                 command.eventId(),
                 () -> lifecycleWriter.disconnect(command),
-                ignored -> playerService.onPlayerQuit(username, uuid),
                 ignored -> {
-                }
+                    disconnectsAwaitingReconciliation.remove(uuid);
+                    playerService.onPlayerQuit(username, uuid);
+                },
+                ignored -> disconnectsAwaitingReconciliation.add(uuid),
+                ignored -> disconnectsAwaitingReconciliation.remove(uuid)
         );
     }
 
@@ -300,6 +308,13 @@ public class PlayerStatusListener {
     }
 
     /**
+     * Returns disconnected players whose lifecycle disconnect experienced a retained transient failure.
+     */
+    public Set<String> snapshotDisconnectsAwaitingReconciliation() {
+        return Set.copyOf(disconnectsAwaitingReconciliation);
+    }
+
+    /**
      * Enqueues a lightweight playtime accrual flush for currently active players.
      */
     public void flushActivePlaytime() {
@@ -330,9 +345,12 @@ public class PlayerStatusListener {
                     uuid,
                     command.eventId(),
                     () -> lifecycleWriter.disconnect(command),
-                    ignored -> playerService.onPlayerQuit(player.getUsername(), uuid),
                     ignored -> {
-                    }
+                        disconnectsAwaitingReconciliation.remove(uuid);
+                        playerService.onPlayerQuit(player.getUsername(), uuid);
+                    },
+                    ignored -> disconnectsAwaitingReconciliation.add(uuid),
+                    ignored -> disconnectsAwaitingReconciliation.remove(uuid)
             );
         }
     }

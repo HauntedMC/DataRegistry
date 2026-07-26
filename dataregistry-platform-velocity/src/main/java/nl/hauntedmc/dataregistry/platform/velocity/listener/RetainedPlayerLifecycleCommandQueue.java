@@ -80,6 +80,7 @@ final class RetainedPlayerLifecycleCommandQueue {
             String eventId,
             Supplier<PlayerLifecycleWriteResult> write,
             Consumer<PlayerLifecycleWriteResult> onSuccess,
+            Consumer<Throwable> onTransientFailure,
             Consumer<Throwable> onTerminalFailure
     ) {
         Objects.requireNonNull(playerUuid, "playerUuid must not be null");
@@ -88,6 +89,7 @@ final class RetainedPlayerLifecycleCommandQueue {
                 eventId,
                 Objects.requireNonNull(write, "write must not be null"),
                 Objects.requireNonNull(onSuccess, "onSuccess must not be null"),
+                Objects.requireNonNull(onTransientFailure, "onTransientFailure must not be null"),
                 Objects.requireNonNull(onTerminalFailure, "onTerminalFailure must not be null")
         );
 
@@ -201,10 +203,10 @@ final class RetainedPlayerLifecycleCommandQueue {
             backendRecoveryPending = false;
             dispatchNext = hasHead(playerUuid);
         }
-        runSuccessCallback(command, outcome);
         if (invokeRecovery) {
             runBackendRecoveryCallback();
         }
+        runSuccessCallback(command, outcome);
         if (dispatchNext) {
             dispatch(playerUuid);
         }
@@ -225,6 +227,7 @@ final class RetainedPlayerLifecycleCommandQueue {
                         " for retry " + command.transientAttempts + " in " + delayMillis + "ms.",
                 failure
         );
+        runTransientFailureCallback(command, failure);
         try {
             retryScheduler.schedule(() -> dispatch(playerUuid), delayMillis, TimeUnit.MILLISECONDS);
         } catch (RuntimeException exception) {
@@ -316,6 +319,14 @@ final class RetainedPlayerLifecycleCommandQueue {
         }
     }
 
+    private void runTransientFailureCallback(PendingCommand command, Throwable failure) {
+        try {
+            command.onTransientFailure.accept(failure);
+        } catch (RuntimeException exception) {
+            logger.error("Lifecycle command transient callback failed for eventId=" + command.eventId + ".", exception);
+        }
+    }
+
     private void runBackendRecoveryCallback() {
         try {
             backendRecoveredCallback.run();
@@ -340,6 +351,7 @@ final class RetainedPlayerLifecycleCommandQueue {
         private final String eventId;
         private final Supplier<PlayerLifecycleWriteResult> write;
         private final Consumer<PlayerLifecycleWriteResult> onSuccess;
+        private final Consumer<Throwable> onTransientFailure;
         private final Consumer<Throwable> onTerminalFailure;
         private final CompletableFuture<PlayerLifecycleWriteResult> result = new CompletableFuture<>();
         private int transientAttempts;
@@ -348,11 +360,13 @@ final class RetainedPlayerLifecycleCommandQueue {
                 String eventId,
                 Supplier<PlayerLifecycleWriteResult> write,
                 Consumer<PlayerLifecycleWriteResult> onSuccess,
+                Consumer<Throwable> onTransientFailure,
                 Consumer<Throwable> onTerminalFailure
         ) {
             this.eventId = eventId;
             this.write = write;
             this.onSuccess = onSuccess;
+            this.onTransientFailure = onTransientFailure;
             this.onTerminalFailure = onTerminalFailure;
         }
     }

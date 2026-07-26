@@ -37,13 +37,13 @@ class RetainedPlayerLifecycleCommandQueueTest {
         }).when(scheduler).schedule(any(Runnable.class), anyLong(), eq(java.util.concurrent.TimeUnit.MILLISECONDS));
 
         List<String> writes = new ArrayList<>();
+        List<String> callbacks = new ArrayList<>();
         AtomicInteger loginAttempts = new AtomicInteger();
-        AtomicInteger recoveryCallbacks = new AtomicInteger();
         RetainedPlayerLifecycleCommandQueue queue = new RetainedPlayerLifecycleCommandQueue(
                 Runnable::run,
                 scheduler,
                 mock(ILoggerAdapter.class),
-                recoveryCallbacks::incrementAndGet
+                () -> callbacks.add("recovery")
         );
         String uuid = UUID.randomUUID().toString();
 
@@ -60,8 +60,8 @@ class RetainedPlayerLifecycleCommandQueueTest {
                             )
                             : PlayerLifecycleWriteResult.success("login-event", null);
                 },
-                ignored -> {
-                },
+                ignored -> callbacks.add("login-success"),
+                ignored -> callbacks.add("login-transient"),
                 ignored -> {
                 }
         );
@@ -75,18 +75,21 @@ class RetainedPlayerLifecycleCommandQueueTest {
                 ignored -> {
                 },
                 ignored -> {
+                },
+                ignored -> {
                 }
         );
 
         assertEquals(List.of("login"), writes);
         assertEquals(1, scheduledRetries.size());
         assertTrue(queue.hasPendingCommand(uuid));
+        assertEquals(List.of("login-transient"), callbacks);
 
         scheduledRetries.removeFirst().run();
 
         assertEquals(List.of("login", "login", "transfer"), writes);
         assertFalse(queue.hasPendingCommand(uuid));
-        assertEquals(1, recoveryCallbacks.get());
+        assertEquals(List.of("login-transient", "recovery", "login-success"), callbacks);
     }
 
     @Test
@@ -111,6 +114,8 @@ class RetainedPlayerLifecycleCommandQueueTest {
                         PlayerLifecycleWriteStatus.PERMANENT_FAILURE,
                         failure
                 ),
+                ignored -> {
+                },
                 ignored -> {
                 },
                 ignored -> {

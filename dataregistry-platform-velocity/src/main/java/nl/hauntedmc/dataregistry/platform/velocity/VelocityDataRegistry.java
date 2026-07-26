@@ -332,7 +332,10 @@ public class VelocityDataRegistry implements PlatformPlugin {
         }
         DataRegistry registry = runtimeDataRegistry();
         PlayerPresenceRecoveryResult result = new PlayerPresenceRecoveryService(registry, settings)
-                .recoverAfterBackendRecovery(listener.snapshotCurrentPlayerUuids());
+                .recoverAfterBackendRecovery(
+                        listener.snapshotDisconnectsAwaitingReconciliation(),
+                        listener.snapshotCurrentPlayerUuids()
+                );
         if (result.recoveredAnyState()) {
             logger.warn(
                     "Reconciled stale player presence after database recovery: " +
