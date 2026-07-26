@@ -12,6 +12,10 @@ import nl.hauntedmc.dataregistry.core.lifecycle.DisconnectCommand;
 import nl.hauntedmc.dataregistry.core.lifecycle.LoginCommand;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerLifecycleWriter;
 import nl.hauntedmc.dataregistry.core.lifecycle.TransferCommand;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -27,6 +31,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -120,6 +125,79 @@ class DataRegistryMySqlIT {
             registry.shutdown();
         }
         assertFalse(registry.isReady());
+    }
+
+    @Test
+    void leaderboardQueriesAggregateAndLimitInMySql() throws Exception {
+        DataProviderAPI dataProvider = mock(DataProviderAPI.class);
+        RelationalDatabaseProvider provider = mock(RelationalDatabaseProvider.class);
+        ILoggerAdapter platformLogger = mock(ILoggerAdapter.class);
+        when(dataProvider.registerDatabaseOrThrow(DatabaseType.MYSQL, CONNECTION_ID)).thenReturn(provider);
+        when(provider.isConnected()).thenReturn(true);
+        when(provider.getDataSource()).thenReturn(dataSource);
+        when(dataProvider.createOrmContext(
+                eq(dataSource), any(LoggerAdapter.class), eq("validate"), any(Class[].class)
+        ))
+                .thenAnswer(invocation -> createOrmContext(invocation.getArguments()));
+
+        DataRegistry registry = new DataRegistry(platformLogger, "DataRegistry", dataProvider);
+        try {
+            assertTrue(registry.initialize());
+            registry.getORM().runInTransaction(session -> {
+                PlayerEntity alice = new PlayerEntity();
+                alice.setUuid("10000000-0000-0000-0000-000000000001");
+                alice.setUsername("LeaderboardAlice");
+                session.persist(alice);
+                PlayerEntity bob = new PlayerEntity();
+                bob.setUuid("10000000-0000-0000-0000-000000000002");
+                bob.setUsername("LeaderboardBob");
+                session.persist(bob);
+
+                PlayerPlaytimeEntity alicePlaytime = new PlayerPlaytimeEntity();
+                alicePlaytime.setPlayer(alice);
+                alicePlaytime.setGamemodeKey("skyblock");
+                alicePlaytime.setTrackedMillis(3_000L);
+                alicePlaytime.setSegmentCount(1L);
+                alicePlaytime.setFirstTrackedAt(Instant.now().minusSeconds(60));
+                alicePlaytime.setLastTrackedAt(Instant.now().minusSeconds(30));
+                session.persist(alicePlaytime);
+
+                PlayerPlaytimeEntity bobPlaytime = new PlayerPlaytimeEntity();
+                bobPlaytime.setPlayer(bob);
+                bobPlaytime.setGamemodeKey("skyblock");
+                bobPlaytime.setTrackedMillis(7_000L);
+                bobPlaytime.setSegmentCount(1L);
+                bobPlaytime.setFirstTrackedAt(Instant.now().minusSeconds(60));
+                bobPlaytime.setLastTrackedAt(Instant.now().minusSeconds(30));
+                session.persist(bobPlaytime);
+
+                PlayerSessionEntity bobSession = new PlayerSessionEntity();
+                bobSession.setPlayer(bob);
+                bobSession.setStartedAt(Instant.now().minusSeconds(30));
+                session.persist(bobSession);
+                PlayerPlaytimeSegmentEntity bobSegment = new PlayerPlaytimeSegmentEntity();
+                bobSegment.setPlayer(bob);
+                bobSegment.setSession(bobSession);
+                bobSegment.setGamemodeKey("skyblock");
+                bobSegment.setEntryServer("skyblock-1");
+                bobSegment.setLastServer("skyblock-1");
+                bobSegment.setStartedAt(Instant.now().minusSeconds(15));
+                bobSegment.setLastAccruedAt(Instant.now().minusSeconds(2));
+                session.persist(bobSegment);
+                return null;
+            });
+
+            List<nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeLeaderboardEntry> leaderboard = registry.players()
+                    .findTopPlaytimeByGamemode("skyblock", 1)
+                    .toCompletableFuture()
+                    .get(10, TimeUnit.SECONDS);
+
+            assertEquals(1, leaderboard.size());
+            assertEquals("LeaderboardBob", leaderboard.getFirst().username());
+            assertTrue(leaderboard.getFirst().trackedMillis() >= 7_000L);
+        } finally {
+            registry.shutdown();
+        }
     }
 
     private void applyBaselineMigration() throws Exception {

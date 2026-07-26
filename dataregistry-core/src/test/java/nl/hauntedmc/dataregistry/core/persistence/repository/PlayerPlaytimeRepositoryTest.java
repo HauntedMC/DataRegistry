@@ -9,6 +9,7 @@ import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeSnapshot;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import org.hibernate.Session;
 import org.hibernate.query.Query;
+import org.hibernate.query.NativeQuery;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -23,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class PlayerPlaytimeRepositoryTest {
@@ -67,24 +69,19 @@ class PlayerPlaytimeRepositoryTest {
         ORMContext ormContext = mock(ORMContext.class);
         Session session = mock(Session.class);
         @SuppressWarnings("unchecked")
-        Query<PlayerPlaytimeEntity> aggregateQuery = mock(Query.class);
-        @SuppressWarnings("unchecked")
-        Query<PlayerPlaytimeSegmentEntity> segmentQuery = mock(Query.class);
+        NativeQuery<Object[]> leaderboardQuery = mock(NativeQuery.class);
         PlayerPlaytimeRepository repository = new PlayerPlaytimeRepository(ormContext);
-        PlayerEntity alice = player(10L, "Alice");
-        PlayerEntity bob = player(11L, "Bob");
-        PlayerPlaytimeEntity aliceLobby = aggregate(alice, "lobby", 12_000L);
-        PlayerPlaytimeEntity aliceSkyblock = aggregate(alice, "skyblock", 3_000L);
-        PlayerPlaytimeEntity bobSkyblock = aggregate(bob, "skyblock", 7_000L);
-        PlayerSessionEntity bobSession = openSession(bob);
-        PlayerPlaytimeSegmentEntity bobOpenSegment = openSegment(bob, bobSession, "skyblock");
-        bobOpenSegment.setLastAccruedAt(bobOpenSegment.getLastAccruedAt().minusSeconds(2));
 
         executeTransactionsWithSession(ormContext, session);
-        when(session.createQuery(anyString(), eq(PlayerPlaytimeEntity.class))).thenReturn(aggregateQuery);
-        when(aggregateQuery.list()).thenReturn(List.of(aliceLobby, aliceSkyblock, bobSkyblock));
-        when(session.createQuery(anyString(), eq(PlayerPlaytimeSegmentEntity.class))).thenReturn(segmentQuery);
-        when(segmentQuery.list()).thenReturn(List.of(bobOpenSegment));
+        when(session.createNativeQuery(anyString())).thenReturn(leaderboardQuery);
+        when(leaderboardQuery.setParameter(eq("asOf"), org.mockito.ArgumentMatchers.any(Instant.class)))
+                .thenReturn(leaderboardQuery);
+        when(leaderboardQuery.setParameter("excludedGamemode0", "lobby")).thenReturn(leaderboardQuery);
+        when(leaderboardQuery.setMaxResults(2)).thenReturn(leaderboardQuery);
+        when(leaderboardQuery.list()).thenReturn(List.<Object[]>of(
+                new Object[]{11L, "11111111-1111-1111-1111-111111111111", "Bob", 9_000L},
+                new Object[]{10L, "22222222-2222-2222-2222-222222222222", "Alice", 3_000L}
+        ));
 
         List<PlayerPlaytimeLeaderboardEntry> leaderboard = repository.findTopPlayersByNetworkTotal(
                 2,
@@ -96,6 +93,33 @@ class PlayerPlaytimeRepositoryTest {
         assertEquals("Bob", leaderboard.get(0).username());
         assertEquals(2L, leaderboard.get(1).rank());
         assertEquals("Alice", leaderboard.get(1).username());
+        verify(leaderboardQuery).setMaxResults(2);
+    }
+
+    @Test
+    void findTopPlayersByGamemodeUsesDatabaseAggregationAndLimit() {
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        NativeQuery<Object[]> leaderboardQuery = mock(NativeQuery.class);
+        PlayerPlaytimeRepository repository = new PlayerPlaytimeRepository(ormContext);
+
+        executeTransactionsWithSession(ormContext, session);
+        when(session.createNativeQuery(anyString())).thenReturn(leaderboardQuery);
+        when(leaderboardQuery.setParameter("gamemodeKey", "skyblock")).thenReturn(leaderboardQuery);
+        when(leaderboardQuery.setParameter(eq("asOf"), org.mockito.ArgumentMatchers.any(Instant.class)))
+                .thenReturn(leaderboardQuery);
+        when(leaderboardQuery.setMaxResults(1)).thenReturn(leaderboardQuery);
+        when(leaderboardQuery.list()).thenReturn(List.<Object[]>of(
+                new Object[]{12L, "33333333-3333-3333-3333-333333333333", "Cara", 15_000L}
+        ));
+
+        List<PlayerPlaytimeLeaderboardEntry> leaderboard = repository.findTopPlayersByGamemode(" SkyBlock ", 1);
+
+        assertEquals(1, leaderboard.size());
+        assertEquals("Cara", leaderboard.getFirst().username());
+        assertEquals(15_000L, leaderboard.getFirst().trackedMillis());
+        verify(leaderboardQuery).setMaxResults(1);
     }
 
     @Test

@@ -7,6 +7,7 @@ import nl.hauntedmc.dataregistry.api.playtime.PlayerGamemodePlaytimeSnapshot;
 import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeLeaderboardEntry;
 import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeSnapshot;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
+import org.hibernate.query.NativeQuery;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -230,31 +231,25 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
         int resultLimit = Math.max(1, limit);
         Instant generatedAt = Instant.now();
         return ormContext.runInTransaction(session -> {
-            Map<Long, LeaderboardAccumulator> byPlayer = new LinkedHashMap<>();
-            List<PlayerPlaytimeEntity> aggregates = session.createQuery(
-                            "SELECT t FROM PlayerPlaytimeEntity t " +
-                                    "WHERE t.gamemodeKey = :gamemodeKey",
-                            PlayerPlaytimeEntity.class
-                    )
-                    .setParameter("gamemodeKey", normalizedGamemodeKey)
-                    .list();
-            for (PlayerPlaytimeEntity aggregate : aggregates) {
-                accumulateAggregate(byPlayer, aggregate, generatedAt);
-            }
-
-            List<PlayerPlaytimeSegmentEntity> openSegments = session.createQuery(
-                            "SELECT s FROM PlayerPlaytimeSegmentEntity s " +
-                                    "WHERE s.gamemodeKey = :gamemodeKey " +
-                                    "AND s.endedAt IS NULL AND s.session.endedAt IS NULL",
-                            PlayerPlaytimeSegmentEntity.class
-                    )
-                    .setParameter("gamemodeKey", normalizedGamemodeKey)
-                    .list();
-            for (PlayerPlaytimeSegmentEntity openSegment : openSegments) {
-                accumulateLiveSegment(byPlayer, openSegment, generatedAt);
-            }
-
-            return toLeaderboardEntries(byPlayer.values(), resultLimit, generatedAt);
+            NativeQuery<Object[]> query = session.createNativeQuery(
+                    "SELECT totals.player_id, p.uuid, p.username, SUM(totals.tracked_millis) AS tracked_millis " +
+                            "FROM (" +
+                            "SELECT t.player_id, t.tracked_millis FROM player_playtime t " +
+                            "WHERE t.gamemode_key = :gamemodeKey " +
+                            "UNION ALL " +
+                            "SELECT s.player_id, GREATEST(0, TIMESTAMPDIFF(MICROSECOND, s.last_accrued_at, :asOf) " +
+                            "DIV 1000) FROM player_playtime_segments s " +
+                            "INNER JOIN player_sessions ps ON ps.id = s.session_id " +
+                            "WHERE s.gamemode_key = :gamemodeKey AND s.ended_at IS NULL AND ps.ended_at IS NULL" +
+                            ") totals INNER JOIN player_entity p ON p.id = totals.player_id " +
+                            "GROUP BY totals.player_id, p.uuid, p.username " +
+                            "HAVING SUM(totals.tracked_millis) > 0 " +
+                            "ORDER BY tracked_millis DESC, LOWER(p.username) ASC, totals.player_id ASC"
+            );
+            query.setParameter("gamemodeKey", normalizedGamemodeKey);
+            query.setParameter("asOf", generatedAt);
+            query.setMaxResults(resultLimit);
+            return toLeaderboardEntries(query.list(), generatedAt);
         });
     }
 
@@ -270,33 +265,29 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
         Set<String> normalizedExcludedGamemodes = normalizeGamemodeKeys(excludedGamemodeKeys);
         Instant generatedAt = Instant.now();
         return ormContext.runInTransaction(session -> {
-            Map<Long, LeaderboardAccumulator> byPlayer = new LinkedHashMap<>();
-            List<PlayerPlaytimeEntity> aggregates = session.createQuery(
-                            "SELECT t FROM PlayerPlaytimeEntity t",
-                            PlayerPlaytimeEntity.class
-                    )
-                    .list();
-            for (PlayerPlaytimeEntity aggregate : aggregates) {
-                if (normalizedExcludedGamemodes.contains(aggregate.getGamemodeKey())) {
-                    continue;
-                }
-                accumulateAggregate(byPlayer, aggregate, generatedAt);
+            List<String> excludedGamemodes = normalizedExcludedGamemodes.stream().sorted().toList();
+            String aggregateExclusion = exclusionClause("t.gamemode_key", excludedGamemodes, " WHERE ");
+            String segmentExclusion = exclusionClause("s.gamemode_key", excludedGamemodes, " AND ");
+            NativeQuery<Object[]> query = session.createNativeQuery(
+                    "SELECT totals.player_id, p.uuid, p.username, SUM(totals.tracked_millis) AS tracked_millis " +
+                            "FROM (" +
+                            "SELECT t.player_id, t.tracked_millis FROM player_playtime t" + aggregateExclusion +
+                            " UNION ALL " +
+                            "SELECT s.player_id, GREATEST(0, TIMESTAMPDIFF(MICROSECOND, s.last_accrued_at, :asOf) " +
+                            "DIV 1000) FROM player_playtime_segments s " +
+                            "INNER JOIN player_sessions ps ON ps.id = s.session_id " +
+                            "WHERE s.ended_at IS NULL AND ps.ended_at IS NULL" + segmentExclusion +
+                            ") totals INNER JOIN player_entity p ON p.id = totals.player_id " +
+                            "GROUP BY totals.player_id, p.uuid, p.username " +
+                            "HAVING SUM(totals.tracked_millis) > 0 " +
+                            "ORDER BY tracked_millis DESC, LOWER(p.username) ASC, totals.player_id ASC"
+            );
+            query.setParameter("asOf", generatedAt);
+            for (int index = 0; index < excludedGamemodes.size(); index++) {
+                query.setParameter("excludedGamemode" + index, excludedGamemodes.get(index));
             }
-
-            List<PlayerPlaytimeSegmentEntity> openSegments = session.createQuery(
-                            "SELECT s FROM PlayerPlaytimeSegmentEntity s " +
-                                    "WHERE s.endedAt IS NULL AND s.session.endedAt IS NULL",
-                            PlayerPlaytimeSegmentEntity.class
-                    )
-                    .list();
-            for (PlayerPlaytimeSegmentEntity openSegment : openSegments) {
-                if (normalizedExcludedGamemodes.contains(openSegment.getGamemodeKey())) {
-                    continue;
-                }
-                accumulateLiveSegment(byPlayer, openSegment, generatedAt);
-            }
-
-            return toLeaderboardEntries(byPlayer.values(), resultLimit, generatedAt);
+            query.setMaxResults(resultLimit);
+            return toLeaderboardEntries(query.list(), generatedAt);
         });
     }
 
@@ -326,73 +317,41 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
                 .uniqueResultOptional();
     }
 
-    private static void accumulateAggregate(
-            Map<Long, LeaderboardAccumulator> byPlayer,
-            PlayerPlaytimeEntity aggregate,
-            Instant generatedAt
-    ) {
-        PlayerEntity player = aggregate.getPlayer();
-        if (player == null || player.getId() == null) {
-            return;
-        }
-        LeaderboardAccumulator accumulator = byPlayer.computeIfAbsent(
-                player.getId(),
-                playerId -> new LeaderboardAccumulator(playerId, player.getUuid(), player.getUsername())
-        );
-        accumulator.trackedMillis += aggregate.getTrackedMillis();
-        accumulator.generatedAt = generatedAt;
-    }
-
-    private static void accumulateLiveSegment(
-            Map<Long, LeaderboardAccumulator> byPlayer,
-            PlayerPlaytimeSegmentEntity segment,
-            Instant generatedAt
-    ) {
-        if (!isLiveSegment(segment, generatedAt)) {
-            return;
-        }
-        PlayerEntity player = segment.getPlayer();
-        if (player == null || player.getId() == null) {
-            return;
-        }
-        long liveDeltaMillis = computeLiveDeltaMillis(segment.getLastAccruedAt(), generatedAt);
-        if (liveDeltaMillis <= 0L) {
-            return;
-        }
-        LeaderboardAccumulator accumulator = byPlayer.computeIfAbsent(
-                player.getId(),
-                playerId -> new LeaderboardAccumulator(playerId, player.getUuid(), player.getUsername())
-        );
-        accumulator.trackedMillis += liveDeltaMillis;
-        accumulator.generatedAt = generatedAt;
-    }
-
     private static List<PlayerPlaytimeLeaderboardEntry> toLeaderboardEntries(
-            Collection<LeaderboardAccumulator> accumulators,
-            int limit,
+            List<Object[]> rows,
             Instant generatedAt
     ) {
-        List<LeaderboardAccumulator> ranked = accumulators.stream()
-                .filter(accumulator -> accumulator.trackedMillis > 0L)
-                .sorted(Comparator
-                        .comparingLong(LeaderboardAccumulator::trackedMillis).reversed()
-                        .thenComparing(LeaderboardAccumulator::username, String.CASE_INSENSITIVE_ORDER)
-                        .thenComparing(LeaderboardAccumulator::playerId))
-                .limit(Math.max(1, limit))
-                .toList();
-        List<PlayerPlaytimeLeaderboardEntry> entries = new ArrayList<>(ranked.size());
+        List<PlayerPlaytimeLeaderboardEntry> entries = new ArrayList<>(rows.size());
         long rank = 1L;
-        for (LeaderboardAccumulator accumulator : ranked) {
+        for (Object[] row : rows) {
+            if (row == null || row.length < 4 || !(row[0] instanceof Number playerId)
+                    || !(row[3] instanceof Number trackedMillis) || trackedMillis.longValue() <= 0L) {
+                continue;
+            }
             entries.add(new PlayerPlaytimeLeaderboardEntry(
-                    rank++,
-                    accumulator.playerId,
-                    accumulator.playerUuid,
-                    accumulator.username,
-                    accumulator.trackedMillis,
-                    accumulator.generatedAt == null ? generatedAt : accumulator.generatedAt
+                rank++,
+                    playerId.longValue(),
+                    row[1] == null ? "" : row[1].toString(),
+                    row[2] == null ? "" : row[2].toString(),
+                    trackedMillis.longValue(),
+                    generatedAt
             ));
         }
         return entries;
+    }
+
+    private static String exclusionClause(String column, List<String> values, String prefix) {
+        if (values.isEmpty()) {
+            return "";
+        }
+        StringBuilder placeholders = new StringBuilder();
+        for (int index = 0; index < values.size(); index++) {
+            if (index > 0) {
+                placeholders.append(", ");
+            }
+            placeholders.append(":excludedGamemode").append(index);
+        }
+        return prefix + column + " NOT IN (" + placeholders + ")";
     }
 
     private static boolean isLiveSegment(PlayerPlaytimeSegmentEntity segment, Instant asOf) {
@@ -530,29 +489,4 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
         }
     }
 
-    private static final class LeaderboardAccumulator {
-        private final Long playerId;
-        private final String playerUuid;
-        private final String username;
-        private long trackedMillis;
-        private Instant generatedAt;
-
-        private LeaderboardAccumulator(Long playerId, String playerUuid, String username) {
-            this.playerId = playerId;
-            this.playerUuid = playerUuid;
-            this.username = username == null ? "" : username;
-        }
-
-        private long trackedMillis() {
-            return trackedMillis;
-        }
-
-        private String username() {
-            return username;
-        }
-
-        private Long playerId() {
-            return playerId;
-        }
-    }
 }
