@@ -16,6 +16,8 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.Semaphore;
 import java.util.function.Supplier;
@@ -31,11 +33,12 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
     private final ExecutorService queryExecutor;
     private final ScheduledExecutorService timeoutExecutor;
     private final Semaphore querySlots;
-    private final Set<QueryCancellation> activeQueries;
+    private final Set<CancellableQueryFuture<?>> activeQueries;
     private final Duration timeout;
     private final boolean developmentThreadChecks;
     private final ILoggerAdapter logger;
     private final boolean immediate;
+    private final AtomicBoolean closed;
 
     public DataRegistryQueryExecutor(
             int workerThreads,
@@ -59,6 +62,7 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
         this.timeoutExecutor = Executors.newSingleThreadScheduledExecutor(namedFactory("DataRegistry-query-timeout-"));
         this.querySlots = new Semaphore(workerThreads);
         this.activeQueries = ConcurrentHashMap.newKeySet();
+        this.closed = new AtomicBoolean();
     }
 
     private DataRegistryQueryExecutor() {
@@ -70,6 +74,7 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
         this.developmentThreadChecks = false;
         this.logger = new NoopLogger();
         this.immediate = true;
+        this.closed = new AtomicBoolean();
     }
 
     public static DataRegistryQueryExecutor immediateForTesting() {
@@ -79,6 +84,9 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
     public <T> CompletableFuture<T> supply(String operation, Supplier<T> supplier) {
         Objects.requireNonNull(operation, "operation must not be null");
         Objects.requireNonNull(supplier, "supplier must not be null");
+        if (closed.get()) {
+            return closedFuture();
+        }
         if (immediate) {
             try {
                 return CompletableFuture.completedFuture(supplier.get());
@@ -99,8 +107,16 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
                 logger,
                 new QueryCancellation()
         );
-        activeQueries.add(result.cancellation());
-        Future<?> worker = queryExecutor.submit(() -> {
+        activeQueries.add(result);
+        if (closed.get()) {
+            closeFuture(result);
+            activeQueries.remove(result);
+            return result;
+        }
+
+        Future<?> worker;
+        try {
+            worker = queryExecutor.submit(() -> {
             boolean acquiredSlot = false;
             try {
                 querySlots.acquire();
@@ -120,40 +136,57 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
             } finally {
                 CURRENT_CANCELLATION.remove();
                 result.cancellation().clearSessions();
-                activeQueries.remove(result.cancellation());
+                activeQueries.remove(result);
                 if (acquiredSlot) {
                     querySlots.release();
                 }
             }
-        });
+            });
+        } catch (RejectedExecutionException exception) {
+            failSubmission(result, exception, null);
+            return result;
+        }
         result.setWorker(worker);
 
-        Future<?> timeoutTask = timeoutExecutor.schedule(
-                () -> {
-                    TimeoutException exception = new TimeoutException(
-                            "DataRegistry query '" + operation + "' exceeded " + timeout.toMillis() + "ms."
-                    );
-                    if (result.isDone()) {
-                        return;
-                    }
-                    result.cancellation().cancelDatabaseWork();
-                    if (result.completeExceptionally(exception)) {
-                        worker.cancel(true);
-                    }
-                },
-                timeout.toMillis(),
-                TimeUnit.MILLISECONDS
-        );
+        Future<?> timeoutTask;
+        try {
+            timeoutTask = timeoutExecutor.schedule(
+                    () -> {
+                        TimeoutException exception = new TimeoutException(
+                                "DataRegistry query '" + operation + "' exceeded " + timeout.toMillis() + "ms."
+                        );
+                        if (result.isDone()) {
+                            return;
+                        }
+                        result.cancellation().cancelDatabaseWork();
+                        if (result.completeExceptionally(exception)) {
+                            worker.cancel(true);
+                        }
+                    },
+                    timeout.toMillis(),
+                    TimeUnit.MILLISECONDS
+            );
+        } catch (RejectedExecutionException exception) {
+            failSubmission(result, exception, worker);
+            return result;
+        }
         result.whenComplete((value, failure) -> timeoutTask.cancel(false));
         return result;
     }
 
     @Override
     public void close() {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
         if (immediate) {
             return;
         }
-        activeQueries.forEach(QueryCancellation::cancelDatabaseWork);
+        // Complete public stages before worker interruption so callers can never be stranded by non-cooperative work.
+        activeQueries.forEach(result -> {
+            closeFuture(result);
+            activeQueries.remove(result);
+        });
         queryExecutor.shutdownNow();
         timeoutExecutor.shutdownNow();
         awaitTermination(queryExecutor);
@@ -169,6 +202,28 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
                     "DataRegistry query '" + operation + "' " + message +
                             " Thread: '" + Thread.currentThread().getName() + "'."
             );
+        }
+    }
+
+    private <T> CompletableFuture<T> closedFuture() {
+        CompletableFuture<T> result = new CompletableFuture<>();
+        result.completeExceptionally(new DataRegistryQueryExecutorClosedException());
+        return result;
+    }
+
+    private void closeFuture(CancellableQueryFuture<?> result) {
+        result.completeForClose();
+    }
+
+    private void failSubmission(CancellableQueryFuture<?> result, RejectedExecutionException failure, Future<?> worker) {
+        Throwable completionFailure = closed.get() ? new DataRegistryQueryExecutorClosedException() : failure;
+        if (!result.completeExceptionally(completionFailure)) {
+            return;
+        }
+        result.cancellation().cancelDatabaseWork();
+        activeQueries.remove(result);
+        if (worker != null) {
+            worker.cancel(true);
         }
     }
 
@@ -247,9 +302,14 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
 
         void setWorker(Future<?> worker) {
             this.worker = worker;
-            if (isCancelled()) {
+            if (isDone() || cancellation.isCancelled()) {
                 worker.cancel(true);
             }
+        }
+
+        void completeForClose() {
+            cancellation.cancelDatabaseWork();
+            completeExceptionally(new DataRegistryQueryExecutorClosedException());
         }
 
         @Override
