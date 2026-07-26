@@ -391,17 +391,17 @@ public final class PlayerLifecycleWriter {
                     || current instanceof OptimisticLockException) {
                 return true;
             }
-            if (current instanceof SQLException sqlException && isRetryableConstraintFailure(sqlException)) {
+            if (current instanceof SQLException sqlException && isTransientSqlFailure(sqlException)) {
                 return true;
             }
             if (current instanceof JDBCException jdbcException
                     && (jdbcException.getSQLException() instanceof SQLTransientException
-                    || isRetryableConstraintFailure(jdbcException.getSQLException()))) {
+                    || isTransientSqlFailure(jdbcException.getSQLException()))) {
                 return true;
             }
             if (current instanceof PersistenceException persistenceException
                     && persistenceException.getCause() instanceof SQLException sqlException
-                    && isRetryableConstraintFailure(sqlException)) {
+                    && isTransientSqlFailure(sqlException)) {
                 return true;
             }
             current = current.getCause();
@@ -414,11 +414,24 @@ public final class PlayerLifecycleWriter {
      * on unique player/outbox inserts across services. A retried transaction will observe the committed row.
      */
     private static boolean isRetryableConstraintFailure(SQLException sqlException) {
+        if (sqlException == null) {
+            return false;
+        }
         if (sqlException instanceof SQLIntegrityConstraintViolationException) {
             return true;
         }
         String sqlState = sqlException.getSQLState();
         return sqlState != null && sqlState.startsWith("23");
+    }
+
+    private static boolean isTransientSqlFailure(SQLException sqlException) {
+        if (isRetryableConstraintFailure(sqlException)) {
+            return true;
+        }
+        String sqlState = sqlException.getSQLState();
+        // SQLState class 08 is a connection exception; class 40 covers transaction rollback/deadlock conditions.
+        // JDBC drivers do not consistently expose these as SQLTransientException during an outage.
+        return sqlState != null && (sqlState.startsWith("08") || sqlState.startsWith("40"));
     }
 
     private void pauseBeforeRetry(int completedAttempts) {

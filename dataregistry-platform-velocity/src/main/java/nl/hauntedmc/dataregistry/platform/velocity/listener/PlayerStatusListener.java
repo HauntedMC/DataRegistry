@@ -24,11 +24,14 @@ import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -47,12 +50,20 @@ public class PlayerStatusListener {
 
     private static final int MAX_LOG_VALUE_LENGTH = 256;
     public static final short PLAYER_LIFECYCLE_EVENT_PRIORITY = 1000;
+    private static final ScheduledExecutorService DEFAULT_RETRY_SCHEDULER = Executors.newSingleThreadScheduledExecutor(
+            runnable -> {
+                Thread thread = new Thread(runnable, "DataRegistry-velocity-lifecycle-retry-fallback");
+                thread.setDaemon(true);
+                return thread;
+            }
+    );
 
     private final PlayerService playerService;
     private final PlayerLifecycleWriter lifecycleWriter;
     private final PlayerPlaytimeService playtimeService;
     private final ILoggerAdapter logger;
     private final Executor eventExecutor;
+    private final RetainedPlayerLifecycleCommandQueue retainedCommands;
     private final ConcurrentMap<String, CompletableFuture<Void>> playerEventPipelines = new ConcurrentHashMap<>();
     /**
      * The current Velocity connection for each UUID. Presence is owned by a concrete proxy connection, rather than
@@ -89,7 +100,10 @@ public class PlayerStatusListener {
                 ),
                 playtimeService,
                 logger,
-                eventExecutor
+                eventExecutor,
+                DEFAULT_RETRY_SCHEDULER,
+                () -> {
+                }
         );
     }
 
@@ -100,11 +114,38 @@ public class PlayerStatusListener {
             ILoggerAdapter logger,
             Executor eventExecutor
     ) {
+        this(
+                playerService,
+                lifecycleWriter,
+                playtimeService,
+                logger,
+                eventExecutor,
+                DEFAULT_RETRY_SCHEDULER,
+                () -> {
+                }
+        );
+    }
+
+    public PlayerStatusListener(
+            PlayerService playerService,
+            PlayerLifecycleWriter lifecycleWriter,
+            PlayerPlaytimeService playtimeService,
+            ILoggerAdapter logger,
+            Executor eventExecutor,
+            ScheduledExecutorService retryScheduler,
+            Runnable backendRecoveredCallback
+    ) {
         this.playerService = Objects.requireNonNull(playerService, "playerService must not be null");
         this.lifecycleWriter = Objects.requireNonNull(lifecycleWriter, "lifecycleWriter must not be null");
         this.playtimeService = Objects.requireNonNull(playtimeService, "playtimeService must not be null");
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
         this.eventExecutor = Objects.requireNonNull(eventExecutor, "eventExecutor must not be null");
+        this.retainedCommands = new RetainedPlayerLifecycleCommandQueue(
+                eventExecutor,
+                retryScheduler,
+                logger,
+                backendRecoveredCallback
+        );
     }
 
     @Subscribe(priority = PLAYER_LIFECYCLE_EVENT_PRIORITY)
@@ -120,29 +161,20 @@ public class PlayerStatusListener {
 
         currentPlayerConnections.put(uuid, player);
         PlayerIdentityInitialization initialization = playerService.beginIdentityInitialization(player.getUniqueId());
-        Optional<CompletableFuture<Void>> queuedLogin = enqueuePlayerEvent(uuid, () -> {
-            PlayerLifecycleWriteResult result = lifecycleWriter.login(LoginCommand.create(uuid, username, ip, vhost));
-            if (!result.succeeded()) {
-                playerService.failIdentityInitialization(initialization, result.failure());
-                return;
-            }
-            result.identityOptional().ifPresentOrElse(
-                    identity -> playerService.completeIdentityInitialization(initialization, identity),
-                    () -> playerService.failIdentityInitialization(
-                            initialization,
-                            new IllegalStateException("Lifecycle login completed without an identity.")
-                    )
-            );
-        });
-        if (queuedLogin.isEmpty()) {
-            playerService.completeIdentityInitializationUnavailable(initialization);
-            return;
-        }
-        queuedLogin.get().whenComplete((ignored, failure) -> {
-            if (failure != null) {
-                playerService.failIdentityInitialization(initialization, failure);
-            }
-        });
+        LoginCommand command = LoginCommand.create(uuid, username, ip, vhost);
+        retainedCommands.submit(
+                uuid,
+                command.eventId(),
+                () -> lifecycleWriter.login(command),
+                result -> result.identityOptional().ifPresentOrElse(
+                        identity -> playerService.completeIdentityInitialization(initialization, identity),
+                        () -> playerService.failIdentityInitialization(
+                                initialization,
+                                new IllegalStateException("Lifecycle login completed without an identity.")
+                        )
+                ),
+                failure -> playerService.failIdentityInitialization(initialization, failure)
+        );
     }
 
     @Subscribe(priority = PLAYER_LIFECYCLE_EVENT_PRIORITY)
@@ -155,11 +187,16 @@ public class PlayerStatusListener {
             return;
         }
 
-        enqueuePlayerEvent(uuid, () -> {
-            if (isCurrentConnection(uuid, player)) {
-                lifecycleWriter.transfer(TransferCommand.create(uuid, username, serverName));
-            }
-        });
+        TransferCommand command = TransferCommand.create(uuid, username, serverName);
+        retainedCommands.submit(
+                uuid,
+                command.eventId(),
+                () -> lifecycleWriter.transfer(command),
+                ignored -> {
+                },
+                ignored -> {
+                }
+        );
     }
 
     @Subscribe(priority = PLAYER_LIFECYCLE_EVENT_PRIORITY)
@@ -171,13 +208,15 @@ public class PlayerStatusListener {
             return;
         }
 
-        enqueuePlayerEvent(uuid, () -> {
-            try {
-                lifecycleWriter.disconnect(DisconnectCommand.create(uuid, username));
-            } finally {
-                playerService.onPlayerQuit(username, uuid);
-            }
-        });
+        DisconnectCommand command = DisconnectCommand.create(uuid, username);
+        retainedCommands.submit(
+                uuid,
+                command.eventId(),
+                () -> lifecycleWriter.disconnect(command),
+                ignored -> playerService.onPlayerQuit(username, uuid),
+                ignored -> {
+                }
+        );
     }
 
     private boolean isCurrentConnection(String uuid, Player player) {
@@ -253,6 +292,14 @@ public class PlayerStatusListener {
     }
 
     /**
+     * Returns the UUIDs with a live proxy connection. Backend-recovery reconciliation must exclude these players so
+     * it does not mistake a temporary database outage for a proxy crash.
+     */
+    public Set<String> snapshotCurrentPlayerUuids() {
+        return Set.copyOf(currentPlayerConnections.keySet());
+    }
+
+    /**
      * Enqueues a lightweight playtime accrual flush for currently active players.
      */
     public void flushActivePlaytime() {
@@ -275,13 +322,18 @@ public class PlayerStatusListener {
                 continue;
             }
             String uuid = player.getUuid() == null ? entry.getKey() : player.getUuid();
-            enqueuePlayerEvent(uuid, () -> {
-                try {
-                    lifecycleWriter.disconnect(DisconnectCommand.create(uuid, player.getUsername()));
-                } finally {
-                    playerService.onPlayerQuit(player.getUsername(), uuid);
-                }
-            }, true);
+            if (retainedCommands.hasPendingCommand(uuid)) {
+                continue;
+            }
+            DisconnectCommand command = DisconnectCommand.create(uuid, player.getUsername());
+            retainedCommands.submit(
+                    uuid,
+                    command.eventId(),
+                    () -> lifecycleWriter.disconnect(command),
+                    ignored -> playerService.onPlayerQuit(player.getUsername(), uuid),
+                    ignored -> {
+                    }
+            );
         }
     }
 
@@ -294,7 +346,8 @@ public class PlayerStatusListener {
         while (true) {
             CompletableFuture<?>[] pendingPipelines = playerEventPipelines.values().toArray(CompletableFuture[]::new);
             if (pendingPipelines.length == 0) {
-                return true;
+                long remainingNanos = deadlineNanos - System.nanoTime();
+                return retainedCommands.awaitIdle(Math.max(0L, remainingNanos), TimeUnit.NANOSECONDS);
             }
 
             long remainingNanos = deadlineNanos - System.nanoTime();

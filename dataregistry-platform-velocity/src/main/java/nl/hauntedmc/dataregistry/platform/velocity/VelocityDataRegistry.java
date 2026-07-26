@@ -86,6 +86,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
     private SLF4JLoggerAdapter logInstance;
     private DataRegistrySettings settings = DataRegistrySettings.defaults();
     private ExecutorService playerEventExecutor;
+    private ScheduledExecutorService playerLifecycleRetryExecutor;
     private ScheduledExecutorService playerPlaytimeFlushExecutor;
     private ScheduledExecutorService serviceRegistryHeartbeatExecutor;
     private ScheduledExecutorService serviceRegistryProbeExecutor;
@@ -142,6 +143,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
         stopAcceptingAndDrainPlayerEvents();
         shutdownLifecycleOutboxRetentionExecutor();
         stopServiceRegistryLifecycle();
+        shutdownPlayerLifecycleRetryExecutor();
         runtime.stop(getPlatformLogger());
         shutdownPlayerEventExecutor();
         shutdownPlayerPlaytimeFlushExecutor();
@@ -208,6 +210,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
 
     void registerPlayerStatusListener() {
         ensurePlayerEventExecutor();
+        ensurePlayerLifecycleRetryExecutor();
         DataRegistry registry = runtimeDataRegistry();
         PlayerService playerService = registry.newPlayerService(getPlatformLogger());
         PlayerNameHistoryService nameHistoryService = new PlayerNameHistoryService(
@@ -271,7 +274,9 @@ public class VelocityDataRegistry implements PlatformPlugin {
                 lifecycleWriter,
                 playtimeService,
                 getPlatformLogger(),
-                playerEventExecutor
+                playerEventExecutor,
+                playerLifecycleRetryExecutor,
+                this::recoverPlayerPresenceStateAfterBackendRecovery
         );
         proxyServer.getEventManager().register(this, listener);
         playerStatusListener = listener;
@@ -320,6 +325,29 @@ public class VelocityDataRegistry implements PlatformPlugin {
         }
     }
 
+    void recoverPlayerPresenceStateAfterBackendRecovery() {
+        PlayerStatusListener listener = playerStatusListener;
+        if (listener == null) {
+            return;
+        }
+        DataRegistry registry = runtimeDataRegistry();
+        PlayerPresenceRecoveryResult result = new PlayerPresenceRecoveryService(registry, settings)
+                .recoverAfterBackendRecovery(listener.snapshotCurrentPlayerUuids());
+        if (result.recoveredAnyState()) {
+            logger.warn(
+                    "Reconciled stale player presence after database recovery: " +
+                            "playtimeSegments={}, sessions={}, sessionVisits={}, onlineStatuses={}, " +
+                            "activitySummaries={}, connectionInfos={}.",
+                    result.playtimeSegmentsClosed(),
+                    result.sessionsClosed(),
+                    result.sessionVisitsClosed(),
+                    result.onlineStatusesCleared(),
+                    result.activitySummariesUpdated(),
+                    result.connectionInfosUpdated()
+            );
+        }
+    }
+
     private void initializeRuntime(DataRegistry registry) {
         if (!registry.initialize()) {
             throw new IllegalStateException("Database connection not established.");
@@ -331,6 +359,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
         stopAcceptingAndDrainPlayerEvents();
         shutdownLifecycleOutboxRetentionExecutor();
         stopServiceRegistryLifecycle();
+        shutdownPlayerLifecycleRetryExecutor();
         runtime.stop(getPlatformLogger());
         shutdownPlayerEventExecutor();
         shutdownPlayerPlaytimeFlushExecutor();
@@ -809,6 +838,19 @@ public class VelocityDataRegistry implements PlatformPlugin {
         playerEventExecutor = Executors.newFixedThreadPool(workerCount, threadFactory);
     }
 
+    private void ensurePlayerLifecycleRetryExecutor() {
+        if (playerLifecycleRetryExecutor != null && !playerLifecycleRetryExecutor.isShutdown()) {
+            return;
+        }
+        ThreadFactory threadFactory = runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("DataRegistry-velocity-lifecycle-retry");
+            thread.setDaemon(true);
+            return thread;
+        };
+        playerLifecycleRetryExecutor = Executors.newSingleThreadScheduledExecutor(threadFactory);
+    }
+
     private void ensureServiceRegistryHeartbeatExecutor() {
         if (serviceRegistryHeartbeatExecutor != null && !serviceRegistryHeartbeatExecutor.isShutdown()) {
             return;
@@ -870,6 +912,23 @@ public class VelocityDataRegistry implements PlatformPlugin {
         executor.shutdown();
         try {
             if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            executor.shutdownNow();
+        }
+    }
+
+    private void shutdownPlayerLifecycleRetryExecutor() {
+        ScheduledExecutorService executor = playerLifecycleRetryExecutor;
+        playerLifecycleRetryExecutor = null;
+        if (executor == null) {
+            return;
+        }
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(EVENT_PIPELINE_DRAIN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 executor.shutdownNow();
             }
         } catch (InterruptedException interruptedException) {

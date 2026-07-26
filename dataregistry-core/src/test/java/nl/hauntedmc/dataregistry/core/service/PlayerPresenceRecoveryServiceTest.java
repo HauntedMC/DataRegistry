@@ -22,6 +22,7 @@ import java.util.Set;
 import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.executeTransactionsWithSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -92,6 +93,25 @@ class PlayerPresenceRecoveryServiceTest {
 
         assertEquals(1, result.sessionsClosed());
         assertEquals(sessionStartedAt, openSession.getEndedAt());
+    }
+
+    @Test
+    void recoverAfterBackendRecoveryDoesNotClosePresenceForConnectedPlayers() {
+        TestContext context = createContext(DataRegistrySettings.defaults());
+        PlayerEntity player = persistedPlayer();
+        PlayerSessionEntity openSession = openSession(player, 101L, Instant.parse("2026-07-19T10:00:00Z"));
+        PlayerOnlineStatusEntity onlineStatus = onlineStatus(player);
+
+        when(context.segmentQuery.list()).thenReturn(List.of());
+        when(context.sessionQuery.list()).thenReturn(List.of(openSession));
+        when(context.visitQuery.list()).thenReturn(List.of());
+        when(context.statusQuery.list()).thenReturn(List.of(onlineStatus));
+
+        PlayerPresenceRecoveryResult result = context.service.recoverAfterBackendRecovery(Set.of(player.getUuid()));
+
+        assertEquals(PlayerPresenceRecoveryResult.empty(), result);
+        assertNull(openSession.getEndedAt());
+        assertTrue(onlineStatus.isOnline());
     }
 
     @Test
