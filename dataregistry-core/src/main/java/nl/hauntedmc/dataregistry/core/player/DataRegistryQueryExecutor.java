@@ -1,6 +1,7 @@
 package nl.hauntedmc.dataregistry.core.player;
 
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
+import org.hibernate.Session;
 
 import java.time.Duration;
 import java.util.Locale;
@@ -14,8 +15,11 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.Semaphore;
 import java.util.function.Supplier;
+import java.util.Set;
 
 /**
  * Owns public DataRegistry query execution, deadlines, and cancellation plumbing.
@@ -26,6 +30,8 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
 
     private final ExecutorService queryExecutor;
     private final ScheduledExecutorService timeoutExecutor;
+    private final Semaphore querySlots;
+    private final Set<QueryCancellation> activeQueries;
     private final Duration timeout;
     private final boolean developmentThreadChecks;
     private final ILoggerAdapter logger;
@@ -47,13 +53,19 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
         this.developmentThreadChecks = developmentThreadChecks;
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
         this.immediate = false;
-        this.queryExecutor = Executors.newFixedThreadPool(workerThreads, namedFactory("DataRegistry-query-"));
+        this.queryExecutor = Executors.newThreadPerTaskExecutor(
+                Thread.ofVirtual().name("DataRegistry-query-", 0).factory()
+        );
         this.timeoutExecutor = Executors.newSingleThreadScheduledExecutor(namedFactory("DataRegistry-query-timeout-"));
+        this.querySlots = new Semaphore(workerThreads);
+        this.activeQueries = ConcurrentHashMap.newKeySet();
     }
 
     private DataRegistryQueryExecutor() {
         this.queryExecutor = null;
         this.timeoutExecutor = null;
+        this.querySlots = null;
+        this.activeQueries = Set.of();
         this.timeout = Duration.ofSeconds(30L);
         this.developmentThreadChecks = false;
         this.logger = new NoopLogger();
@@ -84,16 +96,34 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
         CancellableQueryFuture<T> result = new CancellableQueryFuture<>(
                 operation,
                 developmentThreadChecks,
-                logger
+                logger,
+                new QueryCancellation()
         );
+        activeQueries.add(result.cancellation());
         Future<?> worker = queryExecutor.submit(() -> {
-            if (result.isDone()) {
-                return;
-            }
+            boolean acquiredSlot = false;
             try {
+                querySlots.acquire();
+                acquiredSlot = true;
+                if (result.isDone()) {
+                    return;
+                }
+                CURRENT_CANCELLATION.set(result.cancellation());
                 result.complete(supplier.get());
+            } catch (InterruptedException interruptedException) {
+                Thread.currentThread().interrupt();
+                if (!result.isDone() && !result.cancellation().isCancelled()) {
+                    result.completeExceptionally(interruptedException);
+                }
             } catch (Throwable throwable) {
                 result.completeExceptionally(throwable);
+            } finally {
+                CURRENT_CANCELLATION.remove();
+                result.cancellation().clearSessions();
+                activeQueries.remove(result.cancellation());
+                if (acquiredSlot) {
+                    querySlots.release();
+                }
             }
         });
         result.setWorker(worker);
@@ -103,6 +133,10 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
                     TimeoutException exception = new TimeoutException(
                             "DataRegistry query '" + operation + "' exceeded " + timeout.toMillis() + "ms."
                     );
+                    if (result.isDone()) {
+                        return;
+                    }
+                    result.cancellation().cancelDatabaseWork();
                     if (result.completeExceptionally(exception)) {
                         worker.cancel(true);
                     }
@@ -119,6 +153,7 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
         if (immediate) {
             return;
         }
+        activeQueries.forEach(QueryCancellation::cancelDatabaseWork);
         queryExecutor.shutdownNow();
         timeoutExecutor.shutdownNow();
         awaitTermination(queryExecutor);
@@ -163,16 +198,51 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
         };
     }
 
+    private static final ThreadLocal<QueryCancellation> CURRENT_CANCELLATION = new ThreadLocal<>();
+
+    /**
+     * Registers the Hibernate session used by the current public-query task. A deadline or cancellation then invokes
+     * Hibernate's {@link Session#cancelQuery()} instead of merely interrupting the Java worker thread.
+     */
+    public static void registerDatabaseSession(Session session) {
+        if (session == null) {
+            return;
+        }
+        QueryCancellation cancellation = CURRENT_CANCELLATION.get();
+        if (cancellation != null) {
+            cancellation.register(session);
+        }
+    }
+
     private static final class CancellableQueryFuture<T> extends CompletableFuture<T> {
         private final String operation;
         private final boolean developmentThreadChecks;
         private final ILoggerAdapter logger;
+        private final QueryCancellation cancellation;
         private volatile Future<?> worker;
 
-        CancellableQueryFuture(String operation, boolean developmentThreadChecks, ILoggerAdapter logger) {
+        CancellableQueryFuture(
+                String operation,
+                boolean developmentThreadChecks,
+                ILoggerAdapter logger,
+                QueryCancellation cancellation
+        ) {
             this.operation = operation;
             this.developmentThreadChecks = developmentThreadChecks;
             this.logger = logger;
+            this.cancellation = cancellation;
+        }
+
+        QueryCancellation cancellation() {
+            return cancellation;
+        }
+
+        @Override
+        public boolean complete(T value) {
+            if (cancellation.isCancelled()) {
+                return false;
+            }
+            return super.complete(value);
         }
 
         void setWorker(Future<?> worker) {
@@ -184,6 +254,7 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
 
         @Override
         public boolean cancel(boolean mayInterruptIfRunning) {
+            cancellation.cancelDatabaseWork();
             Future<?> currentWorker = worker;
             if (currentWorker != null) {
                 currentWorker.cancel(mayInterruptIfRunning);
@@ -217,6 +288,39 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
                     "DataRegistry query '" + operation + "' is being blocked with " + method +
                             " on likely server/event thread '" + Thread.currentThread().getName() + "'."
             );
+        }
+    }
+
+    private static final class QueryCancellation {
+        private final Set<Session> sessions = ConcurrentHashMap.newKeySet();
+        private volatile boolean cancelled;
+
+        void register(Session session) {
+            sessions.add(session);
+            if (cancelled) {
+                cancel(session);
+            }
+        }
+
+        void cancelDatabaseWork() {
+            cancelled = true;
+            sessions.forEach(QueryCancellation::cancel);
+        }
+
+        void clearSessions() {
+            sessions.clear();
+        }
+
+        boolean isCancelled() {
+            return cancelled;
+        }
+
+        private static void cancel(Session session) {
+            try {
+                session.cancelQuery();
+            } catch (RuntimeException ignored) {
+                // A failed cancellation is still followed by worker interruption and the JDBC driver's own cleanup.
+            }
         }
     }
 

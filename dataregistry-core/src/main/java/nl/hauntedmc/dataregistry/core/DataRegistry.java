@@ -42,6 +42,7 @@ import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerIdentityInitializationTracker;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerLifecycleWriter;
 import nl.hauntedmc.dataregistry.core.player.DataRegistryQueryExecutor;
+import nl.hauntedmc.dataregistry.core.player.DeadlineAwareOrmContext;
 import nl.hauntedmc.dataregistry.core.player.RepositoryPlayerData;
 import nl.hauntedmc.dataregistry.core.player.RepositoryPlayerDirectory;
 import nl.hauntedmc.dataregistry.core.service.DefaultFeatureServiceDirectory;
@@ -134,9 +135,10 @@ public class DataRegistry implements DataRegistryApi {
             DataSource playerDataSource = resolveDataSource(dataSources, settings.playerDatabaseConnectionId());
             ormContext = newOrmContext(playerDataSource, resolvePlayerOrmEntityClasses());
             serviceOrmContext = null;
+            ORMContext queryOrmContext = new DeadlineAwareOrmContext(ormContext);
 
-            this.playerRepository = newPlayerRepository(ormContext);
-            this.playerLifecycleOutboxRepository = newPlayerLifecycleOutboxRepository(ormContext);
+            this.playerRepository = newPlayerRepository(queryOrmContext);
+            this.playerLifecycleOutboxRepository = newPlayerLifecycleOutboxRepository(queryOrmContext);
             validatePlayerLifecycleOutbox();
             this.playerIdentityInitializationTracker = new PlayerIdentityInitializationTracker();
             this.queryExecutor = newQueryExecutor();
@@ -146,39 +148,39 @@ public class DataRegistry implements DataRegistryApi {
                     queryExecutor
             );
             this.playerActivitySummaryRepository = settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)
-                    ? newPlayerActivitySummaryRepository(ormContext)
+                    ? newPlayerActivitySummaryRepository(queryOrmContext)
                     : null;
             this.playerOnlineStatusRepository = settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)
-                    ? newPlayerOnlineStatusRepository(ormContext)
+                    ? newPlayerOnlineStatusRepository(queryOrmContext)
                     : null;
             this.playerConnectionInfoRepository = settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO)
-                    ? newPlayerConnectionInfoRepository(ormContext)
+                    ? newPlayerConnectionInfoRepository(queryOrmContext)
                     : null;
             this.playerLanguageRepository = settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE)
-                    ? newPlayerLanguageRepository(ormContext)
+                    ? newPlayerLanguageRepository(queryOrmContext)
                     : null;
             this.playerNicknameRepository = settings.isFeatureEnabled(DataRegistryFeature.NICKNAMES)
-                    ? newPlayerNicknameRepository(ormContext)
+                    ? newPlayerNicknameRepository(queryOrmContext)
                     : null;
             this.playerNameHistoryRepository = settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY)
-                    ? newPlayerNameHistoryRepository(ormContext)
+                    ? newPlayerNameHistoryRepository(queryOrmContext)
                     : null;
             this.playerSessionRepository = settings.isFeatureEnabled(DataRegistryFeature.SESSIONS)
-                    ? newPlayerSessionRepository(ormContext)
+                    ? newPlayerSessionRepository(queryOrmContext)
                     : null;
             this.playerSessionVisitRepository = settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS)
-                    ? newPlayerSessionVisitRepository(ormContext)
+                    ? newPlayerSessionVisitRepository(queryOrmContext)
                     : null;
             this.playerPlaytimeRepository = settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
-                    ? newPlayerPlaytimeRepository(ormContext)
+                    ? newPlayerPlaytimeRepository(queryOrmContext)
                     : null;
             this.playerPlaytimeSegmentRepository = settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
-                    ? newPlayerPlaytimeSegmentRepository(ormContext)
+                    ? newPlayerPlaytimeSegmentRepository(queryOrmContext)
                     : null;
             this.playerData = new RepositoryPlayerData(
                     playerDirectory,
                     queryExecutor,
-                    ormContext,
+                    queryOrmContext,
                     settings.enabledFeatures(),
                     playerActivitySummaryRepository,
                     playerOnlineStatusRepository,

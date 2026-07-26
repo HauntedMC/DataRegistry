@@ -107,7 +107,7 @@ platform:
 
 query:
   # Applies to: Both.
-  # Worker threads for public asynchronous player read queries (1-32).
+  # Maximum concurrent database operations for public asynchronous player read queries (1-32).
   executor-threads: 2
   # Public player query deadline before the returned stage fails (milliseconds, 50-60000).
   timeout-millis: 3000

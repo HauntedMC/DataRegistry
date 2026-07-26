@@ -238,7 +238,7 @@ final class DataRegistryConfigSchema {
         builder.append('\n');
         builder.append("query:\n");
         builder.append("  # Applies to: Both.\n");
-        builder.append("  # Worker threads for public asynchronous player read queries (1-32).\n");
+        builder.append("  # Maximum concurrent database operations for public asynchronous player read queries (1-32).\n");
         builder.append("  executor-threads: ").append(settings.queryExecutorThreads()).append('\n');
         builder.append("  # Public player query deadline before the returned stage fails (milliseconds, 50-60000).\n");
         builder.append("  timeout-millis: ").append(settings.queryTimeoutMillis()).append('\n');
