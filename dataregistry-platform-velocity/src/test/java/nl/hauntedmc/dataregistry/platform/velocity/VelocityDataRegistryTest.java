@@ -412,12 +412,13 @@ class VelocityDataRegistryTest {
         Method purgeMethod = VelocityDataRegistry.class.getDeclaredMethod(
                 "purgeLifecycleOutbox",
                 DataRegistry.class,
+                int.class,
                 int.class
         );
         purgeMethod.setAccessible(true);
-        purgeMethod.invoke(plugin, registry, 14);
+        purgeMethod.invoke(plugin, registry, 14, 123);
 
-        verify(repository).deleteCreatedBefore(any(Instant.class), eq(500));
+        verify(repository).deleteCreatedBefore(any(Instant.class), eq(123));
     }
 
     @Test
@@ -432,12 +433,13 @@ class VelocityDataRegistryTest {
         Method purgeMethod = VelocityDataRegistry.class.getDeclaredMethod(
                 "purgeClosedSessionHistory",
                 DataRegistry.class,
+                int.class,
                 int.class
         );
         purgeMethod.setAccessible(true);
-        purgeMethod.invoke(plugin, registry, 30);
+        purgeMethod.invoke(plugin, registry, 30, 123);
 
-        verify(registry).purgeClosedSessionHistoryOlderThan(Duration.ofDays(30), 500);
+        verify(registry).purgeClosedSessionHistoryOlderThan(Duration.ofDays(30), 123);
     }
 
     @Test
@@ -451,7 +453,7 @@ class VelocityDataRegistryTest {
         ILoggerAdapter platformLogger = mock(ILoggerAdapter.class);
         ServiceProbeRepository probeRepository = mock(ServiceProbeRepository.class);
         when(registry.getServiceProbeRepository()).thenReturn(probeRepository);
-        when(probeRepository.deleteCheckedBefore(any(), anyInt())).thenReturn(500, 0);
+        when(probeRepository.deleteCheckedBefore(any(), anyInt())).thenReturn(500);
         ServiceRegistryService registryService = new ServiceRegistryService(registry, platformLogger, true);
 
         Method purgeMethod = VelocityDataRegistry.class.getDeclaredMethod(
@@ -465,7 +467,7 @@ class VelocityDataRegistryTest {
         purgeMethod.invoke(plugin, registryService, 72, 12);
         purgeMethod.invoke(plugin, registryService, 72, 12);
 
-        verify(probeRepository, times(2)).deleteCheckedBefore(any(), eq(500));
+        verify(probeRepository).deleteCheckedBefore(any(), eq(500));
     }
 
     @Test

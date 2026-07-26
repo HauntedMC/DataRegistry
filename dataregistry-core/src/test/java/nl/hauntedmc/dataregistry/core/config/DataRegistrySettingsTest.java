@@ -37,6 +37,11 @@ class DataRegistrySettingsTest {
         assertEquals(1500, settings.serviceProbeTimeoutMillis());
         assertEquals(-1, settings.serviceProbeRetentionHours());
         assertEquals(12, settings.serviceProbePurgeIntervalHours());
+        assertEquals(500, settings.retentionPurgeBatchSize());
+        assertEquals(1, settings.playerHistoryPurgeIntervalHours());
+        assertEquals(24, settings.serviceInstancePurgeIntervalHours());
+        assertEquals(3, settings.lifecycleWriteMaxAttempts());
+        assertEquals(25, settings.lifecycleRetryBaseDelayMillis());
         assertEquals(30, settings.playtimeTrackingSettings().flushIntervalSeconds());
         assertEquals(64, settings.playtimeTrackingSettings().gamemodeKeyMaxLength());
         assertTrue(settings.playtimeTrackingSettings().resolveUnknownServersAsGamemode());
@@ -128,6 +133,12 @@ class DataRegistrySettingsTest {
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbeRetentionHours(2161).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbePurgeIntervalHours(0).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbePurgeIntervalHours(2161).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().retentionPurgeBatchSize(0).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().retentionPurgeBatchSize(5001).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().playerHistoryPurgeIntervalHours(0).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceInstancePurgeIntervalHours(169).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().lifecycleWriteMaxAttempts(0).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().lifecycleRetryBaseDelayMillis(1001).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().queryExecutorThreads(0).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().queryExecutorThreads(33).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().queryTimeoutMillis(49).build());

@@ -81,7 +81,15 @@ final class DataRegistryConfigSchema {
         retention.put("lifecycle-outbox-days", defaults.lifecycleOutboxRetentionDays());
         retention.put("service-instance-days", defaults.serviceInstanceRetentionDays());
         retention.put("closed-session-history-days", defaults.closedSessionHistoryRetentionDays());
+        retention.put("purge-batch-size", defaults.retentionPurgeBatchSize());
+        retention.put("player-history-purge-interval-hours", defaults.playerHistoryPurgeIntervalHours());
+        retention.put("service-instance-purge-interval-hours", defaults.serviceInstancePurgeIntervalHours());
         root.put("retention", retention);
+
+        Map<String, Object> lifecycle = new LinkedHashMap<>();
+        lifecycle.put("write-max-attempts", defaults.lifecycleWriteMaxAttempts());
+        lifecycle.put("retry-base-delay-millis", defaults.lifecycleRetryBaseDelayMillis());
+        root.put("lifecycle", lifecycle);
 
         Map<String, Object> platform = new LinkedHashMap<>();
         Map<String, Object> bukkit = new LinkedHashMap<>();
@@ -226,6 +234,22 @@ final class DataRegistryConfigSchema {
         builder.append("  # WARNING: when enabled, permanently removes fully closed sessions, visits, and playtime segments.\n");
         builder.append("  # Delete fully closed raw session history after this many days; -1 keeps it indefinitely (default).\n");
         builder.append("  closed-session-history-days: ").append(settings.closedSessionHistoryRetentionDays()).append('\n');
+        builder.append("  # Maximum rows or complete session chains removed by one maintenance pass (1-5000).\n");
+        builder.append("  # Lower values reduce database load but clear large backlogs more slowly.\n");
+        builder.append("  purge-batch-size: ").append(settings.retentionPurgeBatchSize()).append('\n');
+        builder.append("  # Velocity only: delay between lifecycle-ledger and closed-session cleanup passes (hours, 1-168).\n");
+        builder.append("  player-history-purge-interval-hours: ")
+                .append(settings.playerHistoryPurgeIntervalHours()).append('\n');
+        builder.append("  # Both platforms: minimum delay between stopped service-instance cleanup passes (hours, 1-168).\n");
+        builder.append("  service-instance-purge-interval-hours: ")
+                .append(settings.serviceInstancePurgeIntervalHours()).append('\n');
+        builder.append('\n');
+        builder.append("lifecycle:\n");
+        builder.append("  # Applies to: Velocity lifecycle writes. Retries occur only for transient database failures.\n");
+        builder.append("  # Maximum attempts for one lifecycle event write (1-10).\n");
+        builder.append("  write-max-attempts: ").append(settings.lifecycleWriteMaxAttempts()).append('\n');
+        builder.append("  # Initial retry delay; later retries increase linearly (milliseconds, 0-1000).\n");
+        builder.append("  retry-base-delay-millis: ").append(settings.lifecycleRetryBaseDelayMillis()).append('\n');
         builder.append('\n');
         builder.append("platform:\n");
         builder.append("  bukkit:\n");

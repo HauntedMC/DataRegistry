@@ -24,6 +24,11 @@ public final class DataRegistrySettings {
     private static final int DEFAULT_LIFECYCLE_OUTBOX_RETENTION_DAYS = -1;
     private static final int DEFAULT_SERVICE_INSTANCE_RETENTION_DAYS = -1;
     private static final int DEFAULT_CLOSED_SESSION_HISTORY_RETENTION_DAYS = -1;
+    private static final int DEFAULT_RETENTION_PURGE_BATCH_SIZE = 500;
+    private static final int DEFAULT_PLAYER_HISTORY_PURGE_INTERVAL_HOURS = 1;
+    private static final int DEFAULT_SERVICE_INSTANCE_PURGE_INTERVAL_HOURS = 24;
+    private static final int DEFAULT_LIFECYCLE_WRITE_MAX_ATTEMPTS = 3;
+    private static final int DEFAULT_LIFECYCLE_RETRY_BASE_DELAY_MILLIS = 25;
     private static final String DEFAULT_ORM_SCHEMA_MODE = "validate";
     private static final int DEFAULT_BUKKIT_JOIN_DELAY_TICKS = 4;
     private static final boolean DEFAULT_BUKKIT_REGISTER_SERVICE_INSTANCE = false;
@@ -65,6 +70,11 @@ public final class DataRegistrySettings {
     private final int lifecycleOutboxRetentionDays;
     private final int serviceInstanceRetentionDays;
     private final int closedSessionHistoryRetentionDays;
+    private final int retentionPurgeBatchSize;
+    private final int playerHistoryPurgeIntervalHours;
+    private final int serviceInstancePurgeIntervalHours;
+    private final int lifecycleWriteMaxAttempts;
+    private final int lifecycleRetryBaseDelayMillis;
     private final PlaytimeTrackingSettings playtimeTrackingSettings;
     private final Set<DataRegistryFeature> enabledFeatures;
 
@@ -180,6 +190,36 @@ public final class DataRegistrySettings {
                 "closedSessionHistoryRetentionDays",
                 -1,
                 36500
+        );
+        this.retentionPurgeBatchSize = validateRange(
+                builder.retentionPurgeBatchSize,
+                "retentionPurgeBatchSize",
+                1,
+                5000
+        );
+        this.playerHistoryPurgeIntervalHours = validateRange(
+                builder.playerHistoryPurgeIntervalHours,
+                "playerHistoryPurgeIntervalHours",
+                1,
+                168
+        );
+        this.serviceInstancePurgeIntervalHours = validateRange(
+                builder.serviceInstancePurgeIntervalHours,
+                "serviceInstancePurgeIntervalHours",
+                1,
+                168
+        );
+        this.lifecycleWriteMaxAttempts = validateRange(
+                builder.lifecycleWriteMaxAttempts,
+                "lifecycleWriteMaxAttempts",
+                1,
+                10
+        );
+        this.lifecycleRetryBaseDelayMillis = validateRange(
+                builder.lifecycleRetryBaseDelayMillis,
+                "lifecycleRetryBaseDelayMillis",
+                0,
+                1000
         );
         this.playtimeTrackingSettings = Objects.requireNonNull(
                 builder.playtimeTrackingSettings,
@@ -323,6 +363,31 @@ public final class DataRegistrySettings {
         return closedSessionHistoryRetentionDays;
     }
 
+    /** Maximum number of rows or complete session chains deleted by one retention maintenance pass. */
+    public int retentionPurgeBatchSize() {
+        return retentionPurgeBatchSize;
+    }
+
+    /** Delay between Velocity player-history retention passes. */
+    public int playerHistoryPurgeIntervalHours() {
+        return playerHistoryPurgeIntervalHours;
+    }
+
+    /** Delay between stopped service-instance retention passes on either platform. */
+    public int serviceInstancePurgeIntervalHours() {
+        return serviceInstancePurgeIntervalHours;
+    }
+
+    /** Maximum attempts for one transient player-lifecycle database write. */
+    public int lifecycleWriteMaxAttempts() {
+        return lifecycleWriteMaxAttempts;
+    }
+
+    /** Initial retry delay for transient player-lifecycle database writes. */
+    public int lifecycleRetryBaseDelayMillis() {
+        return lifecycleRetryBaseDelayMillis;
+    }
+
     public PlaytimeTrackingSettings playtimeTrackingSettings() {
         return playtimeTrackingSettings;
     }
@@ -422,6 +487,11 @@ public final class DataRegistrySettings {
         private int lifecycleOutboxRetentionDays = DEFAULT_LIFECYCLE_OUTBOX_RETENTION_DAYS;
         private int serviceInstanceRetentionDays = DEFAULT_SERVICE_INSTANCE_RETENTION_DAYS;
         private int closedSessionHistoryRetentionDays = DEFAULT_CLOSED_SESSION_HISTORY_RETENTION_DAYS;
+        private int retentionPurgeBatchSize = DEFAULT_RETENTION_PURGE_BATCH_SIZE;
+        private int playerHistoryPurgeIntervalHours = DEFAULT_PLAYER_HISTORY_PURGE_INTERVAL_HOURS;
+        private int serviceInstancePurgeIntervalHours = DEFAULT_SERVICE_INSTANCE_PURGE_INTERVAL_HOURS;
+        private int lifecycleWriteMaxAttempts = DEFAULT_LIFECYCLE_WRITE_MAX_ATTEMPTS;
+        private int lifecycleRetryBaseDelayMillis = DEFAULT_LIFECYCLE_RETRY_BASE_DELAY_MILLIS;
         private PlaytimeTrackingSettings playtimeTrackingSettings = PlaytimeTrackingSettings.defaults();
         private EnumSet<DataRegistryFeature> enabledFeatures = EnumSet.allOf(DataRegistryFeature.class);
 
@@ -551,6 +621,31 @@ public final class DataRegistrySettings {
 
         public Builder closedSessionHistoryRetentionDays(int value) {
             this.closedSessionHistoryRetentionDays = value;
+            return this;
+        }
+
+        public Builder retentionPurgeBatchSize(int value) {
+            this.retentionPurgeBatchSize = value;
+            return this;
+        }
+
+        public Builder playerHistoryPurgeIntervalHours(int value) {
+            this.playerHistoryPurgeIntervalHours = value;
+            return this;
+        }
+
+        public Builder serviceInstancePurgeIntervalHours(int value) {
+            this.serviceInstancePurgeIntervalHours = value;
+            return this;
+        }
+
+        public Builder lifecycleWriteMaxAttempts(int value) {
+            this.lifecycleWriteMaxAttempts = value;
+            return this;
+        }
+
+        public Builder lifecycleRetryBaseDelayMillis(int value) {
+            this.lifecycleRetryBaseDelayMillis = value;
             return this;
         }
 

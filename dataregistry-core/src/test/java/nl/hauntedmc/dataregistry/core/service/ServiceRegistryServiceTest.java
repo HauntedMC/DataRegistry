@@ -321,7 +321,7 @@ class ServiceRegistryServiceTest {
         assertEquals(2, service.listRecentProbesByObserver("observer-1", 1).size());
         assertEquals(1L, service.countProbesByStatus().get(ServiceProbeStatus.UP));
         assertTrue(service.findMostRecentRunningInstanceByEndpoint(ServiceKind.BACKEND, "10.0.0.5", 25565).isPresent());
-        assertEquals(3, service.purgeProbesOlderThan(Duration.ofHours(24), 2));
+        assertEquals(2, service.purgeProbesOlderThan(Duration.ofHours(24), 2));
         assertEquals(2, service.purgeStoppedInstancesOlderThan(Duration.ofDays(7), 2));
 
         List<ServiceRegistryService.ServiceEffectiveHealthView> effective =

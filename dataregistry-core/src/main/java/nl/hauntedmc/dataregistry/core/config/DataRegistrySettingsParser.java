@@ -43,6 +43,13 @@ final class DataRegistrySettingsParser {
     private static final String LIFECYCLE_OUTBOX_RETENTION_DAYS_KEY = "retention.lifecycle-outbox-days";
     private static final String SERVICE_INSTANCE_RETENTION_DAYS_KEY = "retention.service-instance-days";
     private static final String CLOSED_SESSION_HISTORY_RETENTION_DAYS_KEY = "retention.closed-session-history-days";
+    private static final String RETENTION_PURGE_BATCH_SIZE_KEY = "retention.purge-batch-size";
+    private static final String PLAYER_HISTORY_PURGE_INTERVAL_HOURS_KEY =
+            "retention.player-history-purge-interval-hours";
+    private static final String SERVICE_INSTANCE_PURGE_INTERVAL_HOURS_KEY =
+            "retention.service-instance-purge-interval-hours";
+    private static final String LIFECYCLE_WRITE_MAX_ATTEMPTS_KEY = "lifecycle.write-max-attempts";
+    private static final String LIFECYCLE_RETRY_BASE_DELAY_MILLIS_KEY = "lifecycle.retry-base-delay-millis";
     private static final String BUKKIT_JOIN_DELAY_TICKS_KEY = "platform.bukkit.join-delay-ticks";
     private static final String BUKKIT_REGISTER_SERVICE_INSTANCE_KEY = "platform.bukkit.register-service-instance";
     private static final String BUKKIT_SERVICE_NAME_KEY = "platform.bukkit.service-name";
@@ -227,6 +234,66 @@ final class DataRegistrySettingsParser {
                 defaults.closedSessionHistoryRetentionDays(),
                 logger,
                 DataRegistrySettings.Builder::closedSessionHistoryRetentionDays
+        ));
+        builder.retentionPurgeBatchSize(validateWithBuilder(
+                RETENTION_PURGE_BATCH_SIZE_KEY,
+                parseInteger(
+                        configRoot,
+                        RETENTION_PURGE_BATCH_SIZE_KEY,
+                        defaults.retentionPurgeBatchSize(),
+                        logger
+                ),
+                defaults.retentionPurgeBatchSize(),
+                logger,
+                DataRegistrySettings.Builder::retentionPurgeBatchSize
+        ));
+        builder.playerHistoryPurgeIntervalHours(validateWithBuilder(
+                PLAYER_HISTORY_PURGE_INTERVAL_HOURS_KEY,
+                parseInteger(
+                        configRoot,
+                        PLAYER_HISTORY_PURGE_INTERVAL_HOURS_KEY,
+                        defaults.playerHistoryPurgeIntervalHours(),
+                        logger
+                ),
+                defaults.playerHistoryPurgeIntervalHours(),
+                logger,
+                DataRegistrySettings.Builder::playerHistoryPurgeIntervalHours
+        ));
+        builder.serviceInstancePurgeIntervalHours(validateWithBuilder(
+                SERVICE_INSTANCE_PURGE_INTERVAL_HOURS_KEY,
+                parseInteger(
+                        configRoot,
+                        SERVICE_INSTANCE_PURGE_INTERVAL_HOURS_KEY,
+                        defaults.serviceInstancePurgeIntervalHours(),
+                        logger
+                ),
+                defaults.serviceInstancePurgeIntervalHours(),
+                logger,
+                DataRegistrySettings.Builder::serviceInstancePurgeIntervalHours
+        ));
+        builder.lifecycleWriteMaxAttempts(validateWithBuilder(
+                LIFECYCLE_WRITE_MAX_ATTEMPTS_KEY,
+                parseInteger(
+                        configRoot,
+                        LIFECYCLE_WRITE_MAX_ATTEMPTS_KEY,
+                        defaults.lifecycleWriteMaxAttempts(),
+                        logger
+                ),
+                defaults.lifecycleWriteMaxAttempts(),
+                logger,
+                DataRegistrySettings.Builder::lifecycleWriteMaxAttempts
+        ));
+        builder.lifecycleRetryBaseDelayMillis(validateWithBuilder(
+                LIFECYCLE_RETRY_BASE_DELAY_MILLIS_KEY,
+                parseInteger(
+                        configRoot,
+                        LIFECYCLE_RETRY_BASE_DELAY_MILLIS_KEY,
+                        defaults.lifecycleRetryBaseDelayMillis(),
+                        logger
+                ),
+                defaults.lifecycleRetryBaseDelayMillis(),
+                logger,
+                DataRegistrySettings.Builder::lifecycleRetryBaseDelayMillis
         ));
         builder.bukkitJoinDelayTicks(validateWithBuilder(
                 BUKKIT_JOIN_DELAY_TICKS_KEY,

@@ -409,7 +409,9 @@ public class DataRegistry implements DataRegistryApi {
                         settings.serverNameMaxLength(),
                         settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
                 ),
-                serviceLogger
+                serviceLogger,
+                settings.lifecycleWriteMaxAttempts(),
+                settings.lifecycleRetryBaseDelayMillis()
         );
     }
 

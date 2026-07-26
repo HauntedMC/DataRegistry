@@ -223,11 +223,14 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
         }
         if (!nextServiceInstancePurgeAtEpochMillis.compareAndSet(
                 nextPurgeAt,
-                nowEpochMillis + TimeUnit.DAYS.toMillis(1L)
+                nowEpochMillis + TimeUnit.HOURS.toMillis(settings.serviceInstancePurgeIntervalHours())
         )) {
             return;
         }
-        int deleted = registryService.purgeStoppedInstancesOlderThan(Duration.ofDays(retentionDays), 500);
+        int deleted = registryService.purgeStoppedInstancesOlderThan(
+                Duration.ofDays(retentionDays),
+                settings.retentionPurgeBatchSize()
+        );
         if (deleted > 0) {
             getPlatformLogger().info(
                     "Purged " + deleted + " stopped service-instance rows older than " + retentionDays + " days."

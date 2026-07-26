@@ -214,6 +214,30 @@ class DataRegistrySettingsLoaderTest {
     }
 
     @Test
+    void parseReadsLifecycleAndRetentionMaintenanceControls() {
+        DataRegistrySettingsLoader loader = new DataRegistrySettingsLoader();
+        RecordingLogger logger = new RecordingLogger();
+
+        DataRegistrySettings settings = loader.parse(Map.of(
+                "retention", Map.of(
+                        "purge-batch-size", 750,
+                        "player-history-purge-interval-hours", 6,
+                        "service-instance-purge-interval-hours", 36
+                ),
+                "lifecycle", Map.of(
+                        "write-max-attempts", 5,
+                        "retry-base-delay-millis", 40
+                )
+        ), logger);
+
+        assertEquals(750, settings.retentionPurgeBatchSize());
+        assertEquals(6, settings.playerHistoryPurgeIntervalHours());
+        assertEquals(36, settings.serviceInstancePurgeIntervalHours());
+        assertEquals(5, settings.lifecycleWriteMaxAttempts());
+        assertEquals(40, settings.lifecycleRetryBaseDelayMillis());
+    }
+
+    @Test
     void parseUsesDefaultsWhenTypesAreInvalid() {
         DataRegistrySettingsLoader loader = new DataRegistrySettingsLoader();
         RecordingLogger logger = new RecordingLogger();
@@ -359,6 +383,23 @@ class DataRegistrySettingsLoaderTest {
         assertNotNull(settings);
         assertTrue(generatedContent.contains("# DataRegistry runtime settings"));
         assertEquals(DataRegistrySettings.defaults().playerDatabaseConnectionId(), settings.playerDatabaseConnectionId());
+    }
+
+    @Test
+    void shippedConfigExposesOperationalLifecycleAndRetentionControls() throws Exception {
+        DataRegistrySettingsLoader loader = new DataRegistrySettingsLoader();
+        RecordingLogger logger = new RecordingLogger();
+
+        DataRegistrySettings settings = loader.load(temporaryDirectory, getClass().getClassLoader(), logger);
+        String generatedContent = Files.readString(temporaryDirectory.resolve("config.yml"));
+
+        assertEquals(500, settings.retentionPurgeBatchSize());
+        assertEquals(1, settings.playerHistoryPurgeIntervalHours());
+        assertEquals(24, settings.serviceInstancePurgeIntervalHours());
+        assertEquals(3, settings.lifecycleWriteMaxAttempts());
+        assertEquals(25, settings.lifecycleRetryBaseDelayMillis());
+        assertTrue(generatedContent.contains("purge-batch-size: 500"));
+        assertTrue(generatedContent.contains("write-max-attempts: 3"));
     }
 
     @Test

@@ -52,6 +52,7 @@ public final class PlayerLifecycleWriter {
     private final PlayerPlaytimeService playtimeService;
     private final ILoggerAdapter logger;
     private final int maxAttempts;
+    private final long retryBaseDelayMillis;
 
     public PlayerLifecycleWriter(
             DataRegistry dataRegistry,
@@ -74,7 +75,8 @@ public final class PlayerLifecycleWriter {
                 sessionService,
                 playtimeService,
                 logger,
-                DEFAULT_MAX_ATTEMPTS
+                DEFAULT_MAX_ATTEMPTS,
+                BASE_RETRY_DELAY_MILLIS
         );
     }
 
@@ -89,6 +91,34 @@ public final class PlayerLifecycleWriter {
             PlayerPlaytimeService playtimeService,
             ILoggerAdapter logger,
             int maxAttempts
+    ) {
+        this(
+                dataRegistry,
+                playerService,
+                nameHistoryService,
+                activitySummaryService,
+                statusService,
+                connectionService,
+                sessionService,
+                playtimeService,
+                logger,
+                maxAttempts,
+                BASE_RETRY_DELAY_MILLIS
+        );
+    }
+
+    public PlayerLifecycleWriter(
+            DataRegistry dataRegistry,
+            PlayerService playerService,
+            PlayerNameHistoryService nameHistoryService,
+            PlayerActivitySummaryService activitySummaryService,
+            PlayerStatusService statusService,
+            PlayerConnectionInfoService connectionService,
+            PlayerSessionService sessionService,
+            PlayerPlaytimeService playtimeService,
+            ILoggerAdapter logger,
+            int maxAttempts,
+            long retryBaseDelayMillis
     ) {
         this.dataRegistry = Objects.requireNonNull(dataRegistry, "dataRegistry must not be null");
         this.playerService = Objects.requireNonNull(playerService, "playerService must not be null");
@@ -106,6 +136,10 @@ public final class PlayerLifecycleWriter {
             throw new IllegalArgumentException("maxAttempts must be between 1 and 10.");
         }
         this.maxAttempts = maxAttempts;
+        if (retryBaseDelayMillis < 0 || retryBaseDelayMillis > 1000) {
+            throw new IllegalArgumentException("retryBaseDelayMillis must be between 0 and 1000.");
+        }
+        this.retryBaseDelayMillis = retryBaseDelayMillis;
     }
 
     /**
@@ -387,9 +421,9 @@ public final class PlayerLifecycleWriter {
         return sqlState != null && sqlState.startsWith("23");
     }
 
-    private static void pauseBeforeRetry(int completedAttempts) {
+    private void pauseBeforeRetry(int completedAttempts) {
         try {
-            TimeUnit.MILLISECONDS.sleep(BASE_RETRY_DELAY_MILLIS * completedAttempts);
+            TimeUnit.MILLISECONDS.sleep(retryBaseDelayMillis * completedAttempts);
         } catch (InterruptedException interruptedException) {
             Thread.currentThread().interrupt();
         }

@@ -22,6 +22,7 @@ class DataRegistryConfigSchemaTest {
         assertTrue(tree.containsKey("playtime"));
         assertTrue(tree.containsKey("service-registry"));
         assertTrue(tree.containsKey("retention"));
+        assertTrue(tree.containsKey("lifecycle"));
         assertTrue(tree.containsKey("platform"));
         assertTrue(tree.containsKey("validation"));
 
@@ -35,10 +36,14 @@ class DataRegistryConfigSchemaTest {
         Map<String, Object> services = (Map<String, Object>) profiles.get("services");
         @SuppressWarnings("unchecked")
         Map<String, Object> retention = (Map<String, Object>) tree.get("retention");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> lifecycle = (Map<String, Object>) tree.get("lifecycle");
         assertEquals(defaults.databaseType().name(), database.get("type"));
         assertEquals(defaults.playerDatabaseConnectionId(), players.get("connection-id"));
         assertEquals(defaults.serviceDatabaseConnectionId(), services.get("connection-id"));
         assertEquals(-1, retention.get("closed-session-history-days"));
+        assertEquals(500, retention.get("purge-batch-size"));
+        assertEquals(3, lifecycle.get("write-max-attempts"));
     }
 
     @Test
@@ -69,6 +74,11 @@ class DataRegistryConfigSchemaTest {
         assertTrue(rendered.contains("probe-timeout-millis: 1500"));
         assertTrue(rendered.contains("probe-retention-hours: -1"));
         assertTrue(rendered.contains("probe-purge-interval-hours: 12"));
+        assertTrue(rendered.contains("purge-batch-size: 500"));
+        assertTrue(rendered.contains("player-history-purge-interval-hours: 1"));
+        assertTrue(rendered.contains("service-instance-purge-interval-hours: 24"));
+        assertTrue(rendered.contains("write-max-attempts: 3"));
+        assertTrue(rendered.contains("retry-base-delay-millis: 25"));
         assertTrue(rendered.contains("register-service-instance: false"));
         assertTrue(rendered.contains("service-name: auto"));
         assertTrue(rendered.contains("service name (up to 96 characters)"));

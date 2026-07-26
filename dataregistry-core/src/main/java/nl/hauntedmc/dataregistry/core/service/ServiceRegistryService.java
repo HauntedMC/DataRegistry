@@ -653,20 +653,11 @@ public final class ServiceRegistryService {
             return 0;
         }
         Instant cutoff = Instant.now().minus(retentionWindow);
-        int boundedBatchSize = Math.max(1, batchSize);
-        int deleted = 0;
         try {
-            while (true) {
-                int removed = dataRegistry.getServiceProbeRepository().deleteCheckedBefore(cutoff, boundedBatchSize);
-                deleted += removed;
-                if (removed < boundedBatchSize) {
-                    break;
-                }
-            }
-            return deleted;
+            return dataRegistry.getServiceProbeRepository().deleteCheckedBefore(cutoff, Math.max(1, batchSize));
         } catch (RuntimeException exception) {
             logger.error("Failed to purge stale service probes.", exception);
-            return deleted;
+            return 0;
         }
     }
 

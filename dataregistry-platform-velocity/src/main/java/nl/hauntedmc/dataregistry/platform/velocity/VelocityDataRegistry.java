@@ -76,7 +76,6 @@ public class VelocityDataRegistry implements PlatformPlugin {
     static final long SERVICE_REGISTRY_SHUTDOWN_TIMEOUT_SECONDS = 2L;
     static final long SERVICE_PROBE_SHUTDOWN_TIMEOUT_SECONDS = 2L;
     static final long LIFECYCLE_OUTBOX_RETENTION_SHUTDOWN_TIMEOUT_SECONDS = 2L;
-    private static final long LIFECYCLE_OUTBOX_RETENTION_PURGE_INTERVAL_HOURS = 1L;
 
     private final ProxyServer proxyServer;
     private final Logger logger;
@@ -95,6 +94,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
     private ServiceRegistryService serviceRegistryService;
     private final AtomicReference<String> localServiceInstanceId = new AtomicReference<>();
     private final AtomicLong nextProbePurgeAtEpochMillis = new AtomicLong(0L);
+    private final AtomicLong nextServiceInstancePurgeAtEpochMillis = new AtomicLong(0L);
 
     @Inject
     public VelocityDataRegistry(ProxyServer proxyServer, Logger logger, @DataDirectory Path dataDirectory) {
@@ -381,6 +381,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
                 Math.max(15L, Math.max(1L, heartbeatIntervalSeconds) * 3L)
         );
         nextProbePurgeAtEpochMillis.set(0L);
+        nextServiceInstancePurgeAtEpochMillis.set(0L);
 
         registryService.refreshRunningInstance(
                 ServiceKind.PROXY,
@@ -455,8 +456,13 @@ public class VelocityDataRegistry implements PlatformPlugin {
         final int eligibleClosedSessionRetentionDays = closedSessionRetentionDays;
         DataRegistry registry = runtimeDataRegistry();
         ensureLifecycleOutboxRetentionExecutor();
+        int purgeIntervalHours = settings.playerHistoryPurgeIntervalHours();
+        int batchSize = settings.retentionPurgeBatchSize();
         if (outboxRetentionDays >= 0) {
-            schedulePlayerHistoryRetentionTask(() -> purgeLifecycleOutbox(registry, outboxRetentionDays));
+            schedulePlayerHistoryRetentionTask(
+                    () -> purgeLifecycleOutbox(registry, outboxRetentionDays, batchSize),
+                    purgeIntervalHours
+            );
         }
         if (eligibleClosedSessionRetentionDays >= 0) {
             logger.warn(
@@ -465,7 +471,8 @@ public class VelocityDataRegistry implements PlatformPlugin {
                             " days will be permanently deleted."
             );
             schedulePlayerHistoryRetentionTask(
-                    () -> purgeClosedSessionHistory(registry, eligibleClosedSessionRetentionDays)
+                    () -> purgeClosedSessionHistory(registry, eligibleClosedSessionRetentionDays, batchSize),
+                    purgeIntervalHours
             );
         }
     }
@@ -476,20 +483,23 @@ public class VelocityDataRegistry implements PlatformPlugin {
                 && settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME);
     }
 
-    private void schedulePlayerHistoryRetentionTask(Runnable purgeTask) {
+    private void schedulePlayerHistoryRetentionTask(Runnable purgeTask, int purgeIntervalHours) {
         purgeTask.run();
         lifecycleOutboxRetentionExecutor.scheduleWithFixedDelay(
                 purgeTask,
-                LIFECYCLE_OUTBOX_RETENTION_PURGE_INTERVAL_HOURS,
-                LIFECYCLE_OUTBOX_RETENTION_PURGE_INTERVAL_HOURS,
+                purgeIntervalHours,
+                purgeIntervalHours,
                 TimeUnit.HOURS
         );
     }
 
-    private void purgeLifecycleOutbox(DataRegistry registry, int retentionDays) {
+    private void purgeLifecycleOutbox(DataRegistry registry, int retentionDays, int batchSize) {
         try {
             PlayerLifecycleOutboxRepository repository = registry.getPlayerLifecycleOutboxRepository();
-            int deleted = repository.deleteCreatedBefore(Instant.now().minus(Duration.ofDays(retentionDays)), 500);
+            int deleted = repository.deleteCreatedBefore(
+                    Instant.now().minus(Duration.ofDays(retentionDays)),
+                    batchSize
+            );
             if (deleted > 0) {
                 logger.info("Purged {} lifecycle idempotency rows older than {} days.", deleted, retentionDays);
             }
@@ -498,9 +508,9 @@ public class VelocityDataRegistry implements PlatformPlugin {
         }
     }
 
-    private void purgeClosedSessionHistory(DataRegistry registry, int retentionDays) {
+    private void purgeClosedSessionHistory(DataRegistry registry, int retentionDays, int batchSize) {
         try {
-            int deleted = registry.purgeClosedSessionHistoryOlderThan(Duration.ofDays(retentionDays), 500);
+            int deleted = registry.purgeClosedSessionHistoryOlderThan(Duration.ofDays(retentionDays), batchSize);
             if (deleted > 0) {
                 logger.info("Purged {} fully closed player sessions older than {} days.", deleted, retentionDays);
             }
@@ -586,6 +596,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
         } finally {
             // Retention must continue even if Velocity has no backends to probe or one probe pass fails.
             purgeStaleProbesIfDue(registryService, retentionHours, purgeIntervalHours);
+            purgeStoppedServiceInstancesIfDue(registryService);
         }
     }
 
@@ -594,8 +605,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
             int retentionHours,
             int purgeIntervalHours
     ) {
-        int instanceRetentionDays = settings.serviceInstanceRetentionDays();
-        if (retentionHours < 0 && instanceRetentionDays < 0) {
+        if (retentionHours < 0) {
             return;
         }
         long nowEpochMillis = System.currentTimeMillis();
@@ -608,19 +618,35 @@ public class VelocityDataRegistry implements PlatformPlugin {
             return;
         }
 
-        if (retentionHours >= 0) {
-            int deleted = registryService.purgeProbesOlderThan(Duration.ofHours(retentionHours), 500);
-            if (deleted > 0) {
-                logger.info("Purged {} stale service probe rows older than {} hours.", deleted, retentionHours);
-            }
+        int deleted = registryService.purgeProbesOlderThan(
+                Duration.ofHours(retentionHours),
+                settings.retentionPurgeBatchSize()
+        );
+        if (deleted > 0) {
+            logger.info("Purged {} stale service probe rows older than {} hours.", deleted, retentionHours);
         }
+    }
 
+    private void purgeStoppedServiceInstancesIfDue(ServiceRegistryService registryService) {
+        int instanceRetentionDays = settings.serviceInstanceRetentionDays();
         if (instanceRetentionDays < 0) {
+            return;
+        }
+        long nowEpochMillis = System.currentTimeMillis();
+        long nextPurgeAt = nextServiceInstancePurgeAtEpochMillis.get();
+        if (nextPurgeAt > nowEpochMillis) {
+            return;
+        }
+        long purgeIntervalMillis = TimeUnit.HOURS.toMillis(settings.serviceInstancePurgeIntervalHours());
+        if (!nextServiceInstancePurgeAtEpochMillis.compareAndSet(
+                nextPurgeAt,
+                nowEpochMillis + purgeIntervalMillis
+        )) {
             return;
         }
         int purgedInstances = registryService.purgeStoppedInstancesOlderThan(
                 Duration.ofDays(instanceRetentionDays),
-                500
+                settings.retentionPurgeBatchSize()
         );
         if (purgedInstances > 0) {
             logger.info(
@@ -757,6 +783,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
         serviceRegistryService = null;
         String instanceId = localServiceInstanceId.getAndSet(null);
         nextProbePurgeAtEpochMillis.set(0L);
+        nextServiceInstancePurgeAtEpochMillis.set(0L);
         if (registryService == null || instanceId == null) {
             return;
         }
