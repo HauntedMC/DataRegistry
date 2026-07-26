@@ -40,6 +40,7 @@ final class DataRegistrySettingsParser {
     private static final String SERVICE_PROBE_TIMEOUT_MILLIS_KEY = "service-registry.probe-timeout-millis";
     private static final String SERVICE_PROBE_RETENTION_HOURS_KEY = "service-registry.probe-retention-hours";
     private static final String SERVICE_PROBE_PURGE_INTERVAL_HOURS_KEY = "service-registry.probe-purge-interval-hours";
+    private static final String LIFECYCLE_OUTBOX_RETENTION_DAYS_KEY = "retention.lifecycle-outbox-days";
     private static final String BUKKIT_JOIN_DELAY_TICKS_KEY = "platform.bukkit.join-delay-ticks";
     private static final String BUKKIT_REGISTER_SERVICE_INSTANCE_KEY = "platform.bukkit.register-service-instance";
     private static final String BUKKIT_SERVICE_NAME_KEY = "platform.bukkit.service-name";
@@ -188,6 +189,18 @@ final class DataRegistrySettingsParser {
                 defaults.serviceProbePurgeIntervalHours(),
                 logger,
                 DataRegistrySettings.Builder::serviceProbePurgeIntervalHours
+        ));
+        builder.lifecycleOutboxRetentionDays(validateWithBuilder(
+                LIFECYCLE_OUTBOX_RETENTION_DAYS_KEY,
+                parseInteger(
+                        configRoot,
+                        LIFECYCLE_OUTBOX_RETENTION_DAYS_KEY,
+                        defaults.lifecycleOutboxRetentionDays(),
+                        logger
+                ),
+                defaults.lifecycleOutboxRetentionDays(),
+                logger,
+                DataRegistrySettings.Builder::lifecycleOutboxRetentionDays
         ));
         builder.bukkitJoinDelayTicks(validateWithBuilder(
                 BUKKIT_JOIN_DELAY_TICKS_KEY,

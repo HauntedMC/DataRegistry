@@ -81,6 +81,11 @@ service-registry:
   # How often stale probe history cleanup runs (hours, 1-2160).
   probe-purge-interval-hours: 12
 
+retention:
+  # Applies to: Velocity. The lifecycle table is an idempotency ledger, not a message publisher.
+  # Delete lifecycle idempotency rows after this many days; -1 keeps them indefinitely (default).
+  lifecycle-outbox-days: -1
+
 platform:
   bukkit:
     # Applies to: Bukkit.

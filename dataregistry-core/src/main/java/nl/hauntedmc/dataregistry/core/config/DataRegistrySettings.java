@@ -21,6 +21,7 @@ public final class DataRegistrySettings {
     private static final int DEFAULT_SERVICE_PROBE_TIMEOUT_MILLIS = 1500;
     private static final int DEFAULT_SERVICE_PROBE_RETENTION_HOURS = 168;
     private static final int DEFAULT_SERVICE_PROBE_PURGE_INTERVAL_HOURS = 12;
+    private static final int DEFAULT_LIFECYCLE_OUTBOX_RETENTION_DAYS = -1;
     private static final String DEFAULT_ORM_SCHEMA_MODE = "validate";
     private static final int DEFAULT_BUKKIT_JOIN_DELAY_TICKS = 4;
     private static final boolean DEFAULT_BUKKIT_REGISTER_SERVICE_INSTANCE = false;
@@ -59,6 +60,7 @@ public final class DataRegistrySettings {
     private final int serviceProbeTimeoutMillis;
     private final int serviceProbeRetentionHours;
     private final int serviceProbePurgeIntervalHours;
+    private final int lifecycleOutboxRetentionDays;
     private final PlaytimeTrackingSettings playtimeTrackingSettings;
     private final Set<DataRegistryFeature> enabledFeatures;
 
@@ -156,6 +158,12 @@ public final class DataRegistrySettings {
                 "serviceProbePurgeIntervalHours",
                 1,
                 2160
+        );
+        this.lifecycleOutboxRetentionDays = validateRange(
+                builder.lifecycleOutboxRetentionDays,
+                "lifecycleOutboxRetentionDays",
+                -1,
+                36500
         );
         this.playtimeTrackingSettings = Objects.requireNonNull(
                 builder.playtimeTrackingSettings,
@@ -275,6 +283,13 @@ public final class DataRegistrySettings {
         return serviceProbePurgeIntervalHours;
     }
 
+    /**
+     * Retention period for the lifecycle idempotency ledger, or {@code -1} to retain rows indefinitely.
+     */
+    public int lifecycleOutboxRetentionDays() {
+        return lifecycleOutboxRetentionDays;
+    }
+
     public PlaytimeTrackingSettings playtimeTrackingSettings() {
         return playtimeTrackingSettings;
     }
@@ -364,6 +379,7 @@ public final class DataRegistrySettings {
         private int serviceProbeTimeoutMillis = DEFAULT_SERVICE_PROBE_TIMEOUT_MILLIS;
         private int serviceProbeRetentionHours = DEFAULT_SERVICE_PROBE_RETENTION_HOURS;
         private int serviceProbePurgeIntervalHours = DEFAULT_SERVICE_PROBE_PURGE_INTERVAL_HOURS;
+        private int lifecycleOutboxRetentionDays = DEFAULT_LIFECYCLE_OUTBOX_RETENTION_DAYS;
         private PlaytimeTrackingSettings playtimeTrackingSettings = PlaytimeTrackingSettings.defaults();
         private EnumSet<DataRegistryFeature> enabledFeatures = EnumSet.allOf(DataRegistryFeature.class);
 
@@ -478,6 +494,11 @@ public final class DataRegistrySettings {
 
         public Builder serviceProbePurgeIntervalHours(int value) {
             this.serviceProbePurgeIntervalHours = value;
+            return this;
+        }
+
+        public Builder lifecycleOutboxRetentionDays(int value) {
+            this.lifecycleOutboxRetentionDays = value;
             return this;
         }
 

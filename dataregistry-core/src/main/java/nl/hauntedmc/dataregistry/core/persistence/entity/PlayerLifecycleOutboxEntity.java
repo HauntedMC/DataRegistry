@@ -14,7 +14,10 @@ import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
 
 /**
- * Durable outbox row written in the same transaction as player lifecycle state.
+ * Durable idempotency-ledger row written in the same transaction as player lifecycle state.
+ * <p>
+ * The table name and legacy publishing column are retained for database compatibility. DataRegistry does not expose
+ * a publisher for these internal rows; they prevent duplicate lifecycle commands from being applied.
  */
 @Entity
 @Table(

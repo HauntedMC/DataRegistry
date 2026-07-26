@@ -12,6 +12,7 @@ import nl.hauntedmc.dataprovider.api.DataProviderAPI;
 import nl.hauntedmc.dataprovider.api.DataProviderApiSupplier;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerLifecycleOutboxRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.ServiceProbeRepository;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerIdentityInitializationTracker;
 import nl.hauntedmc.dataregistry.core.service.ServiceRegistryService;
@@ -34,6 +35,7 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
+import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -392,6 +394,28 @@ class VelocityDataRegistryTest {
         inOrder.verify(heartbeatExecutor).shutdown();
         inOrder.verify(probeExecutor).shutdown();
         inOrder.verify(registry).getServiceORM();
+    }
+
+    @Test
+    void purgeLifecycleOutboxUsesConfiguredRetentionAndBoundedBatch() throws ReflectiveOperationException {
+        VelocityDataRegistry plugin = new VelocityDataRegistry(
+                mock(ProxyServer.class),
+                mock(Logger.class),
+                TEST_DATA_DIRECTORY
+        );
+        DataRegistry registry = mock(DataRegistry.class);
+        PlayerLifecycleOutboxRepository repository = mock(PlayerLifecycleOutboxRepository.class);
+        when(registry.getPlayerLifecycleOutboxRepository()).thenReturn(repository);
+
+        Method purgeMethod = VelocityDataRegistry.class.getDeclaredMethod(
+                "purgeLifecycleOutbox",
+                DataRegistry.class,
+                int.class
+        );
+        purgeMethod.setAccessible(true);
+        purgeMethod.invoke(plugin, registry, 14);
+
+        verify(repository).deleteCreatedBefore(any(Instant.class), eq(500));
     }
 
     @Test

@@ -18,6 +18,7 @@ import nl.hauntedmc.dataregistry.api.DataRegistryApi;
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceKind;
 import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceProbeStatus;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerLifecycleOutboxRepository;
 import nl.hauntedmc.dataregistry.core.service.PlayerActivitySummaryService;
 import nl.hauntedmc.dataregistry.core.service.PlayerConnectionInfoService;
 import nl.hauntedmc.dataregistry.core.service.PlayerNameHistoryService;
@@ -43,6 +44,7 @@ import org.slf4j.Logger;
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -73,6 +75,8 @@ public class VelocityDataRegistry implements PlatformPlugin {
     static final long PLAYTIME_FLUSH_SHUTDOWN_TIMEOUT_SECONDS = 2L;
     static final long SERVICE_REGISTRY_SHUTDOWN_TIMEOUT_SECONDS = 2L;
     static final long SERVICE_PROBE_SHUTDOWN_TIMEOUT_SECONDS = 2L;
+    static final long LIFECYCLE_OUTBOX_RETENTION_SHUTDOWN_TIMEOUT_SECONDS = 2L;
+    private static final long LIFECYCLE_OUTBOX_RETENTION_PURGE_INTERVAL_HOURS = 24L;
 
     private final ProxyServer proxyServer;
     private final Logger logger;
@@ -86,6 +90,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
     private ScheduledExecutorService playerPlaytimeFlushExecutor;
     private ScheduledExecutorService serviceRegistryHeartbeatExecutor;
     private ScheduledExecutorService serviceRegistryProbeExecutor;
+    private ScheduledExecutorService lifecycleOutboxRetentionExecutor;
     private PlayerStatusListener playerStatusListener;
     private ServiceRegistryService serviceRegistryService;
     private final AtomicReference<String> localServiceInstanceId = new AtomicReference<>();
@@ -120,6 +125,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
             registerPlayerStatusListener();
             startPlaytimeFlushLifecycle();
             startServiceRegistryLifecycle();
+            startLifecycleOutboxRetention();
         } catch (RuntimeException | Error startupFailure) {
             rollbackFailedStartup();
             logger.error("DataRegistry startup failed on Velocity.", startupFailure);
@@ -134,6 +140,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
     public void onProxyShutdown(ProxyShutdownEvent event) {
         stopPlaytimeFlushLifecycle();
         stopAcceptingAndDrainPlayerEvents();
+        shutdownLifecycleOutboxRetentionExecutor();
         stopServiceRegistryLifecycle();
         runtime.stop(getPlatformLogger());
         shutdownPlayerEventExecutor();
@@ -322,6 +329,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
     private void rollbackFailedStartup() {
         stopPlaytimeFlushLifecycle();
         stopAcceptingAndDrainPlayerEvents();
+        shutdownLifecycleOutboxRetentionExecutor();
         stopServiceRegistryLifecycle();
         runtime.stop(getPlatformLogger());
         shutdownPlayerEventExecutor();
@@ -414,6 +422,35 @@ public class VelocityDataRegistry implements PlatformPlugin {
                 flushIntervalSeconds,
                 TimeUnit.SECONDS
         );
+    }
+
+    private void startLifecycleOutboxRetention() {
+        int retentionDays = settings.lifecycleOutboxRetentionDays();
+        if (retentionDays < 0) {
+            return;
+        }
+        DataRegistry registry = runtimeDataRegistry();
+        ensureLifecycleOutboxRetentionExecutor();
+        Runnable purgeTask = () -> purgeLifecycleOutbox(registry, retentionDays);
+        purgeTask.run();
+        lifecycleOutboxRetentionExecutor.scheduleWithFixedDelay(
+                purgeTask,
+                LIFECYCLE_OUTBOX_RETENTION_PURGE_INTERVAL_HOURS,
+                LIFECYCLE_OUTBOX_RETENTION_PURGE_INTERVAL_HOURS,
+                TimeUnit.HOURS
+        );
+    }
+
+    private void purgeLifecycleOutbox(DataRegistry registry, int retentionDays) {
+        try {
+            PlayerLifecycleOutboxRepository repository = registry.getPlayerLifecycleOutboxRepository();
+            int deleted = repository.deleteCreatedBefore(Instant.now().minus(Duration.ofDays(retentionDays)), 500);
+            if (deleted > 0) {
+                logger.info("Purged {} lifecycle idempotency rows older than {} days.", deleted, retentionDays);
+            }
+        } catch (RuntimeException exception) {
+            logger.error("Failed to purge lifecycle idempotency rows.", exception);
+        }
     }
 
     private void stopPlaytimeFlushLifecycle() {
@@ -692,6 +729,19 @@ public class VelocityDataRegistry implements PlatformPlugin {
         serviceRegistryProbeExecutor = Executors.newSingleThreadScheduledExecutor(threadFactory);
     }
 
+    private void ensureLifecycleOutboxRetentionExecutor() {
+        if (lifecycleOutboxRetentionExecutor != null && !lifecycleOutboxRetentionExecutor.isShutdown()) {
+            return;
+        }
+        ThreadFactory threadFactory = runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("DataRegistry-velocity-lifecycle-retention");
+            thread.setDaemon(true);
+            return thread;
+        };
+        lifecycleOutboxRetentionExecutor = Executors.newSingleThreadScheduledExecutor(threadFactory);
+    }
+
     private void ensurePlayerPlaytimeFlushExecutor() {
         if (playerPlaytimeFlushExecutor != null && !playerPlaytimeFlushExecutor.isShutdown()) {
             return;
@@ -731,6 +781,26 @@ public class VelocityDataRegistry implements PlatformPlugin {
         executor.shutdown();
         try {
             if (!executor.awaitTermination(SERVICE_REGISTRY_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            executor.shutdownNow();
+        }
+    }
+
+    private void shutdownLifecycleOutboxRetentionExecutor() {
+        ScheduledExecutorService executor = lifecycleOutboxRetentionExecutor;
+        lifecycleOutboxRetentionExecutor = null;
+        if (executor == null) {
+            return;
+        }
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(
+                    LIFECYCLE_OUTBOX_RETENTION_SHUTDOWN_TIMEOUT_SECONDS,
+                    TimeUnit.SECONDS
+            )) {
                 executor.shutdownNow();
             }
         } catch (InterruptedException interruptedException) {

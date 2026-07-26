@@ -77,6 +77,10 @@ final class DataRegistryConfigSchema {
         serviceRegistry.put("probe-purge-interval-hours", defaults.serviceProbePurgeIntervalHours());
         root.put("service-registry", serviceRegistry);
 
+        Map<String, Object> retention = new LinkedHashMap<>();
+        retention.put("lifecycle-outbox-days", defaults.lifecycleOutboxRetentionDays());
+        root.put("retention", retention);
+
         Map<String, Object> platform = new LinkedHashMap<>();
         Map<String, Object> bukkit = new LinkedHashMap<>();
         bukkit.put("join-delay-ticks", defaults.bukkitJoinDelayTicks());
@@ -206,6 +210,11 @@ final class DataRegistryConfigSchema {
         builder.append("  probe-retention-hours: ").append(settings.serviceProbeRetentionHours()).append('\n');
         builder.append("  # How often stale probe history cleanup runs (hours, 1-2160).\n");
         builder.append("  probe-purge-interval-hours: ").append(settings.serviceProbePurgeIntervalHours()).append('\n');
+        builder.append('\n');
+        builder.append("retention:\n");
+        builder.append("  # Applies to: Velocity. The lifecycle table is an idempotency ledger, not a message publisher.\n");
+        builder.append("  # Delete lifecycle idempotency rows after this many days; -1 keeps them indefinitely (default).\n");
+        builder.append("  lifecycle-outbox-days: ").append(settings.lifecycleOutboxRetentionDays()).append('\n');
         builder.append('\n');
         builder.append("platform:\n");
         builder.append("  bukkit:\n");

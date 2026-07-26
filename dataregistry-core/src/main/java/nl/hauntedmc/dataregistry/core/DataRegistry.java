@@ -26,6 +26,7 @@ import nl.hauntedmc.dataregistry.core.persistence.repository.NetworkServiceRepos
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerActivitySummaryRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerConnectionInfoRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerLanguageRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerLifecycleOutboxRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerOnlineStatusRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerNicknameRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerPlaytimeRepository;
@@ -75,6 +76,7 @@ public class DataRegistry implements DataRegistryApi {
     private final FeatureServiceDirectory featureServiceDirectory = new DefaultFeatureServiceDirectory();
 
     private PlayerRepository playerRepository;
+    private PlayerLifecycleOutboxRepository playerLifecycleOutboxRepository;
     private PlayerActivitySummaryRepository playerActivitySummaryRepository;
     private PlayerOnlineStatusRepository playerOnlineStatusRepository;
     private PlayerConnectionInfoRepository playerConnectionInfoRepository;
@@ -134,6 +136,7 @@ public class DataRegistry implements DataRegistryApi {
             serviceOrmContext = null;
 
             this.playerRepository = newPlayerRepository(ormContext);
+            this.playerLifecycleOutboxRepository = newPlayerLifecycleOutboxRepository(ormContext);
             validatePlayerLifecycleOutbox();
             this.playerIdentityInitializationTracker = new PlayerIdentityInitializationTracker();
             this.queryExecutor = newQueryExecutor();
@@ -212,6 +215,7 @@ public class DataRegistry implements DataRegistryApi {
         ormContext = null;
         serviceOrmContext = null;
         playerRepository = null;
+        playerLifecycleOutboxRepository = null;
         DataRegistryQueryExecutor currentQueryExecutor = queryExecutor;
         queryExecutor = null;
         if (playerIdentityInitializationTracker != null) {
@@ -310,6 +314,16 @@ public class DataRegistry implements DataRegistryApi {
             throw new IllegalStateException("DataRegistry is not initialized.");
         }
         return new PlayerService(playerRepository, playerIdentityInitializationTracker, serviceLogger);
+    }
+
+    /**
+     * Returns the internal lifecycle idempotency-ledger repository.
+     */
+    public synchronized PlayerLifecycleOutboxRepository getPlayerLifecycleOutboxRepository() {
+        if (playerLifecycleOutboxRepository == null) {
+            throw new IllegalStateException("DataRegistry is not initialized.");
+        }
+        return playerLifecycleOutboxRepository;
     }
 
     /**
@@ -474,6 +488,10 @@ public class DataRegistry implements DataRegistryApi {
 
     PlayerRepository newPlayerRepository(ORMContext context) {
         return new PlayerRepository(context, settings.usernameMaxLength());
+    }
+
+    PlayerLifecycleOutboxRepository newPlayerLifecycleOutboxRepository(ORMContext context) {
+        return new PlayerLifecycleOutboxRepository(context);
     }
 
     DataRegistryQueryExecutor newQueryExecutor() {
