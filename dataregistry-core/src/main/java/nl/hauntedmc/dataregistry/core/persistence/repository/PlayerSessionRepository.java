@@ -123,4 +123,48 @@ public class PlayerSessionRepository extends AbstractRepository<PlayerSessionEnt
                         .getSingleResult()
         );
     }
+
+    /**
+     * Deletes one bounded batch of fully closed session history, including its visits and playtime segments.
+     * Sessions with any still-open child row are deliberately excluded.
+     *
+     * @return the number of sessions removed.
+     */
+    public int deleteClosedHistoryBefore(Instant cutoff, int limit) {
+        Objects.requireNonNull(cutoff, "cutoff must not be null");
+        int boundedLimit = Math.max(1, limit);
+        return ormContext.runInTransaction(session -> {
+            List<Long> sessionIds = session.createQuery(
+                            "SELECT s.id FROM PlayerSessionEntity s " +
+                                    "WHERE s.endedAt < :cutoff " +
+                                    "AND NOT EXISTS (SELECT 1 FROM PlayerSessionVisitEntity v " +
+                                    "WHERE v.session.id = s.id AND v.leftAt IS NULL) " +
+                                    "AND NOT EXISTS (SELECT 1 FROM PlayerPlaytimeSegmentEntity p " +
+                                    "WHERE p.session.id = s.id AND p.endedAt IS NULL) " +
+                                    "ORDER BY s.endedAt ASC, s.id ASC",
+                            Long.class
+                    )
+                    .setParameter("cutoff", cutoff)
+                    .setMaxResults(boundedLimit)
+                    .list();
+            if (sessionIds.isEmpty()) {
+                return 0;
+            }
+            session.createMutationQuery(
+                            "DELETE FROM PlayerSessionVisitEntity v WHERE v.session.id IN :sessionIds"
+                    )
+                    .setParameter("sessionIds", sessionIds)
+                    .executeUpdate();
+            session.createMutationQuery(
+                            "DELETE FROM PlayerPlaytimeSegmentEntity p WHERE p.session.id IN :sessionIds"
+                    )
+                    .setParameter("sessionIds", sessionIds)
+                    .executeUpdate();
+            return session.createMutationQuery(
+                            "DELETE FROM PlayerSessionEntity s WHERE s.id IN :sessionIds"
+                    )
+                    .setParameter("sessionIds", sessionIds)
+                    .executeUpdate();
+        });
+    }
 }

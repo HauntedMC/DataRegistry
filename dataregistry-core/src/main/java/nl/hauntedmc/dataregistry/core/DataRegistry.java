@@ -59,6 +59,7 @@ import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 
 import javax.sql.DataSource;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -326,6 +327,28 @@ public class DataRegistry implements DataRegistryApi {
             throw new IllegalStateException("DataRegistry is not initialized.");
         }
         return playerLifecycleOutboxRepository;
+    }
+
+    /**
+     * Purges one bounded batch of raw history for sessions whose session, visit, and playtime-segment rows are all
+     * closed.
+     */
+    public synchronized int purgeClosedSessionHistoryOlderThan(Duration retentionWindow, int batchSize) {
+        Objects.requireNonNull(retentionWindow, "retentionWindow must not be null");
+        if (retentionWindow.isNegative()) {
+            throw new IllegalArgumentException("retentionWindow must not be negative");
+        }
+        if (!settings.isFeatureEnabled(DataRegistryFeature.SESSIONS)
+                || !settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS)
+                || !settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)) {
+            throw new IllegalStateException(
+                    "Closed-session history retention requires the sessions, session-visits, and playtime features."
+            );
+        }
+        if (playerSessionRepository == null) {
+            throw new IllegalStateException("Player session repository is unavailable.");
+        }
+        return playerSessionRepository.deleteClosedHistoryBefore(Instant.now().minus(retentionWindow), batchSize);
     }
 
     /**

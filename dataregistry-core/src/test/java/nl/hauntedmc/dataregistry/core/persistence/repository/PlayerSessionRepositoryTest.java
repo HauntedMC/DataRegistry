@@ -151,5 +151,56 @@ class PlayerSessionRepositoryTest {
         assertThrows(NullPointerException.class, () -> repository.findRecentSessions(null, 10));
         assertThrows(NullPointerException.class, () -> repository.findLatestSessionForPlayer(null));
         assertThrows(NullPointerException.class, () -> repository.findSessionsStartedAfter(null, 10));
+        assertThrows(NullPointerException.class, () -> repository.deleteClosedHistoryBefore(null, 10));
+    }
+
+    @Test
+    void deleteClosedHistoryRemovesOnlyAClosedBoundedSessionChain() {
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<Long> idsQuery = mock(Query.class);
+        MutationQuery visitDelete = mock(MutationQuery.class);
+        MutationQuery segmentDelete = mock(MutationQuery.class);
+        MutationQuery sessionDelete = mock(MutationQuery.class);
+        PlayerSessionRepository repository = new PlayerSessionRepository(ormContext);
+        Instant cutoff = Instant.parse("2026-01-01T00:00:00Z");
+        List<Long> sessionIds = List.of(7L);
+
+        executeTransactionsWithSession(ormContext, session);
+        when(session.createQuery(
+                "SELECT s.id FROM PlayerSessionEntity s " +
+                        "WHERE s.endedAt < :cutoff " +
+                        "AND NOT EXISTS (SELECT 1 FROM PlayerSessionVisitEntity v " +
+                        "WHERE v.session.id = s.id AND v.leftAt IS NULL) " +
+                        "AND NOT EXISTS (SELECT 1 FROM PlayerPlaytimeSegmentEntity p " +
+                        "WHERE p.session.id = s.id AND p.endedAt IS NULL) " +
+                        "ORDER BY s.endedAt ASC, s.id ASC",
+                Long.class
+        )).thenReturn(idsQuery);
+        when(idsQuery.setParameter("cutoff", cutoff)).thenReturn(idsQuery);
+        when(idsQuery.setMaxResults(1)).thenReturn(idsQuery);
+        when(idsQuery.list()).thenReturn(sessionIds);
+        when(session.createMutationQuery(
+                "DELETE FROM PlayerSessionVisitEntity v WHERE v.session.id IN :sessionIds"
+        )).thenReturn(visitDelete);
+        when(visitDelete.setParameter("sessionIds", sessionIds)).thenReturn(visitDelete);
+        when(visitDelete.executeUpdate()).thenReturn(2);
+        when(session.createMutationQuery(
+                "DELETE FROM PlayerPlaytimeSegmentEntity p WHERE p.session.id IN :sessionIds"
+        )).thenReturn(segmentDelete);
+        when(segmentDelete.setParameter("sessionIds", sessionIds)).thenReturn(segmentDelete);
+        when(segmentDelete.executeUpdate()).thenReturn(3);
+        when(session.createMutationQuery(
+                "DELETE FROM PlayerSessionEntity s WHERE s.id IN :sessionIds"
+        )).thenReturn(sessionDelete);
+        when(sessionDelete.setParameter("sessionIds", sessionIds)).thenReturn(sessionDelete);
+        when(sessionDelete.executeUpdate()).thenReturn(1);
+
+        assertEquals(1, repository.deleteClosedHistoryBefore(cutoff, 0));
+        verify(idsQuery).setMaxResults(1);
+        verify(visitDelete).executeUpdate();
+        verify(segmentDelete).executeUpdate();
+        verify(sessionDelete).executeUpdate();
     }
 }

@@ -125,7 +125,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
             registerPlayerStatusListener();
             startPlaytimeFlushLifecycle();
             startServiceRegistryLifecycle();
-            startLifecycleOutboxRetention();
+            startPlayerHistoryRetention();
         } catch (RuntimeException | Error startupFailure) {
             rollbackFailedStartup();
             logger.error("DataRegistry startup failed on Velocity.", startupFailure);
@@ -365,6 +365,18 @@ public class VelocityDataRegistry implements PlatformPlugin {
         int probeTimeoutMillis = settings.serviceProbeTimeoutMillis();
         int probeRetentionHours = settings.serviceProbeRetentionHours();
         int probePurgeIntervalHours = settings.serviceProbePurgeIntervalHours();
+        if (probeRetentionHours >= 0) {
+            logger.warn(
+                    "Service-probe retention is enabled. Completed backend-probe history older than " +
+                            probeRetentionHours + " hours will be permanently deleted."
+            );
+        }
+        if (settings.serviceInstanceRetentionDays() >= 0) {
+            logger.warn(
+                    "Service-instance retention is enabled. Stopped instance history older than " +
+                            settings.serviceInstanceRetentionDays() + " days will be permanently deleted."
+            );
+        }
         Duration endpointCorrelationFreshness = Duration.ofSeconds(
                 Math.max(15L, Math.max(1L, heartbeatIntervalSeconds) * 3L)
         );
@@ -424,14 +436,47 @@ public class VelocityDataRegistry implements PlatformPlugin {
         );
     }
 
-    private void startLifecycleOutboxRetention() {
-        int retentionDays = settings.lifecycleOutboxRetentionDays();
-        if (retentionDays < 0) {
+    private void startPlayerHistoryRetention() {
+        int outboxRetentionDays = settings.lifecycleOutboxRetentionDays();
+        int closedSessionRetentionDays = settings.closedSessionHistoryRetentionDays();
+        if (outboxRetentionDays < 0 && closedSessionRetentionDays < 0) {
             return;
         }
+        if (closedSessionRetentionDays >= 0 && !supportsClosedSessionHistoryRetention()) {
+            logger.warn(
+                    "retention.closed-session-history-days is enabled but requires sessions, session-visits, " +
+                            "and playtime features. Closed-session history retention will be skipped."
+            );
+            closedSessionRetentionDays = -1;
+        }
+        if (outboxRetentionDays < 0 && closedSessionRetentionDays < 0) {
+            return;
+        }
+        final int eligibleClosedSessionRetentionDays = closedSessionRetentionDays;
         DataRegistry registry = runtimeDataRegistry();
         ensureLifecycleOutboxRetentionExecutor();
-        Runnable purgeTask = () -> purgeLifecycleOutbox(registry, retentionDays);
+        if (outboxRetentionDays >= 0) {
+            schedulePlayerHistoryRetentionTask(() -> purgeLifecycleOutbox(registry, outboxRetentionDays));
+        }
+        if (eligibleClosedSessionRetentionDays >= 0) {
+            logger.warn(
+                    "Closed session-history retention is enabled. Fully closed sessions, server visits, and " +
+                            "playtime segments older than " + eligibleClosedSessionRetentionDays +
+                            " days will be permanently deleted."
+            );
+            schedulePlayerHistoryRetentionTask(
+                    () -> purgeClosedSessionHistory(registry, eligibleClosedSessionRetentionDays)
+            );
+        }
+    }
+
+    private boolean supportsClosedSessionHistoryRetention() {
+        return settings.isFeatureEnabled(DataRegistryFeature.SESSIONS)
+                && settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS)
+                && settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME);
+    }
+
+    private void schedulePlayerHistoryRetentionTask(Runnable purgeTask) {
         purgeTask.run();
         lifecycleOutboxRetentionExecutor.scheduleWithFixedDelay(
                 purgeTask,
@@ -450,6 +495,17 @@ public class VelocityDataRegistry implements PlatformPlugin {
             }
         } catch (RuntimeException exception) {
             logger.error("Failed to purge lifecycle idempotency rows.", exception);
+        }
+    }
+
+    private void purgeClosedSessionHistory(DataRegistry registry, int retentionDays) {
+        try {
+            int deleted = registry.purgeClosedSessionHistoryOlderThan(Duration.ofDays(retentionDays), 500);
+            if (deleted > 0) {
+                logger.info("Purged {} fully closed player sessions older than {} days.", deleted, retentionDays);
+            }
+        } catch (RuntimeException exception) {
+            logger.error("Failed to purge fully closed player session history.", exception);
         }
     }
 
@@ -538,6 +594,10 @@ public class VelocityDataRegistry implements PlatformPlugin {
             int retentionHours,
             int purgeIntervalHours
     ) {
+        int instanceRetentionDays = settings.serviceInstanceRetentionDays();
+        if (retentionHours < 0 && instanceRetentionDays < 0) {
+            return;
+        }
         long nowEpochMillis = System.currentTimeMillis();
         long nextPurgeAt = nextProbePurgeAtEpochMillis.get();
         if (nextPurgeAt > nowEpochMillis) {
@@ -548,12 +608,13 @@ public class VelocityDataRegistry implements PlatformPlugin {
             return;
         }
 
-        int deleted = registryService.purgeProbesOlderThan(Duration.ofHours(retentionHours), 500);
-        if (deleted > 0) {
-            logger.info("Purged {} stale service probe rows older than {} hours.", deleted, retentionHours);
+        if (retentionHours >= 0) {
+            int deleted = registryService.purgeProbesOlderThan(Duration.ofHours(retentionHours), 500);
+            if (deleted > 0) {
+                logger.info("Purged {} stale service probe rows older than {} hours.", deleted, retentionHours);
+            }
         }
 
-        int instanceRetentionDays = settings.serviceInstanceRetentionDays();
         if (instanceRetentionDays < 0) {
             return;
         }

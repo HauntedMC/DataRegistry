@@ -80,6 +80,7 @@ final class DataRegistryConfigSchema {
         Map<String, Object> retention = new LinkedHashMap<>();
         retention.put("lifecycle-outbox-days", defaults.lifecycleOutboxRetentionDays());
         retention.put("service-instance-days", defaults.serviceInstanceRetentionDays());
+        retention.put("closed-session-history-days", defaults.closedSessionHistoryRetentionDays());
         root.put("retention", retention);
 
         Map<String, Object> platform = new LinkedHashMap<>();
@@ -207,18 +208,24 @@ final class DataRegistryConfigSchema {
         builder.append("  probe-interval-seconds: ").append(settings.serviceProbeIntervalSeconds()).append('\n');
         builder.append("  # Velocity backend-probe timeout (milliseconds, 200-10000).\n");
         builder.append("  probe-timeout-millis: ").append(settings.serviceProbeTimeoutMillis()).append('\n');
-        builder.append("  # Retention window for probe history cleanup (hours, 1-2160).\n");
+        builder.append("  # WARNING: when enabled, permanently removes completed backend-probe history.\n");
+        builder.append("  # Retention window for probe history cleanup (hours, -1 disables cleanup; 1-2160 enables it).\n");
         builder.append("  probe-retention-hours: ").append(settings.serviceProbeRetentionHours()).append('\n');
         builder.append("  # How often stale probe history cleanup runs (hours, 1-2160).\n");
         builder.append("  probe-purge-interval-hours: ").append(settings.serviceProbePurgeIntervalHours()).append('\n');
         builder.append('\n');
         builder.append("retention:\n");
         builder.append("  # Applies to: Velocity. The lifecycle table is an idempotency ledger, not a message publisher.\n");
+        builder.append("  # WARNING: when enabled, permanently removes lifecycle audit rows and limits duplicate-event protection to this window.\n");
         builder.append("  # Delete lifecycle idempotency rows after this many days; -1 keeps them indefinitely (default).\n");
         builder.append("  lifecycle-outbox-days: ").append(settings.lifecycleOutboxRetentionDays()).append('\n');
         builder.append("  # Applies to: Both. Delete only STOPPED service-instance history; RUNNING rows remain for health checks.\n");
+        builder.append("  # WARNING: when enabled, permanently removes stopped-instance history used for restart and availability analysis.\n");
         builder.append("  # Delete stopped service-instance rows after this many days; -1 keeps them indefinitely (default).\n");
         builder.append("  service-instance-days: ").append(settings.serviceInstanceRetentionDays()).append('\n');
+        builder.append("  # WARNING: when enabled, permanently removes fully closed sessions, visits, and playtime segments.\n");
+        builder.append("  # Delete fully closed raw session history after this many days; -1 keeps it indefinitely (default).\n");
+        builder.append("  closed-session-history-days: ").append(settings.closedSessionHistoryRetentionDays()).append('\n');
         builder.append('\n');
         builder.append("platform:\n");
         builder.append("  bukkit:\n");

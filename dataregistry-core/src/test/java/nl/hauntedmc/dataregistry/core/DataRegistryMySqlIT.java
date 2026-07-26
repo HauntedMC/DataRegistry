@@ -16,6 +16,7 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionVisitEntity;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -28,6 +29,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -35,6 +37,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -198,6 +201,102 @@ class DataRegistryMySqlIT {
         } finally {
             registry.shutdown();
         }
+    }
+
+    @Test
+    void closedSessionHistoryRetentionDeletesOnlyFullyClosedSessionChainsInMySql() {
+        DataProviderAPI dataProvider = mock(DataProviderAPI.class);
+        RelationalDatabaseProvider provider = mock(RelationalDatabaseProvider.class);
+        ILoggerAdapter platformLogger = mock(ILoggerAdapter.class);
+        when(dataProvider.registerDatabaseOrThrow(DatabaseType.MYSQL, CONNECTION_ID)).thenReturn(provider);
+        when(provider.isConnected()).thenReturn(true);
+        when(provider.getDataSource()).thenReturn(dataSource);
+        when(dataProvider.createOrmContext(
+                eq(dataSource), any(LoggerAdapter.class), eq("validate"), any(Class[].class)
+        ))
+                .thenAnswer(invocation -> createOrmContext(invocation.getArguments()));
+
+        Instant closedAt = Instant.parse("2020-01-01T00:00:00Z");
+        PlayerEntity player = new PlayerEntity();
+        player.setUuid("20000000-0000-0000-0000-000000000001");
+        player.setUsername("RetentionPlayer");
+        PlayerSessionEntity removableSession = session(player, closedAt, closedAt.plusSeconds(60));
+        PlayerSessionVisitEntity removableVisit = visit(player, removableSession, closedAt, closedAt.plusSeconds(30));
+        PlayerPlaytimeSegmentEntity removableSegment = segment(
+                player,
+                removableSession,
+                closedAt,
+                closedAt.plusSeconds(30)
+        );
+        PlayerSessionEntity protectedSession = session(player, closedAt, closedAt.plusSeconds(60));
+        PlayerPlaytimeSegmentEntity openSegment = segment(player, protectedSession, closedAt, null);
+
+        DataRegistry registry = new DataRegistry(platformLogger, "DataRegistry", dataProvider);
+        try {
+            assertTrue(registry.initialize());
+            registry.getORM().runInTransaction(ormSession -> {
+                ormSession.persist(player);
+                ormSession.persist(removableSession);
+                ormSession.persist(removableVisit);
+                ormSession.persist(removableSegment);
+                ormSession.persist(protectedSession);
+                ormSession.persist(openSegment);
+                return null;
+            });
+
+            assertEquals(1, registry.purgeClosedSessionHistoryOlderThan(Duration.ofDays(30), 100));
+            registry.getORM().runInTransaction(ormSession -> {
+                assertNull(ormSession.find(PlayerSessionEntity.class, removableSession.getId()));
+                assertNull(ormSession.find(PlayerSessionVisitEntity.class, removableVisit.getId()));
+                assertNull(ormSession.find(PlayerPlaytimeSegmentEntity.class, removableSegment.getId()));
+                assertTrue(ormSession.find(PlayerSessionEntity.class, protectedSession.getId()) != null);
+                assertTrue(ormSession.find(PlayerPlaytimeSegmentEntity.class, openSegment.getId()) != null);
+                return null;
+            });
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    private static PlayerSessionEntity session(PlayerEntity player, Instant startedAt, Instant endedAt) {
+        PlayerSessionEntity session = new PlayerSessionEntity();
+        session.setPlayer(player);
+        session.setStartedAt(startedAt);
+        session.setEndedAt(endedAt);
+        return session;
+    }
+
+    private static PlayerSessionVisitEntity visit(
+            PlayerEntity player,
+            PlayerSessionEntity session,
+            Instant enteredAt,
+            Instant leftAt
+    ) {
+        PlayerSessionVisitEntity visit = new PlayerSessionVisitEntity();
+        visit.setPlayer(player);
+        visit.setSession(session);
+        visit.setServerName("retention-server");
+        visit.setEnteredAt(enteredAt);
+        visit.setLeftAt(leftAt);
+        return visit;
+    }
+
+    private static PlayerPlaytimeSegmentEntity segment(
+            PlayerEntity player,
+            PlayerSessionEntity session,
+            Instant startedAt,
+            Instant endedAt
+    ) {
+        PlayerPlaytimeSegmentEntity segment = new PlayerPlaytimeSegmentEntity();
+        segment.setPlayer(player);
+        segment.setSession(session);
+        segment.setGamemodeKey("retention");
+        segment.setEntryServer("retention-server");
+        segment.setLastServer("retention-server");
+        segment.setStartedAt(startedAt);
+        segment.setLastAccruedAt(startedAt);
+        segment.setEndedAt(endedAt);
+        return segment;
     }
 
     private void applyBaselineMigration() throws Exception {

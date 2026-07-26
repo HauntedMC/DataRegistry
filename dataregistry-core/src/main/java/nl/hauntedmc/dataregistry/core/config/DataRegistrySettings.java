@@ -19,10 +19,11 @@ public final class DataRegistrySettings {
     private static final int DEFAULT_SERVICE_HEARTBEAT_INTERVAL_SECONDS = 30;
     private static final int DEFAULT_SERVICE_PROBE_INTERVAL_SECONDS = 15;
     private static final int DEFAULT_SERVICE_PROBE_TIMEOUT_MILLIS = 1500;
-    private static final int DEFAULT_SERVICE_PROBE_RETENTION_HOURS = 168;
+    private static final int DEFAULT_SERVICE_PROBE_RETENTION_HOURS = -1;
     private static final int DEFAULT_SERVICE_PROBE_PURGE_INTERVAL_HOURS = 12;
     private static final int DEFAULT_LIFECYCLE_OUTBOX_RETENTION_DAYS = -1;
     private static final int DEFAULT_SERVICE_INSTANCE_RETENTION_DAYS = -1;
+    private static final int DEFAULT_CLOSED_SESSION_HISTORY_RETENTION_DAYS = -1;
     private static final String DEFAULT_ORM_SCHEMA_MODE = "validate";
     private static final int DEFAULT_BUKKIT_JOIN_DELAY_TICKS = 4;
     private static final boolean DEFAULT_BUKKIT_REGISTER_SERVICE_INSTANCE = false;
@@ -63,6 +64,7 @@ public final class DataRegistrySettings {
     private final int serviceProbePurgeIntervalHours;
     private final int lifecycleOutboxRetentionDays;
     private final int serviceInstanceRetentionDays;
+    private final int closedSessionHistoryRetentionDays;
     private final PlaytimeTrackingSettings playtimeTrackingSettings;
     private final Set<DataRegistryFeature> enabledFeatures;
 
@@ -149,7 +151,7 @@ public final class DataRegistrySettings {
                 200,
                 10000
         );
-        this.serviceProbeRetentionHours = validateRange(
+        this.serviceProbeRetentionHours = validateDisabledOrRange(
                 builder.serviceProbeRetentionHours,
                 "serviceProbeRetentionHours",
                 1,
@@ -170,6 +172,12 @@ public final class DataRegistrySettings {
         this.serviceInstanceRetentionDays = validateRange(
                 builder.serviceInstanceRetentionDays,
                 "serviceInstanceRetentionDays",
+                -1,
+                36500
+        );
+        this.closedSessionHistoryRetentionDays = validateRange(
+                builder.closedSessionHistoryRetentionDays,
+                "closedSessionHistoryRetentionDays",
                 -1,
                 36500
         );
@@ -283,6 +291,9 @@ public final class DataRegistrySettings {
         return serviceProbeTimeoutMillis;
     }
 
+    /**
+     * Retention period for completed backend-probe history, or {@code -1} to retain rows indefinitely.
+     */
     public int serviceProbeRetentionHours() {
         return serviceProbeRetentionHours;
     }
@@ -305,6 +316,13 @@ public final class DataRegistrySettings {
         return serviceInstanceRetentionDays;
     }
 
+    /**
+     * Retention period for fully closed raw session history, or {@code -1} to retain rows indefinitely.
+     */
+    public int closedSessionHistoryRetentionDays() {
+        return closedSessionHistoryRetentionDays;
+    }
+
     public PlaytimeTrackingSettings playtimeTrackingSettings() {
         return playtimeTrackingSettings;
     }
@@ -324,6 +342,13 @@ public final class DataRegistrySettings {
             );
         }
         return value;
+    }
+
+    private static int validateDisabledOrRange(int value, String fieldName, int minInclusive, int maxInclusive) {
+        if (value == -1) {
+            return value;
+        }
+        return validateRange(value, fieldName, minInclusive, maxInclusive);
     }
 
     private static String normalizeConnectionId(String value, String fieldName) {
@@ -396,6 +421,7 @@ public final class DataRegistrySettings {
         private int serviceProbePurgeIntervalHours = DEFAULT_SERVICE_PROBE_PURGE_INTERVAL_HOURS;
         private int lifecycleOutboxRetentionDays = DEFAULT_LIFECYCLE_OUTBOX_RETENTION_DAYS;
         private int serviceInstanceRetentionDays = DEFAULT_SERVICE_INSTANCE_RETENTION_DAYS;
+        private int closedSessionHistoryRetentionDays = DEFAULT_CLOSED_SESSION_HISTORY_RETENTION_DAYS;
         private PlaytimeTrackingSettings playtimeTrackingSettings = PlaytimeTrackingSettings.defaults();
         private EnumSet<DataRegistryFeature> enabledFeatures = EnumSet.allOf(DataRegistryFeature.class);
 
@@ -520,6 +546,11 @@ public final class DataRegistrySettings {
 
         public Builder serviceInstanceRetentionDays(int value) {
             this.serviceInstanceRetentionDays = value;
+            return this;
+        }
+
+        public Builder closedSessionHistoryRetentionDays(int value) {
+            this.closedSessionHistoryRetentionDays = value;
             return this;
         }
 

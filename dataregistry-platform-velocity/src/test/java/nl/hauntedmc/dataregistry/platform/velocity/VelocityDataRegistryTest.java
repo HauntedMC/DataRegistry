@@ -36,6 +36,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
 import java.time.Instant;
+import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -58,6 +59,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.same;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class VelocityDataRegistryTest {
@@ -419,6 +421,26 @@ class VelocityDataRegistryTest {
     }
 
     @Test
+    void purgeClosedSessionHistoryUsesConfiguredRetentionAndBoundedBatch() throws ReflectiveOperationException {
+        VelocityDataRegistry plugin = new VelocityDataRegistry(
+                mock(ProxyServer.class),
+                mock(Logger.class),
+                TEST_DATA_DIRECTORY
+        );
+        DataRegistry registry = mock(DataRegistry.class);
+
+        Method purgeMethod = VelocityDataRegistry.class.getDeclaredMethod(
+                "purgeClosedSessionHistory",
+                DataRegistry.class,
+                int.class
+        );
+        purgeMethod.setAccessible(true);
+        purgeMethod.invoke(plugin, registry, 30);
+
+        verify(registry).purgeClosedSessionHistoryOlderThan(Duration.ofDays(30), 500);
+    }
+
+    @Test
     void purgeStaleProbesIfDueRunsAtMostOncePerConfiguredInterval() throws ReflectiveOperationException {
         VelocityDataRegistry plugin = new VelocityDataRegistry(
                 mock(ProxyServer.class),
@@ -444,6 +466,31 @@ class VelocityDataRegistryTest {
         purgeMethod.invoke(plugin, registryService, 72, 12);
 
         verify(probeRepository, times(2)).deleteCheckedBefore(any(), eq(500));
+    }
+
+    @Test
+    void disabledProbeRetentionDoesNotDeleteProbeHistory() throws ReflectiveOperationException {
+        VelocityDataRegistry plugin = new VelocityDataRegistry(
+                mock(ProxyServer.class),
+                mock(Logger.class),
+                TEST_DATA_DIRECTORY
+        );
+        DataRegistry registry = mock(DataRegistry.class);
+        ILoggerAdapter platformLogger = mock(ILoggerAdapter.class);
+        ServiceProbeRepository probeRepository = mock(ServiceProbeRepository.class);
+        when(registry.getServiceProbeRepository()).thenReturn(probeRepository);
+        ServiceRegistryService registryService = new ServiceRegistryService(registry, platformLogger, true);
+
+        Method purgeMethod = VelocityDataRegistry.class.getDeclaredMethod(
+                "purgeStaleProbesIfDue",
+                ServiceRegistryService.class,
+                int.class,
+                int.class
+        );
+        purgeMethod.setAccessible(true);
+        purgeMethod.invoke(plugin, registryService, -1, 12);
+
+        verifyNoInteractions(probeRepository);
     }
 
     private static final class TestVelocityDataRegistry extends VelocityDataRegistry {

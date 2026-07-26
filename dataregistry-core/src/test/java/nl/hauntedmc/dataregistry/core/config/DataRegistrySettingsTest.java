@@ -35,7 +35,7 @@ class DataRegistrySettingsTest {
         assertEquals(30, settings.serviceHeartbeatIntervalSeconds());
         assertEquals(15, settings.serviceProbeIntervalSeconds());
         assertEquals(1500, settings.serviceProbeTimeoutMillis());
-        assertEquals(168, settings.serviceProbeRetentionHours());
+        assertEquals(-1, settings.serviceProbeRetentionHours());
         assertEquals(12, settings.serviceProbePurgeIntervalHours());
         assertEquals(30, settings.playtimeTrackingSettings().flushIntervalSeconds());
         assertEquals(64, settings.playtimeTrackingSettings().gamemodeKeyMaxLength());
@@ -123,6 +123,7 @@ class DataRegistrySettingsTest {
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbeIntervalSeconds(301).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbeTimeoutMillis(199).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbeTimeoutMillis(10001).build());
+        assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbeRetentionHours(-2).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbeRetentionHours(0).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbeRetentionHours(2161).build());
         assertThrows(IllegalArgumentException.class, () -> DataRegistrySettings.builder().serviceProbePurgeIntervalHours(0).build());

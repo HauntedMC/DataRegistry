@@ -391,6 +391,21 @@ class DataRegistryTest {
     }
 
     @Test
+    void closedSessionHistoryRetentionRequiresAllHistoryFeatures() {
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataProviderAPI api = mock(DataProviderAPI.class);
+        DataRegistrySettings settings = DataRegistrySettings.builder()
+                .enabledFeatures(Set.of(DataRegistryFeature.CONNECTION_INFO))
+                .build();
+        DataRegistry registry = new DataRegistry(logger, "DataRegistry", api, settings);
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> registry.purgeClosedSessionHistoryOlderThan(java.time.Duration.ZERO, 1)
+        );
+    }
+
+    @Test
     void dataProviderLoggerAdapterMapsLevelsToPlatformLogger() throws Exception {
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
         DataRegistry registry = new DataRegistry(logger, "DataRegistry", mock(DataProviderAPI.class));

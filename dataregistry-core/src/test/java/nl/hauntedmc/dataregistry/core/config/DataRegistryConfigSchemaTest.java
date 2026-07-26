@@ -21,6 +21,7 @@ class DataRegistryConfigSchemaTest {
         assertTrue(tree.containsKey("features"));
         assertTrue(tree.containsKey("playtime"));
         assertTrue(tree.containsKey("service-registry"));
+        assertTrue(tree.containsKey("retention"));
         assertTrue(tree.containsKey("platform"));
         assertTrue(tree.containsKey("validation"));
 
@@ -32,9 +33,12 @@ class DataRegistryConfigSchemaTest {
         Map<String, Object> players = (Map<String, Object>) profiles.get("players");
         @SuppressWarnings("unchecked")
         Map<String, Object> services = (Map<String, Object>) profiles.get("services");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> retention = (Map<String, Object>) tree.get("retention");
         assertEquals(defaults.databaseType().name(), database.get("type"));
         assertEquals(defaults.playerDatabaseConnectionId(), players.get("connection-id"));
         assertEquals(defaults.serviceDatabaseConnectionId(), services.get("connection-id"));
+        assertEquals(-1, retention.get("closed-session-history-days"));
     }
 
     @Test
@@ -63,7 +67,7 @@ class DataRegistryConfigSchemaTest {
         assertTrue(rendered.contains("heartbeat-interval-seconds: 30"));
         assertTrue(rendered.contains("probe-interval-seconds: 15"));
         assertTrue(rendered.contains("probe-timeout-millis: 1500"));
-        assertTrue(rendered.contains("probe-retention-hours: 168"));
+        assertTrue(rendered.contains("probe-retention-hours: -1"));
         assertTrue(rendered.contains("probe-purge-interval-hours: 12"));
         assertTrue(rendered.contains("register-service-instance: false"));
         assertTrue(rendered.contains("service-name: auto"));
