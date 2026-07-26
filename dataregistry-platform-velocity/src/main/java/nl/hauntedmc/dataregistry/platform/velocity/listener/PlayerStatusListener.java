@@ -9,7 +9,6 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.lifecycle.DisconnectCommand;
 import nl.hauntedmc.dataregistry.core.lifecycle.LoginCommand;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerIdentityInitializationTracker.PlayerIdentityInitialization;
-import nl.hauntedmc.dataregistry.core.lifecycle.PlayerLifecycleWriteResult;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerLifecycleWriter;
 import nl.hauntedmc.dataregistry.core.lifecycle.TransferCommand;
 import nl.hauntedmc.dataregistry.core.service.PlayerActivitySummaryService;
