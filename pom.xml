@@ -64,7 +64,7 @@
         <testcontainers.version>1.21.4</testcontainers.version>
 
         <!-- Build plugins and their plugin dependencies. -->
-        <flatten.plugin.version>1.7.3</flatten.plugin.version>
+        <flatten.plugin.version>1.8.0</flatten.plugin.version>
         <maven.enforcer.version>3.6.3</maven.enforcer.version>
         <maven.checkstyle.plugin.version>3.6.0</maven.checkstyle.plugin.version>
         <maven.compiler.plugin.version>3.15.0</maven.compiler.plugin.version>
