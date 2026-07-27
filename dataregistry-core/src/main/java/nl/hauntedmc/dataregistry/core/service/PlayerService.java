@@ -76,10 +76,16 @@ public final class PlayerService {
 
     /**
      * Marks a player as active after lifecycle persistence has committed successfully.
+     * Repeated lifecycle writes, such as backend-server transfers, refresh the cached entity but
+     * do not report another network-level add while the UUID is already active.
      */
     public void cacheActivePlayer(PlayerEntity player) {
+        if (player == null) {
+            return;
+        }
+        boolean newlyActive = playerRepository.getActivePlayer(player.getUuid()).isEmpty();
         playerRepository.cacheActivePlayer(player);
-        if (player != null) {
+        if (newlyActive) {
             logger.info("Added " + Sanitization.safeForLog(player.getUsername()) + " (" +
                     Sanitization.safeForLog(player.getUuid()) + ") to the local player repository.");
         }
