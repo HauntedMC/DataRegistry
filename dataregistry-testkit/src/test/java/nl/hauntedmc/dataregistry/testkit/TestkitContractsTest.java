@@ -8,9 +8,14 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.EnumSet;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.LongStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -30,6 +35,33 @@ class TestkitContractsTest {
                 LongStream.rangeClosed(1L, 1_000L).boxed().toList(),
                 LongStream.generate(ids::next).limit(1_000L).boxed().toList()
         );
+    }
+
+    @Test
+    void temporaryPlayerIdsRemainUniqueAcrossConcurrentCallers() throws InterruptedException {
+        TemporaryPlayerIds ids = new TemporaryPlayerIds();
+        ExecutorService executor = Executors.newFixedThreadPool(8);
+        List<Callable<Long>> calls = LongStream.range(0L, 2_000L)
+                .mapToObj(ignored -> (Callable<Long>) ids::next)
+                .toList();
+
+        try {
+            List<Long> generated = executor.invokeAll(calls).stream()
+                    .map(future -> {
+                        try {
+                            return future.get();
+                        } catch (Exception exception) {
+                            throw new AssertionError("Temporary id generation failed", exception);
+                        }
+                    })
+                    .toList();
+
+            assertEquals(2_000, generated.size());
+            assertEquals(2_000, new HashSet<>(generated).size());
+            assertTrue(generated.stream().allMatch(id -> id > 0L));
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test
