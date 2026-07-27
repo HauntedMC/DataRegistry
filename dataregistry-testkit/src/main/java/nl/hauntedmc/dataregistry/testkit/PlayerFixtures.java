@@ -2,6 +2,7 @@ package nl.hauntedmc.dataregistry.testkit;
 
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 /**
@@ -13,6 +14,10 @@ public final class PlayerFixtures {
     }
 
     public static PlayerIdentity identity(long playerId, String username) {
-        return new PlayerIdentity(playerId, UUID.nameUUIDFromBytes(username.getBytes()), username);
+        return new PlayerIdentity(
+                playerId,
+                UUID.nameUUIDFromBytes(username.getBytes(StandardCharsets.UTF_8)),
+                username
+        );
     }
 }
