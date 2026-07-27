@@ -48,7 +48,11 @@ jobs:
         with:
           name: platform-acceptance-logs
           if-no-files-found: warn
-          path: ${{ runner.temp }}/dataregistry-platform-acceptance
+          path: |
+            ${{ runner.temp }}/dataregistry-platform-acceptance/runner.log
+            ${{ runner.temp }}/dataregistry-platform-acceptance/backend.log
+            ${{ runner.temp }}/dataregistry-platform-acceptance/paper/paper.log
+            ${{ runner.temp }}/dataregistry-platform-acceptance/velocity/velocity.log
       - name: Upload platform distributables
         uses: actions/upload-artifact@v7
         with:
