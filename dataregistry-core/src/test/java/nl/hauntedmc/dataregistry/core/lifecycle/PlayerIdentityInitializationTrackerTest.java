@@ -153,7 +153,8 @@ class PlayerIdentityInitializationTrackerTest {
         tracker.shutdown();
         tracker.shutdown();
 
-        assertThrows(CancellationException.class, pending::join);
+        CompletionException cancellation = assertThrows(CompletionException.class, pending::join);
+        assertTrue(cancellation.getCause() instanceof CancellationException);
         CompletionException exception = assertThrows(
                 CompletionException.class,
                 () -> tracker.whenReady(uuid, Optional::empty).join()
