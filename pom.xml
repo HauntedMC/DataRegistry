@@ -40,7 +40,7 @@
 
     <properties>
         <!-- Project identity and compiler configuration. -->
-        <revision>1.13.3</revision>
+        <revision>1.13.4</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <java.version>25</java.version>
