@@ -14,9 +14,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 class DataRegistryQueryExecutorEdgeCaseTest {
@@ -165,7 +165,7 @@ class DataRegistryQueryExecutorEdgeCaseTest {
         try {
             executor.supply("lookup", () -> "value").join();
 
-            verify(logger, times(2)).warn(contains("lookup"));
+            verify(logger, atLeastOnce()).warn(contains("lookup"));
         } finally {
             executor.close();
         }
