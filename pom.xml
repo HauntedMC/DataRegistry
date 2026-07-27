@@ -77,7 +77,7 @@
         <maven.deploy.version>3.1.4</maven.deploy.version>
         <maven.surefire.version>3.5.6</maven.surefire.version>
         <maven.failsafe.version>3.5.6</maven.failsafe.version>
-        <exec.maven.plugin.version>3.6.2</exec.maven.plugin.version>
+        <exec.maven.plugin.version>3.6.3</exec.maven.plugin.version>
         <duplicate.finder.version>2.0.1</duplicate.finder.version>
         <jacoco.version>0.8.15</jacoco.version>
     </properties>
