@@ -235,12 +235,12 @@ public final class PlaytimeTrackingSettings {
         }
 
         public Builder ignoredGamemodes(Set<String> values) {
-            this.ignoredGamemodes = values == null ? Set.of() : Set.copyOf(values);
+            this.ignoredGamemodes = values == null ? Set.of() : new LinkedHashSet<>(values);
             return this;
         }
 
         public Builder excludedFromNetworkTotalGamemodes(Set<String> values) {
-            this.excludedFromNetworkTotalGamemodes = values == null ? Set.of() : Set.copyOf(values);
+            this.excludedFromNetworkTotalGamemodes = values == null ? Set.of() : new LinkedHashSet<>(values);
             return this;
         }
 
