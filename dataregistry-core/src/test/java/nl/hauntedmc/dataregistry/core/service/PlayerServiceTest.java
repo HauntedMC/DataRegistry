@@ -68,6 +68,41 @@ class PlayerServiceTest {
     }
 
     @Test
+    void cacheActivePlayerLogsOnlyWhenPlayerBecomesActive() {
+        PlayerRepository repository = mock(PlayerRepository.class);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        PlayerService service = new PlayerService(repository, new PlayerIdentityInitializationTracker(), logger);
+        PlayerEntity player = new PlayerEntity();
+        player.setUuid("0f4f1f64-dcb1-49a2-bf6d-5ecf6f00d6da");
+        player.setUsername("Alice");
+        when(repository.getActivePlayer(player.getUuid())).thenReturn(Optional.empty());
+
+        service.cacheActivePlayer(player);
+
+        verify(repository).cacheActivePlayer(player);
+        verify(logger).info(contains("Added Alice"));
+    }
+
+    @Test
+    void cacheActivePlayerRefreshesExistingEntryWithoutLoggingAnotherNetworkAdd() {
+        PlayerRepository repository = mock(PlayerRepository.class);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        PlayerService service = new PlayerService(repository, new PlayerIdentityInitializationTracker(), logger);
+        PlayerEntity existing = new PlayerEntity();
+        existing.setUuid("0f4f1f64-dcb1-49a2-bf6d-5ecf6f00d6da");
+        existing.setUsername("Alice");
+        PlayerEntity refreshed = new PlayerEntity();
+        refreshed.setUuid(existing.getUuid());
+        refreshed.setUsername("Alice");
+        when(repository.getActivePlayer(refreshed.getUuid())).thenReturn(Optional.of(existing));
+
+        service.cacheActivePlayer(refreshed);
+
+        verify(repository).cacheActivePlayer(refreshed);
+        verify(logger, never()).info(contains("Added"));
+    }
+
+    @Test
     void onPlayerQuitRemovesFromCacheAndLogs() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
