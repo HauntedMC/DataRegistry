@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -51,7 +52,7 @@ class RepositoryPlayerDirectoryTest {
         assertTrue(directory.findActiveIdentityCached(" ").isEmpty());
         assertTrue(directory.findActiveIdentityCached("bad-uuid").isEmpty());
 
-        verify(repository).getActiveIdentity(uuid.toString());
+        verify(repository, times(2)).getActiveIdentity(uuid.toString());
         verify(repository, never()).getActiveIdentity("bad-uuid");
     }
 
