@@ -45,7 +45,7 @@ Depend only on `dataregistry-api` as `provided` (replace the version with the re
 <dependency>
   <groupId>nl.hauntedmc.dataregistry</groupId>
   <artifactId>dataregistry-api</artifactId>
-  <version>1.11.5</version>
+  <version>1.14.0</version>
   <scope>provided</scope>
 </dependency>
 ```
@@ -128,10 +128,23 @@ Use the specific facade methods when a full profile is unnecessary:
 - `players.findConnection(playerId)`
 - `players.findOnlinePlayers(limit)`
 - `players.findActivity(playerId)`
-- `players.findPlaytime(playerId)` and leaderboard helpers
+- `players.findPlaytime(playerId)`, `players.findPlaytime(uuid)`, and `players.findPlaytimeByIdentifier(input)`
+- `players.playtimeCatalog()` for synchronous, configuration-backed public gamemode policy
+- playtime leaderboard helpers for public network totals and queryable gamemodes
 - `players.findNameHistory(playerId, limit)`
 - `players.findIdentitiesSharingLastIp(playerId)` and `players.findUsernamesSharingLastIp(playerId)`
 - `players.findPlayerIdsByLastIpAddress(ip, excludePlayerId)` and `players.findUsernamesByLastIpAddress(ip, excludePlayerId)`
+
+### Playtime Policy
+
+Velocity classifies backend servers before accruing playtime. `playtime.blacklisted-server-patterns` is evaluated before
+server-to-gamemode rules and unknown-server fallback, so matching physical backends never accrue time. This policy is
+prospective; historical time already merged into a shared logical gamemode cannot be split by physical server later.
+
+`playtime.query-blacklisted-gamemodes` keeps internal aggregates but removes those gamemodes from public snapshots,
+tracked totals, network totals, tracked-key discovery, and leaderboards. `playtime.excluded-from-network-total-gamemodes`
+keeps a gamemode queryable while excluding it only from the canonical network total. Consumers should use
+`PlayerPlaytimeSnapshot#networkTotalMillis()` rather than recalculating the total themselves.
 
 Public persistence reads and DataRegistry-owned preference writes return `CompletionStage` and run on DataRegistry's
 query executor with configured deadlines. Returned futures support cancellation when used as `CompletableFuture`.

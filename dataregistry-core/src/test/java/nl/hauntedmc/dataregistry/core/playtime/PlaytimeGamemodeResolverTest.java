@@ -83,4 +83,27 @@ class PlaytimeGamemodeResolverTest {
         assertNull(overlong.gamemodeKey());
         assertFalse(overlong.tracked());
     }
+    @Test
+    void physicalServerBlacklistWinsBeforeRulesAndUnknownFallback() {
+        PlaytimeTrackingSettings settings = PlaytimeTrackingSettings.builder()
+                .blacklistedServerPatterns(List.of("survival-maintenance", "dev-*"))
+                .serverGamemodeRules(List.of(
+                        new PlaytimeTrackingSettings.ServerGamemodeRule("survival-*", "survival")
+                ))
+                .build();
+        PlaytimeGamemodeResolver resolver = new PlaytimeGamemodeResolver(settings);
+
+        PlaytimeGamemodeResolver.ResolvedGamemode mappedBlacklist = resolver.resolve("Survival-Maintenance");
+        PlaytimeGamemodeResolver.ResolvedGamemode fallbackBlacklist = resolver.resolve("dev-tools");
+        PlaytimeGamemodeResolver.ResolvedGamemode allowed = resolver.resolve("survival-2");
+
+        assertEquals("survival-maintenance", mappedBlacklist.serverName());
+        assertNull(mappedBlacklist.gamemodeKey());
+        assertFalse(mappedBlacklist.tracked());
+        assertNull(fallbackBlacklist.gamemodeKey());
+        assertFalse(fallbackBlacklist.tracked());
+        assertEquals("survival", allowed.gamemodeKey());
+        assertTrue(allowed.tracked());
+    }
+
 }

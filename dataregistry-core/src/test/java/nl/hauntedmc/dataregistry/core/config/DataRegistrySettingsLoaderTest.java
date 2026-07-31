@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -59,7 +60,9 @@ class DataRegistrySettingsLoaderTest {
                 "playtime", Map.of(
                         "flush-interval-seconds", 45,
                         "resolve-unknown-servers-as-gamemode", false,
+                        "blacklisted-server-patterns", List.of("dev-*", " DEV-* ", "limbo-?"),
                         "ignored-gamemodes", List.of("queue", "limbo"),
+                        "query-blacklisted-gamemodes", List.of("staff"),
                         "excluded-from-network-total-gamemodes", List.of("lobby"),
                         "server-gamemode-rules", List.of(
                                 Map.of("match", "lobby-*", "gamemode", "lobby"),
@@ -121,8 +124,11 @@ class DataRegistrySettingsLoaderTest {
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
         assertEquals(45, settings.playtimeTrackingSettings().flushIntervalSeconds());
         assertFalse(settings.playtimeTrackingSettings().resolveUnknownServersAsGamemode());
+        assertEquals(List.of("dev-*", "limbo-?"), settings.playtimeTrackingSettings().blacklistedServerPatterns());
         assertTrue(settings.playtimeTrackingSettings().ignoredGamemodes().contains("queue"));
+        assertTrue(settings.playtimeTrackingSettings().queryBlacklistedGamemodes().contains("staff"));
         assertTrue(settings.playtimeTrackingSettings().excludedFromNetworkTotalGamemodes().contains("lobby"));
+        assertTrue(settings.playtimeTrackingSettings().networkTotalExcludedGamemodes().contains("staff"));
         assertEquals(2, settings.playtimeTrackingSettings().serverGamemodeRules().size());
         assertEquals(45, settings.serviceHeartbeatIntervalSeconds());
         assertEquals(18, settings.serviceProbeIntervalSeconds());
@@ -466,6 +472,32 @@ class DataRegistrySettingsLoaderTest {
             }
             return new ByteArrayInputStream(configContent.getBytes(StandardCharsets.UTF_8));
         }
+    }
+
+    @Test
+    void parseSkipsInvalidAndDuplicatePlaytimePolicyEntriesWithoutDiscardingValidOnes() {
+        DataRegistrySettingsLoader loader = new DataRegistrySettingsLoader();
+        RecordingLogger logger = new RecordingLogger();
+
+        DataRegistrySettings settings = loader.parse(Map.of(
+                "playtime", Map.of(
+                        "blacklisted-server-patterns", List.of("dev-*", "bad pattern!", "DEV-*"),
+                        "query-blacklisted-gamemodes", List.of("staff", "bad key"),
+                        "server-gamemode-rules", List.of(
+                                Map.of("match", "lobby-*", "gamemode", "lobby"),
+                                Map.of("match", "LOBBY-*", "gamemode", "other"),
+                                Map.of("match", "survival-*", "gamemode", "survival")
+                        )
+                )
+        ), logger);
+
+        PlaytimeTrackingSettings playtime = settings.playtimeTrackingSettings();
+        assertEquals(List.of("dev-*"), playtime.blacklistedServerPatterns());
+        assertEquals(Set.of("staff"), playtime.queryBlacklistedGamemodes());
+        assertEquals(2, playtime.serverGamemodeRules().size());
+        assertEquals("lobby", playtime.serverGamemodeRules().getFirst().gamemodeKey());
+        assertTrue(logger.warnMessages.stream().anyMatch(message -> message.contains("Duplicate playtime rule")));
+        assertTrue(logger.warnMessages.stream().anyMatch(message -> message.contains("Invalid server pattern")));
     }
 
     private static final class RecordingLogger implements ILoggerAdapter {

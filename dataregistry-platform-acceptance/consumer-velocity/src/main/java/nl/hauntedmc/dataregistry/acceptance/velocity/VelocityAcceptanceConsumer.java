@@ -44,6 +44,10 @@ public final class VelocityAcceptanceConsumer {
                 require(api.supports(DataRegistryFeature.LANGUAGE), "Language support is unexpectedly disabled.");
                 PlayerIdentity identity = api.players().findIdentity(PLAYER_UUID)
                         .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow();
+                require(api.supports(DataRegistryFeature.PLAYTIME), "Playtime support is unexpectedly disabled.");
+                require(api.players().playtimeCatalog() != null, "Playtime catalog is unavailable.");
+                api.players().findPlaytimeByIdentifier(identity.username())
+                        .toCompletableFuture().get(10, TimeUnit.SECONDS);
                 api.players().saveLanguage(identity.playerId(), "EN", "en")
                         .toCompletableFuture().get(10, TimeUnit.SECONDS);
                 api.players().saveNickname(identity.playerId(), "Velocity Registry Tester")

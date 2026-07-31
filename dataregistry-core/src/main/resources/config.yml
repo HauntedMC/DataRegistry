@@ -50,14 +50,18 @@ features:
   service-registry: true
 
 playtime:
-  # Applies to: Velocity.
+  # Applies to: Both for read policy; Velocity owns server classification and accrual writes.
   # Periodic flush cadence for active online playtime (seconds, 5-300).
   flush-interval-seconds: 30
   # When true, unknown server names fall back to their normalized name only when it is a valid gamemode key.
   resolve-unknown-servers-as-gamemode: true
+  # Physical backend server patterns that never accrue playtime. Evaluated before mapping and fallback.
+  blacklisted-server-patterns: []
   # Gamemode keys that should never accrue tracked playtime.
   ignored-gamemodes: []
-  # Gamemode keys that should track individually but not count toward network totals.
+  # Tracked gamemodes hidden from public queries and automatically excluded from network totals.
+  query-blacklisted-gamemodes: []
+  # Queryable gamemode keys that should track individually but not count toward network totals.
   excluded-from-network-total-gamemodes: []
   # Ordered first-match server mapping rules. Supports '*' and '?' wildcards.
   # Example:

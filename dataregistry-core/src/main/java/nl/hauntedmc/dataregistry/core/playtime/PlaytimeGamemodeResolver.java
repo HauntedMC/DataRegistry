@@ -22,6 +22,10 @@ public final class PlaytimeGamemodeResolver {
             return new ResolvedGamemode(null, null, false, false);
         }
 
+        if (isBlacklistedServer(normalizedServerName)) {
+            return new ResolvedGamemode(normalizedServerName, null, false, false);
+        }
+
         String gamemodeKey = resolveGamemodeKey(normalizedServerName);
         if (gamemodeKey == null) {
             return new ResolvedGamemode(normalizedServerName, null, false, false);
@@ -43,6 +47,15 @@ public final class PlaytimeGamemodeResolver {
         }
         String normalized = value.trim().toLowerCase(Locale.ROOT);
         return normalized.isEmpty() ? null : normalized;
+    }
+
+    private boolean isBlacklistedServer(String normalizedServerName) {
+        for (String pattern : settings.blacklistedServerPatterns()) {
+            if (globMatches(pattern, normalizedServerName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String resolveGamemodeKey(String normalizedServerName) {

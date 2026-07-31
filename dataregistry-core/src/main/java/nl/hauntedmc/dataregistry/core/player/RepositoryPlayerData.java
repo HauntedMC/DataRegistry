@@ -24,9 +24,11 @@ import nl.hauntedmc.dataregistry.api.player.PlayerPageRequest;
 import nl.hauntedmc.dataregistry.api.player.PlayerProfile;
 import nl.hauntedmc.dataregistry.api.player.PlayerProfileQuery;
 import nl.hauntedmc.dataregistry.api.player.PlayerProfileResult;
+import nl.hauntedmc.dataregistry.api.playtime.PlaytimeCatalog;
 import nl.hauntedmc.dataregistry.api.playtime.PlayerGamemodePlaytimeSnapshot;
 import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeLeaderboardEntry;
 import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeSnapshot;
+import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerActivitySummaryRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerConnectionInfoRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerLanguageRepository;
@@ -71,6 +73,8 @@ public final class RepositoryPlayerData implements PlayerData {
     private final PlayerNameHistoryRepository nameHistoryRepository;
     private final PlayerPlaytimeRepository playtimeRepository;
     private final Set<String> playtimeExcludedGamemodeKeys;
+    private final Set<String> playtimePublicQueryExcludedGamemodeKeys;
+    private final PlaytimeCatalog playtimeCatalog;
 
     public RepositoryPlayerData(
             PlayerDirectory playerDirectory,
@@ -95,7 +99,7 @@ public final class RepositoryPlayerData implements PlayerData {
                 nicknameRepository,
                 nameHistoryRepository,
                 playtimeRepository,
-                Set.of()
+                PlaytimeTrackingSettings.defaults()
         );
     }
 
@@ -113,6 +117,42 @@ public final class RepositoryPlayerData implements PlayerData {
             PlayerPlaytimeRepository playtimeRepository,
             Collection<String> playtimeExcludedGamemodeKeys
     ) {
+        this(
+                playerDirectory,
+                queryExecutor,
+                ormContext,
+                enabledFeatures,
+                activitySummaryRepository,
+                onlineStatusRepository,
+                connectionInfoRepository,
+                languageRepository,
+                nicknameRepository,
+                nameHistoryRepository,
+                playtimeRepository,
+                PlaytimeTrackingSettings.builder()
+                        .excludedFromNetworkTotalGamemodes(
+                                playtimeExcludedGamemodeKeys == null
+                                        ? Set.of()
+                                        : new LinkedHashSet<>(playtimeExcludedGamemodeKeys)
+                        )
+                        .build()
+        );
+    }
+
+    public RepositoryPlayerData(
+            PlayerDirectory playerDirectory,
+            DataRegistryQueryExecutor queryExecutor,
+            ORMContext ormContext,
+            Set<DataRegistryFeature> enabledFeatures,
+            PlayerActivitySummaryRepository activitySummaryRepository,
+            PlayerOnlineStatusRepository onlineStatusRepository,
+            PlayerConnectionInfoRepository connectionInfoRepository,
+            PlayerLanguageRepository languageRepository,
+            PlayerNicknameRepository nicknameRepository,
+            PlayerNameHistoryRepository nameHistoryRepository,
+            PlayerPlaytimeRepository playtimeRepository,
+            PlaytimeTrackingSettings playtimeSettings
+    ) {
         this.playerDirectory = Objects.requireNonNull(playerDirectory, "playerDirectory must not be null");
         this.queryExecutor = Objects.requireNonNull(queryExecutor, "queryExecutor must not be null");
         this.ormContext = ormContext;
@@ -124,7 +164,13 @@ public final class RepositoryPlayerData implements PlayerData {
         this.nicknameRepository = nicknameRepository;
         this.nameHistoryRepository = nameHistoryRepository;
         this.playtimeRepository = playtimeRepository;
-        this.playtimeExcludedGamemodeKeys = normalizeGamemodeKeys(playtimeExcludedGamemodeKeys);
+        PlaytimeTrackingSettings effectivePlaytimeSettings = Objects.requireNonNull(
+                playtimeSettings,
+                "playtimeSettings must not be null"
+        );
+        this.playtimeExcludedGamemodeKeys = effectivePlaytimeSettings.networkTotalExcludedGamemodes();
+        this.playtimePublicQueryExcludedGamemodeKeys = effectivePlaytimeSettings.publicQueryExcludedGamemodes();
+        this.playtimeCatalog = effectivePlaytimeSettings.catalog();
     }
 
     @Override
@@ -441,6 +487,11 @@ public final class RepositoryPlayerData implements PlayerData {
     }
 
     @Override
+    public PlaytimeCatalog playtimeCatalog() {
+        return playtimeCatalog;
+    }
+
+    @Override
     public CompletionStage<Optional<PlayerPlaytimeSnapshot>> findPlaytime(long playerId) {
         return queryExecutor.supply("player.playtime.find", () -> findPlaytimeSync(playerId, Instant.now()));
     }
@@ -454,6 +505,38 @@ public final class RepositoryPlayerData implements PlayerData {
     }
 
     @Override
+    public CompletionStage<Optional<PlayerPlaytimeSnapshot>> findPlaytime(UUID uuid) {
+        if (uuid == null) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+        return findPlaytime(PlayerLookup.uuid(uuid));
+    }
+
+    @Override
+    public CompletionStage<Optional<PlayerPlaytimeSnapshot>> findPlaytime(PlayerLookup lookup) {
+        if (lookup == null || playtimeRepository == null) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+        if (ormContext == null) {
+            return findIdentity(lookup).thenCompose(identity -> identity
+                    .map(value -> findPlaytime(value.playerId()))
+                    .orElseGet(() -> CompletableFuture.completedFuture(Optional.empty())));
+        }
+        return queryExecutor.supply(
+                "player.playtime.lookup",
+                () -> findPlaytimeProjection(lookup, Instant.now())
+        );
+    }
+
+    @Override
+    public CompletionStage<Optional<PlayerPlaytimeSnapshot>> findPlaytimeByIdentifier(String identifier) {
+        if (identifier == null || identifier.isBlank()) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+        return findPlaytime(PlayerLookup.identifier(identifier));
+    }
+
+    @Override
     public CompletionStage<List<PlayerPlaytimeLeaderboardEntry>> findTopPlaytime(int limit) {
         return queryExecutor.supply("player.playtime.leaderboard", () -> {
             if (playtimeRepository == null) {
@@ -464,9 +547,12 @@ public final class RepositoryPlayerData implements PlayerData {
     }
 
     @Override
-    public CompletionStage<List<PlayerPlaytimeLeaderboardEntry>> findTopPlaytimeByGamemode(String gamemodeKey, int limit) {
+    public CompletionStage<List<PlayerPlaytimeLeaderboardEntry>> findTopPlaytimeByGamemode(
+            String gamemodeKey,
+            int limit
+    ) {
         return queryExecutor.supply("player.playtime.gamemode-leaderboard", () -> {
-            if (playtimeRepository == null) {
+            if (playtimeRepository == null || !playtimeCatalog.isQueryable(gamemodeKey)) {
                 return List.of();
             }
             return playtimeRepository.findTopPlayersByGamemode(gamemodeKey, limit);
@@ -479,7 +565,9 @@ public final class RepositoryPlayerData implements PlayerData {
             if (playtimeRepository == null) {
                 return List.of();
             }
-            return playtimeRepository.findTrackedGamemodeKeys();
+            return playtimeRepository.findTrackedGamemodeKeys().stream()
+                    .filter(playtimeCatalog::isQueryable)
+                    .toList();
         });
     }
 
@@ -592,6 +680,16 @@ public final class RepositoryPlayerData implements PlayerData {
             return Optional.empty();
         }
         return playtimeRepository.findSnapshotByPlayerId(playerId, asOf);
+    }
+
+    private Optional<PlayerPlaytimeSnapshot> findPlaytimeProjection(PlayerLookup lookup, Instant asOf) {
+        return ormContext.runInTransaction(session -> {
+            PlayerEntity player = findPlayer(session, lookup);
+            if (player == null || player.getId() == null) {
+                return Optional.empty();
+            }
+            return findPlaytimeInSession(session, PlayerRepository.toIdentity(player), asOf);
+        });
     }
 
     private Optional<PlayerProfile> findProfileProjection(PlayerLookup lookup, PlayerProfileQuery query) {
@@ -755,15 +853,19 @@ public final class RepositoryPlayerData implements PlayerData {
         long trackedTotalMillis = 0L;
         long networkTotalMillis = 0L;
         for (PlayerPlaytimeEntity aggregate : aggregates) {
-            boolean counted = !playtimeExcludedGamemodeKeys.contains(aggregate.getGamemodeKey());
+            String gamemodeKey = aggregate.getGamemodeKey();
+            if (playtimePublicQueryExcludedGamemodeKeys.contains(gamemodeKey)) {
+                continue;
+            }
+            boolean counted = !playtimeExcludedGamemodeKeys.contains(gamemodeKey);
             trackedTotalMillis += aggregate.getTrackedMillis();
             if (counted) {
                 networkTotalMillis += aggregate.getTrackedMillis();
             }
             byGamemode.put(
-                    aggregate.getGamemodeKey(),
+                    gamemodeKey,
                     new GamemodeSnapshotAccumulator(
-                            aggregate.getGamemodeKey(),
+                            gamemodeKey,
                             aggregate.getTrackedMillis(),
                             counted,
                             false,
@@ -778,33 +880,36 @@ public final class RepositoryPlayerData implements PlayerData {
 
         if (openSegment.isPresent() && isLiveSegment(openSegment.get(), asOf)) {
             PlayerPlaytimeSegmentEntity segment = openSegment.get();
-            long liveDeltaMillis = computeLiveDeltaMillis(segment.getLastAccruedAt(), asOf);
-            boolean counted = !playtimeExcludedGamemodeKeys.contains(segment.getGamemodeKey());
-            trackedTotalMillis += liveDeltaMillis;
-            if (counted) {
-                networkTotalMillis += liveDeltaMillis;
+            String gamemodeKey = segment.getGamemodeKey();
+            if (!playtimePublicQueryExcludedGamemodeKeys.contains(gamemodeKey)) {
+                long liveDeltaMillis = computeLiveDeltaMillis(segment.getLastAccruedAt(), asOf);
+                boolean counted = !playtimeExcludedGamemodeKeys.contains(gamemodeKey);
+                trackedTotalMillis += liveDeltaMillis;
+                if (counted) {
+                    networkTotalMillis += liveDeltaMillis;
+                }
+                GamemodeSnapshotAccumulator accumulator = byGamemode.computeIfAbsent(
+                        gamemodeKey,
+                        key -> new GamemodeSnapshotAccumulator(
+                                key,
+                                0L,
+                                counted,
+                                false,
+                                null,
+                                null,
+                                segment.getStartedAt(),
+                                segment.getStartedAt(),
+                                1L
+                        )
+                );
+                accumulator.trackedMillis += liveDeltaMillis;
+                accumulator.countedTowardsNetworkTotal = counted;
+                accumulator.active = true;
+                accumulator.activeSince = segment.getStartedAt();
+                accumulator.activeServerName = segment.getLastServer();
+                accumulator.firstTrackedAt = minInstant(accumulator.firstTrackedAt, segment.getStartedAt());
+                accumulator.lastTrackedAt = maxInstant(accumulator.lastTrackedAt, asOf);
             }
-            GamemodeSnapshotAccumulator accumulator = byGamemode.computeIfAbsent(
-                    segment.getGamemodeKey(),
-                    key -> new GamemodeSnapshotAccumulator(
-                            key,
-                            0L,
-                            counted,
-                            false,
-                            null,
-                            null,
-                            segment.getStartedAt(),
-                            segment.getStartedAt(),
-                            1L
-                    )
-            );
-            accumulator.trackedMillis += liveDeltaMillis;
-            accumulator.countedTowardsNetworkTotal = counted;
-            accumulator.active = true;
-            accumulator.activeSince = segment.getStartedAt();
-            accumulator.activeServerName = segment.getLastServer();
-            accumulator.firstTrackedAt = minInstant(accumulator.firstTrackedAt, segment.getStartedAt());
-            accumulator.lastTrackedAt = maxInstant(accumulator.lastTrackedAt, asOf);
         }
 
         List<PlayerGamemodePlaytimeSnapshot> gamemodeSnapshots = byGamemode.values().stream()
@@ -893,28 +998,6 @@ public final class RepositoryPlayerData implements PlayerData {
         if (repository == null) {
             throw new IllegalStateException(feature + " data is unavailable.");
         }
-    }
-
-    private static Set<String> normalizeGamemodeKeys(Collection<String> values) {
-        if (values == null || values.isEmpty()) {
-            return Set.of();
-        }
-        LinkedHashSet<String> normalized = new LinkedHashSet<>();
-        for (String value : values) {
-            String normalizedValue = normalizeGamemodeKey(value);
-            if (normalizedValue != null) {
-                normalized.add(normalizedValue);
-            }
-        }
-        return Set.copyOf(normalized);
-    }
-
-    private static String normalizeGamemodeKey(String value) {
-        if (value == null) {
-            return null;
-        }
-        String normalized = value.trim().toLowerCase(Locale.ROOT);
-        return normalized.isEmpty() ? null : normalized;
     }
 
     private static String normalizeUuid(String value) {
