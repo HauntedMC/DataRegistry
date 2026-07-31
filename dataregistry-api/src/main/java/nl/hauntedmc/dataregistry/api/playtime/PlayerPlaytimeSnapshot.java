@@ -6,8 +6,9 @@ import java.util.List;
 /**
  * Public read-side snapshot of a player's queryable tracked playtime.
  * <p>
- * Both totals and the gamemode list omit query-blacklisted gamemodes. {@code networkTotalMillis} additionally omits
- * queryable gamemodes configured not to count toward the public network total.
+ * Both totals and the gamemode list omit ignored and query-blacklisted gamemodes, including any historical aggregate
+ * rows retained for those keys. {@code networkTotalMillis} additionally omits queryable gamemodes configured not to
+ * count toward the public network total.
  */
 public record PlayerPlaytimeSnapshot(
         Long playerId,
