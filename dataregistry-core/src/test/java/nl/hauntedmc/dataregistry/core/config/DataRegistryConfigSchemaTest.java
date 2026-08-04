@@ -2,9 +2,12 @@ package nl.hauntedmc.dataregistry.core.config;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DataRegistryConfigSchemaTest {
@@ -63,6 +66,8 @@ class DataRegistryConfigSchemaTest {
         assertTrue(rendered.contains("flush-interval-seconds: 30"));
         assertTrue(rendered.contains("resolve-unknown-servers-as-gamemode: true"));
         assertTrue(rendered.contains("only when it is a valid gamemode key"));
+        assertTrue(rendered.contains("blacklisted-server-patterns: []"));
+        assertTrue(rendered.contains("query-blacklisted-gamemodes: []"));
         assertTrue(rendered.contains("server-gamemode-rules: []"));
         assertTrue(rendered.contains("activity-summary: true"));
         assertTrue(rendered.contains("session-visits: true"));
@@ -78,6 +83,7 @@ class DataRegistryConfigSchemaTest {
         assertTrue(rendered.contains("player-history-purge-interval-hours: 1"));
         assertTrue(rendered.contains("service-instance-purge-interval-hours: 24"));
         assertTrue(rendered.contains("write-max-attempts: 3"));
+        assertEquals(1, occurrences(rendered, "write-max-attempts: 3"));
         assertTrue(rendered.contains("retry-base-delay-millis: 25"));
         assertTrue(rendered.contains("register-service-instance: false"));
         assertTrue(rendered.contains("service-name: auto"));
@@ -87,4 +93,35 @@ class DataRegistryConfigSchemaTest {
         assertTrue(rendered.contains("max-length: 255"));
         assertTrue(rendered.contains("max-length: 45"));
     }
+    @Test
+    void renderCanonicalConfigPreservesPlaytimePolicyAndOrderedRules() {
+        PlaytimeTrackingSettings playtime = PlaytimeTrackingSettings.builder()
+                .resolveUnknownServersAsGamemode(false)
+                .blacklistedServerPatterns(List.of("dev-*", "limbo-?"))
+                .ignoredGamemodes(Set.of("queue"))
+                .queryBlacklistedGamemodes(Set.of("staff"))
+                .excludedFromNetworkTotalGamemodes(Set.of("lobby"))
+                .serverGamemodeRules(List.of(
+                        new PlaytimeTrackingSettings.ServerGamemodeRule("lobby-*", "lobby"),
+                        new PlaytimeTrackingSettings.ServerGamemodeRule("survival-*", "survival")
+                ))
+                .build();
+        DataRegistrySettings settings = DataRegistrySettings.builder()
+                .playtimeTrackingSettings(playtime)
+                .build();
+
+        String rendered = DataRegistryConfigSchema.renderCanonicalConfig(settings);
+
+        assertTrue(rendered.contains("blacklisted-server-patterns:\n    - \"dev-*\""));
+        assertTrue(rendered.contains("query-blacklisted-gamemodes:\n    - \"staff\""));
+        assertTrue(rendered.contains("excluded-from-network-total-gamemodes:\n    - \"lobby\""));
+        assertTrue(rendered.contains("- match: \"lobby-*\"\n      gamemode: lobby"));
+        assertTrue(rendered.indexOf("lobby-*") < rendered.indexOf("survival-*"));
+        assertFalse(rendered.contains("excluded-from-network-total-gamemodes:\n    - \"staff\""));
+    }
+
+    private static int occurrences(String value, String needle) {
+        return value.split(java.util.regex.Pattern.quote(needle), -1).length - 1;
+    }
+
 }

@@ -65,31 +65,46 @@ class PlaytimeTrackingSettingsEdgeCaseTest {
     @Test
     void builtCollectionsAreImmutableAndDetachedFromBuilderInputs() {
         Set<String> ignored = new LinkedHashSet<>(Set.of("lobby"));
+        Set<String> hidden = new LinkedHashSet<>(Set.of("staff"));
+        List<String> blacklistedServers = new ArrayList<>(List.of("dev-*"));
         List<PlaytimeTrackingSettings.ServerGamemodeRule> rules = new ArrayList<>(List.of(
                 new PlaytimeTrackingSettings.ServerGamemodeRule("lobby-*", "lobby")
         ));
         PlaytimeTrackingSettings settings = PlaytimeTrackingSettings.builder()
+                .blacklistedServerPatterns(blacklistedServers)
                 .ignoredGamemodes(ignored)
+                .queryBlacklistedGamemodes(hidden)
                 .serverGamemodeRules(rules)
                 .build();
         ignored.add("queue");
+        hidden.add("admin");
+        blacklistedServers.clear();
         rules.clear();
 
+        assertEquals(List.of("dev-*"), settings.blacklistedServerPatterns());
         assertEquals(Set.of("lobby"), settings.ignoredGamemodes());
+        assertEquals(Set.of("staff"), settings.queryBlacklistedGamemodes());
         assertEquals(1, settings.serverGamemodeRules().size());
+        assertThrows(UnsupportedOperationException.class, () -> settings.blacklistedServerPatterns().clear());
         assertThrows(UnsupportedOperationException.class, () -> settings.ignoredGamemodes().add("queue"));
+        assertThrows(UnsupportedOperationException.class, () -> settings.queryBlacklistedGamemodes().add("admin"));
         assertThrows(UnsupportedOperationException.class, () -> settings.serverGamemodeRules().clear());
     }
 
     @Test
     void nullBuilderCollectionsProduceEmptyCollections() {
         PlaytimeTrackingSettings settings = PlaytimeTrackingSettings.builder()
+                .blacklistedServerPatterns(null)
                 .ignoredGamemodes(null)
+                .queryBlacklistedGamemodes(null)
                 .excludedFromNetworkTotalGamemodes(null)
                 .serverGamemodeRules(null)
                 .build();
 
+        assertTrue(settings.blacklistedServerPatterns().isEmpty());
         assertTrue(settings.ignoredGamemodes().isEmpty());
+        assertTrue(settings.queryBlacklistedGamemodes().isEmpty());
+        assertTrue(settings.publicQueryExcludedGamemodes().isEmpty());
         assertTrue(settings.excludedFromNetworkTotalGamemodes().isEmpty());
         assertTrue(settings.serverGamemodeRules().isEmpty());
     }

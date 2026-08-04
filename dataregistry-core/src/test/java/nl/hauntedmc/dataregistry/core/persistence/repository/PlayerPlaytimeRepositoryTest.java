@@ -37,10 +37,15 @@ class PlayerPlaytimeRepositoryTest {
         Query<PlayerPlaytimeEntity> aggregateQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
         Query<PlayerPlaytimeSegmentEntity> segmentQuery = mock(Query.class);
-        PlayerPlaytimeRepository repository = new PlayerPlaytimeRepository(ormContext, Set.of("lobby"));
+        PlayerPlaytimeRepository repository = new PlayerPlaytimeRepository(
+                ormContext,
+                Set.of("lobby"),
+                Set.of("staff")
+        );
         PlayerEntity player = player(10L, "Alice");
         PlayerPlaytimeEntity lobbyAggregate = aggregate(player, "lobby", 5_000L);
         PlayerPlaytimeEntity skyblockAggregate = aggregate(player, "skyblock", 8_000L);
+        PlayerPlaytimeEntity hiddenStaffAggregate = aggregate(player, "staff", 7_000L);
         PlayerSessionEntity openSession = openSession(player);
         PlayerPlaytimeSegmentEntity openSegment = openSegment(player, openSession, "lobby");
         Instant asOf = openSegment.getLastAccruedAt().plusSeconds(5);
@@ -49,7 +54,7 @@ class PlayerPlaytimeRepositoryTest {
         when(session.find(PlayerEntity.class, 10L)).thenReturn(player);
         when(session.createQuery(anyString(), eq(PlayerPlaytimeEntity.class))).thenReturn(aggregateQuery);
         when(aggregateQuery.setParameter(eq("playerId"), eq(10L))).thenReturn(aggregateQuery);
-        when(aggregateQuery.list()).thenReturn(List.of(lobbyAggregate, skyblockAggregate));
+        when(aggregateQuery.list()).thenReturn(List.of(lobbyAggregate, skyblockAggregate, hiddenStaffAggregate));
         when(session.createQuery(anyString(), eq(PlayerPlaytimeSegmentEntity.class))).thenReturn(segmentQuery);
         when(segmentQuery.setParameter(eq("playerId"), eq(10L))).thenReturn(segmentQuery);
         when(segmentQuery.setMaxResults(1)).thenReturn(segmentQuery);
@@ -62,6 +67,7 @@ class PlayerPlaytimeRepositoryTest {
         assertEquals(8_000L, snapshot.get().networkTotalMillis());
         assertEquals(2, snapshot.get().gamemodes().size());
         assertTrue(snapshot.get().gamemodes().stream().anyMatch(entry -> entry.active()));
+        assertFalse(snapshot.get().gamemodes().stream().anyMatch(entry -> entry.gamemodeKey().equals("staff")));
     }
 
     @Test
@@ -120,6 +126,19 @@ class PlayerPlaytimeRepositoryTest {
         assertEquals("Cara", leaderboard.getFirst().username());
         assertEquals(15_000L, leaderboard.getFirst().trackedMillis());
         verify(leaderboardQuery).setMaxResults(1);
+    }
+
+    @Test
+    void queryBlacklistedGamemodeLeaderboardReturnsEmptyWithoutDatabaseWork() {
+        ORMContext ormContext = mock(ORMContext.class);
+        PlayerPlaytimeRepository repository = new PlayerPlaytimeRepository(
+                ormContext,
+                Set.of(),
+                Set.of("staff")
+        );
+
+        assertTrue(repository.findTopPlayersByGamemode(" STAFF ", 10).isEmpty());
+        org.mockito.Mockito.verifyNoInteractions(ormContext);
     }
 
     @Test

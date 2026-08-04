@@ -124,6 +124,23 @@ class PlaytimeGamemodeResolverEdgeCaseTest {
     }
 
     @Test
+    void queryBlacklistedGamemodeStillAccruesInternallyButNeverCountsTowardsNetworkTotal() {
+        PlaytimeTrackingSettings settings = PlaytimeTrackingSettings.builder()
+                .queryBlacklistedGamemodes(Set.of("staff"))
+                .serverGamemodeRules(List.of(
+                        new PlaytimeTrackingSettings.ServerGamemodeRule("staff-*", "staff")
+                ))
+                .build();
+
+        PlaytimeGamemodeResolver.ResolvedGamemode resolved = new PlaytimeGamemodeResolver(settings)
+                .resolve("staff-1");
+
+        assertTrue(resolved.tracked());
+        assertFalse(resolved.countedTowardsNetworkTotal());
+        assertFalse(settings.catalog().isQueryable("staff"));
+    }
+
+    @Test
     void serverNameNormalizationUsesLocaleIndependentLowercase() {
         assertEquals("lobby-i", PlaytimeGamemodeResolver.normalizeServerNameOrNull(" LOBBY-I "));
         assertNull(PlaytimeGamemodeResolver.normalizeServerNameOrNull(null));

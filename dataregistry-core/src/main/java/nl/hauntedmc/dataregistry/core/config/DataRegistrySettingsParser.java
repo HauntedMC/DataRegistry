@@ -65,7 +65,11 @@ final class DataRegistrySettingsParser {
     private static final String PLAYTIME_FLUSH_INTERVAL_SECONDS_KEY = "playtime.flush-interval-seconds";
     private static final String PLAYTIME_RESOLVE_UNKNOWN_SERVERS_KEY =
             "playtime.resolve-unknown-servers-as-gamemode";
+    private static final String PLAYTIME_BLACKLISTED_SERVER_PATTERNS_KEY =
+            "playtime.blacklisted-server-patterns";
     private static final String PLAYTIME_IGNORED_GAMEMODES_KEY = "playtime.ignored-gamemodes";
+    private static final String PLAYTIME_QUERY_BLACKLISTED_GAMEMODES_KEY =
+            "playtime.query-blacklisted-gamemodes";
     private static final String PLAYTIME_EXCLUDED_GAMEMODES_KEY =
             "playtime.excluded-from-network-total-gamemodes";
     private static final String PLAYTIME_SERVER_GAMEMODE_RULES_KEY = "playtime.server-gamemode-rules";
@@ -659,11 +663,24 @@ final class DataRegistrySettingsParser {
                 logger
         ));
         builder.gamemodeKeyMaxLength(gamemodeKeyMaxLength);
+        builder.blacklistedServerPatterns(parseServerPatternList(
+                configRoot,
+                PLAYTIME_BLACKLISTED_SERVER_PATTERNS_KEY,
+                defaults.blacklistedServerPatterns(),
+                logger
+        ));
         builder.ignoredGamemodes(parseGamemodeKeySet(
                 configRoot,
                 PLAYTIME_IGNORED_GAMEMODES_KEY,
                 gamemodeKeyMaxLength,
                 defaults.ignoredGamemodes(),
+                logger
+        ));
+        builder.queryBlacklistedGamemodes(parseGamemodeKeySet(
+                configRoot,
+                PLAYTIME_QUERY_BLACKLISTED_GAMEMODES_KEY,
+                gamemodeKeyMaxLength,
+                defaults.queryBlacklistedGamemodes(),
                 logger
         ));
         builder.excludedFromNetworkTotalGamemodes(parseGamemodeKeySet(
@@ -706,6 +723,35 @@ final class DataRegistrySettingsParser {
             );
             return defaultValue;
         }
+    }
+
+    private static List<String> parseServerPatternList(
+            Map<?, ?> configRoot,
+            String key,
+            List<String> defaultValue,
+            ILoggerAdapter logger
+    ) {
+        Object value = getValue(configRoot, key);
+        if (value == null) {
+            return defaultValue;
+        }
+        if (!(value instanceof List<?> listValue)) {
+            logger.warn("Invalid list for key '" + key + "'. Using default '" + defaultValue + "'.");
+            return defaultValue;
+        }
+        LinkedHashSet<String> parsed = new LinkedHashSet<>();
+        for (Object item : listValue) {
+            try {
+                parsed.add(PlaytimeTrackingSettings.normalizeServerPattern(
+                        item == null ? null : item.toString()
+                ));
+            } catch (IllegalArgumentException exception) {
+                logger.warn(
+                        "Invalid server pattern for key '" + key + "': '" + item + "'. Skipping entry."
+                );
+            }
+        }
+        return List.copyOf(parsed);
     }
 
     private static Set<String> parseGamemodeKeySet(
@@ -754,6 +800,7 @@ final class DataRegistrySettingsParser {
             return defaultValue;
         }
         List<PlaytimeTrackingSettings.ServerGamemodeRule> parsed = new ArrayList<>();
+        Set<String> seenMatches = new LinkedHashSet<>();
         for (Object item : listValue) {
             if (!(item instanceof Map<?, ?> ruleMap)) {
                 logger.warn("Invalid rule entry for key '" + key + "'. Skipping entry.");
@@ -770,10 +817,19 @@ final class DataRegistrySettingsParser {
                 continue;
             }
             try {
-                parsed.add(new PlaytimeTrackingSettings.ServerGamemodeRule(
-                        matchValue.toString(),
-                        normalizedGamemode
-                ));
+                PlaytimeTrackingSettings.ServerGamemodeRule rule =
+                        new PlaytimeTrackingSettings.ServerGamemodeRule(
+                                matchValue.toString(),
+                                normalizedGamemode
+                        );
+                if (!seenMatches.add(rule.match())) {
+                    logger.warn(
+                            "Duplicate playtime rule match '" + rule.match() + "' for key '" + key
+                                    + "'. First rule wins; skipping entry."
+                    );
+                    continue;
+                }
+                parsed.add(rule);
             } catch (IllegalArgumentException exception) {
                 logger.warn(
                         "Invalid playtime rule for key '" + key + "': '" + item + "'. Skipping entry."

@@ -190,7 +190,7 @@ public class DataRegistry implements DataRegistryApi {
                     playerNicknameRepository,
                     playerNameHistoryRepository,
                     playerPlaytimeRepository,
-                    settings.playtimeTrackingSettings().excludedFromNetworkTotalGamemodes()
+                    settings.playtimeTrackingSettings()
             );
             this.networkServiceRepository = null;
             this.serviceInstanceRepository = null;
@@ -565,7 +565,8 @@ public class DataRegistry implements DataRegistryApi {
     PlayerPlaytimeRepository newPlayerPlaytimeRepository(ORMContext context) {
         return new PlayerPlaytimeRepository(
                 context,
-                settings.playtimeTrackingSettings().excludedFromNetworkTotalGamemodes()
+                settings.playtimeTrackingSettings().excludedFromNetworkTotalGamemodes(),
+                settings.playtimeTrackingSettings().publicQueryExcludedGamemodes()
         );
     }
 

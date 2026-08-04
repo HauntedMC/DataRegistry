@@ -108,6 +108,37 @@ class PlayerPlaytimeServiceTest {
     }
 
     @Test
+    void onServerSwitchFlushesAndStopsTrackingBeforeMappingBlacklistedServer() {
+        TestContext context = createContext(PlaytimeTrackingSettings.builder()
+                .blacklistedServerPatterns(List.of("survival-maintenance"))
+                .serverGamemodeRules(List.of(
+                        new PlaytimeTrackingSettings.ServerGamemodeRule("survival-*", "survival")
+                ))
+                .build());
+        PlayerEntity player = persistedPlayer();
+        PlayerSessionEntity openSession = openSession(player, 4L);
+        PlayerPlaytimeEntity aggregate = aggregate(player, "survival", 5_000L);
+        PlayerPlaytimeSegmentEntity openSegment = openSegment(
+                player,
+                openSession,
+                "survival",
+                "survival-1"
+        );
+        openSegment.setLastAccruedAt(Instant.now().minusSeconds(10));
+
+        when(context.sessionQuery.uniqueResultOptional()).thenReturn(Optional.of(openSession));
+        when(context.segmentQuery.uniqueResultOptional()).thenReturn(Optional.of(openSegment));
+        when(context.aggregateQuery.uniqueResultOptional()).thenReturn(Optional.of(aggregate));
+
+        context.service.onServerSwitch(player, "survival-maintenance");
+
+        assertEquals(PlayerPlaytimeSegmentCloseReason.STOP_TRACKING, openSegment.getCloseReason());
+        assertNotNull(openSegment.getEndedAt());
+        assertTrue(aggregate.getTrackedMillis() >= 14_000L);
+        verify(context.session, never()).persist(any(PlayerPlaytimeSegmentEntity.class));
+    }
+
+    @Test
     void closeActivePlaytimeOnDisconnectFlushesAndClosesCurrentSegment() {
         TestContext context = createContext(PlaytimeTrackingSettings.defaults());
         PlayerEntity player = persistedPlayer();

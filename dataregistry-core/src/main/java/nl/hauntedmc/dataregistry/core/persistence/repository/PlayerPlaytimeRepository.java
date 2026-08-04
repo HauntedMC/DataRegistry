@@ -27,22 +27,33 @@ import java.util.UUID;
 public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeEntity, Long> {
 
     private final Set<String> defaultExcludedGamemodeKeys;
+    private final Set<String> defaultPublicQueryExcludedGamemodeKeys;
 
     public PlayerPlaytimeRepository(ORMContext ormContext) {
-        this(ormContext, Set.of());
+        this(ormContext, Set.of(), Set.of());
     }
 
     public PlayerPlaytimeRepository(ORMContext ormContext, Collection<String> defaultExcludedGamemodeKeys) {
+        this(ormContext, defaultExcludedGamemodeKeys, Set.of());
+    }
+
+    public PlayerPlaytimeRepository(
+            ORMContext ormContext,
+            Collection<String> defaultExcludedGamemodeKeys,
+            Collection<String> defaultPublicQueryExcludedGamemodeKeys
+    ) {
         super(ormContext, PlayerPlaytimeEntity.class);
-        Objects.requireNonNull(defaultExcludedGamemodeKeys, "defaultExcludedGamemodeKeys must not be null");
-        LinkedHashSet<String> normalizedExcludedGamemodes = new LinkedHashSet<>();
-        for (String gamemodeKey : defaultExcludedGamemodeKeys) {
-            String normalized = normalizeGamemodeKey(gamemodeKey);
-            if (normalized != null) {
-                normalizedExcludedGamemodes.add(normalized);
-            }
-        }
-        this.defaultExcludedGamemodeKeys = Set.copyOf(normalizedExcludedGamemodes);
+        this.defaultPublicQueryExcludedGamemodeKeys = normalizeGamemodeKeys(
+                Objects.requireNonNull(
+                        defaultPublicQueryExcludedGamemodeKeys,
+                        "defaultPublicQueryExcludedGamemodeKeys must not be null"
+                )
+        );
+        LinkedHashSet<String> effectiveExcludedGamemodes = new LinkedHashSet<>(normalizeGamemodeKeys(
+                Objects.requireNonNull(defaultExcludedGamemodeKeys, "defaultExcludedGamemodeKeys must not be null")
+        ));
+        effectiveExcludedGamemodes.addAll(this.defaultPublicQueryExcludedGamemodeKeys);
+        this.defaultExcludedGamemodeKeys = Set.copyOf(effectiveExcludedGamemodes);
     }
 
     public Optional<PlayerPlaytimeEntity> findByPlayerAndGamemode(Long playerId, String gamemodeKey) {
@@ -105,7 +116,10 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
     ) {
         Objects.requireNonNull(playerId, "playerId must not be null");
         Objects.requireNonNull(asOf, "asOf must not be null");
-        Set<String> normalizedExcludedGamemodes = normalizeGamemodeKeys(excludedGamemodeKeys);
+        LinkedHashSet<String> normalizedExcludedGamemodes = new LinkedHashSet<>(
+                normalizeGamemodeKeys(excludedGamemodeKeys)
+        );
+        normalizedExcludedGamemodes.addAll(defaultPublicQueryExcludedGamemodeKeys);
         return ormContext.runInTransaction(session -> {
             PlayerEntity player = session.find(PlayerEntity.class, playerId);
             if (player == null) {
@@ -128,15 +142,22 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
             long networkTotalMillis = 0L;
 
             for (PlayerPlaytimeEntity aggregate : aggregates) {
-                boolean counted = !normalizedExcludedGamemodes.contains(aggregate.getGamemodeKey());
-                trackedTotalMillis += aggregate.getTrackedMillis();
+                String gamemodeKey = aggregate.getGamemodeKey();
+                boolean publiclyHidden = defaultPublicQueryExcludedGamemodeKeys.contains(gamemodeKey);
+                boolean counted = !normalizedExcludedGamemodes.contains(gamemodeKey);
+                if (!publiclyHidden) {
+                    trackedTotalMillis += aggregate.getTrackedMillis();
+                }
                 if (counted) {
                     networkTotalMillis += aggregate.getTrackedMillis();
                 }
+                if (publiclyHidden) {
+                    continue;
+                }
                 byGamemode.put(
-                        aggregate.getGamemodeKey(),
+                        gamemodeKey,
                         new GamemodeSnapshotAccumulator(
-                                aggregate.getGamemodeKey(),
+                                gamemodeKey,
                                 aggregate.getTrackedMillis(),
                                 counted,
                                 false,
@@ -152,35 +173,40 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
             if (openSegment.isPresent() && isLiveSegment(openSegment.get(), asOf)) {
                 PlayerPlaytimeSegmentEntity segment = openSegment.get();
                 long liveDeltaMillis = computeLiveDeltaMillis(segment.getLastAccruedAt(), asOf);
+                boolean publiclyHidden = defaultPublicQueryExcludedGamemodeKeys.contains(segment.getGamemodeKey());
                 boolean counted = !normalizedExcludedGamemodes.contains(segment.getGamemodeKey());
                 if (liveDeltaMillis > 0L) {
-                    trackedTotalMillis += liveDeltaMillis;
+                    if (!publiclyHidden) {
+                        trackedTotalMillis += liveDeltaMillis;
+                    }
                     if (counted) {
                         networkTotalMillis += liveDeltaMillis;
                     }
                 }
 
-                GamemodeSnapshotAccumulator accumulator = byGamemode.computeIfAbsent(
-                        segment.getGamemodeKey(),
-                        key -> new GamemodeSnapshotAccumulator(
-                                key,
-                                0L,
-                                counted,
-                                false,
-                                null,
-                                null,
-                                segment.getStartedAt(),
-                                segment.getStartedAt(),
-                                1L
-                        )
-                );
-                accumulator.trackedMillis += liveDeltaMillis;
-                accumulator.countedTowardsNetworkTotal = counted;
-                accumulator.active = true;
-                accumulator.activeSince = segment.getStartedAt();
-                accumulator.activeServerName = segment.getLastServer();
-                accumulator.firstTrackedAt = minInstant(accumulator.firstTrackedAt, segment.getStartedAt());
-                accumulator.lastTrackedAt = maxInstant(accumulator.lastTrackedAt, asOf);
+                if (!publiclyHidden) {
+                    GamemodeSnapshotAccumulator accumulator = byGamemode.computeIfAbsent(
+                            segment.getGamemodeKey(),
+                            key -> new GamemodeSnapshotAccumulator(
+                                    key,
+                                    0L,
+                                    counted,
+                                    false,
+                                    null,
+                                    null,
+                                    segment.getStartedAt(),
+                                    segment.getStartedAt(),
+                                    1L
+                            )
+                    );
+                    accumulator.trackedMillis += liveDeltaMillis;
+                    accumulator.countedTowardsNetworkTotal = counted;
+                    accumulator.active = true;
+                    accumulator.activeSince = segment.getStartedAt();
+                    accumulator.activeServerName = segment.getLastServer();
+                    accumulator.firstTrackedAt = minInstant(accumulator.firstTrackedAt, segment.getStartedAt());
+                    accumulator.lastTrackedAt = maxInstant(accumulator.lastTrackedAt, asOf);
+                }
             }
 
             List<PlayerGamemodePlaytimeSnapshot> gamemodeSnapshots = byGamemode.values().stream()
@@ -228,6 +254,9 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
 
     public List<PlayerPlaytimeLeaderboardEntry> findTopPlayersByGamemode(String gamemodeKey, int limit) {
         String normalizedGamemodeKey = requireNormalizedGamemodeKey(gamemodeKey);
+        if (defaultPublicQueryExcludedGamemodeKeys.contains(normalizedGamemodeKey)) {
+            return List.of();
+        }
         int resultLimit = Math.max(1, limit);
         Instant generatedAt = Instant.now();
         return ormContext.runInTransaction(session -> {
@@ -262,7 +291,10 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
             Collection<String> excludedGamemodeKeys
     ) {
         int resultLimit = Math.max(1, limit);
-        Set<String> normalizedExcludedGamemodes = normalizeGamemodeKeys(excludedGamemodeKeys);
+        LinkedHashSet<String> normalizedExcludedGamemodes = new LinkedHashSet<>(
+                normalizeGamemodeKeys(excludedGamemodeKeys)
+        );
+        normalizedExcludedGamemodes.addAll(defaultPublicQueryExcludedGamemodeKeys);
         Instant generatedAt = Instant.now();
         return ormContext.runInTransaction(session -> {
             List<String> excludedGamemodes = normalizedExcludedGamemodes.stream().sorted().toList();
@@ -298,6 +330,9 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
                                 String.class
                         )
                         .list()
+                        .stream()
+                        .filter(gamemodeKey -> !defaultPublicQueryExcludedGamemodeKeys.contains(gamemodeKey))
+                        .toList()
         );
     }
 

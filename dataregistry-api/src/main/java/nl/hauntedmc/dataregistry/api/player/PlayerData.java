@@ -1,6 +1,7 @@
 package nl.hauntedmc.dataregistry.api.player;
 
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
+import nl.hauntedmc.dataregistry.api.playtime.PlaytimeCatalog;
 import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeLeaderboardEntry;
 import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeSnapshot;
 
@@ -109,9 +110,21 @@ public interface PlayerData {
 
     CompletionStage<List<PlayerActivitySnapshot>> findRecentlySeen(int limit);
 
+    /** Returns immutable, configuration-backed public playtime policy without querying persistence. */
+    PlaytimeCatalog playtimeCatalog();
+
     CompletionStage<Optional<PlayerPlaytimeSnapshot>> findPlaytime(long playerId);
 
     CompletionStage<Optional<PlayerPlaytimeSnapshot>> findPlaytime(long playerId, Instant asOf);
+
+    /** Resolves the UUID and playtime snapshot asynchronously. */
+    CompletionStage<Optional<PlayerPlaytimeSnapshot>> findPlaytime(UUID uuid);
+
+    /** Resolves the typed player lookup and playtime snapshot in one public facade operation. */
+    CompletionStage<Optional<PlayerPlaytimeSnapshot>> findPlaytime(PlayerLookup lookup);
+
+    /** Resolves a username or UUID string and returns its playtime snapshot. */
+    CompletionStage<Optional<PlayerPlaytimeSnapshot>> findPlaytimeByIdentifier(String identifier);
 
     CompletionStage<List<PlayerPlaytimeLeaderboardEntry>> findTopPlaytime(int limit);
 

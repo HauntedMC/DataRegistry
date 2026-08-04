@@ -1,6 +1,8 @@
 package nl.hauntedmc.dataregistry.api.player;
 
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
+import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeSnapshot;
+import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLanguageEntity;
@@ -23,6 +25,7 @@ import java.time.Instant;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -33,6 +36,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -245,6 +250,57 @@ class PlayerDataTest {
         assertTrue(profile.isOnline());
         assertEquals(Optional.of("hub"), profile.currentServer());
         assertEquals(List.of(new PlayerNameHistoryEntry(9L, 7L, "Alpha", now)), profile.nameHistory());
+    }
+
+    @Test
+    void playtimeIdentifierLookupUsesOneFacadeOperationAndExposesCanonicalCatalog() {
+        UUID uuid = UUID.randomUUID();
+        PlayerDirectory directory = mock(PlayerDirectory.class);
+        PlayerPlaytimeRepository playtimeRepository = mock(PlayerPlaytimeRepository.class);
+        PlayerIdentity identity = new PlayerIdentity(7L, uuid, "Alice");
+        PlayerPlaytimeSnapshot snapshot = new PlayerPlaytimeSnapshot(
+                7L,
+                uuid.toString(),
+                "Alice",
+                12_000L,
+                8_000L,
+                Instant.parse("2026-07-31T06:00:00Z"),
+                List.of()
+        );
+        PlaytimeTrackingSettings playtimeSettings = PlaytimeTrackingSettings.builder()
+                .queryBlacklistedGamemodes(Set.of("staff"))
+                .excludedFromNetworkTotalGamemodes(Set.of("lobby"))
+                .build();
+        PlayerLookup identifierLookup = PlayerLookup.identifier("Alice");
+        PlayerLookup uuidLookup = PlayerLookup.uuid(uuid);
+
+        when(directory.findIdentity(identifierLookup))
+                .thenReturn(CompletableFuture.completedFuture(Optional.of(identity)));
+        when(directory.findIdentity(uuidLookup))
+                .thenReturn(CompletableFuture.completedFuture(Optional.of(identity)));
+        when(playtimeRepository.findSnapshotByPlayerId(eq(7L), any(Instant.class)))
+                .thenReturn(Optional.of(snapshot));
+
+        PlayerData playerData = new RepositoryPlayerData(
+                directory,
+                DataRegistryQueryExecutor.immediateForTesting(),
+                null,
+                EnumSet.allOf(DataRegistryFeature.class),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                playtimeRepository,
+                playtimeSettings
+        );
+
+        assertEquals(Optional.of(snapshot), join(playerData.findPlaytimeByIdentifier("Alice")));
+        assertEquals(Optional.of(snapshot), join(playerData.findPlaytime(uuid)));
+        assertFalse(playerData.playtimeCatalog().isQueryable("staff"));
+        assertTrue(playerData.playtimeCatalog().isQueryable("survival"));
+        assertFalse(playerData.playtimeCatalog().isCountedTowardsNetworkTotal("lobby"));
     }
 
     @Test
