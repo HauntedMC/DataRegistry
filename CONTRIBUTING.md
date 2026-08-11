@@ -5,7 +5,7 @@
 - Java: `25`
 - Build tool: `Maven 3.8.6+`
 - Required fast quality gate before merge: `./mvnw -B -ntp verify`
-- Required database gate for persistence or migration changes:
+- Required database gate for persistence changes:
   `./mvnw -B -ntp -Pintegration-tests verify`
 - Required platform gate for platform, packaging, or public API changes:
   `./mvnw -B -ntp -Pplatform-acceptance verify`

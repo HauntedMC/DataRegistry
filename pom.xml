@@ -31,7 +31,6 @@
     <modules>
         <module>dataregistry-api</module>
         <module>dataregistry-platform-common</module>
-        <module>dataregistry-migrations</module>
         <module>dataregistry-core</module>
         <module>dataregistry-platform-velocity</module>
         <module>dataregistry-platform-paper</module>

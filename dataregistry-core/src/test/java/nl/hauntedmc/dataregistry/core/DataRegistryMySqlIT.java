@@ -8,6 +8,7 @@ import nl.hauntedmc.dataprovider.database.DatabaseType;
 import nl.hauntedmc.dataprovider.database.relational.RelationalDatabaseProvider;
 import nl.hauntedmc.dataprovider.logging.LoggerAdapter;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
+import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.core.lifecycle.DisconnectCommand;
 import nl.hauntedmc.dataregistry.core.lifecycle.LoginCommand;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerLifecycleWriter;
@@ -26,9 +27,6 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
@@ -44,7 +42,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-/** Verifies the shipped MySQL migration, DataProvider ORM bootstrap, and public DataRegistry API together. */
+/** Verifies DataProvider ORM bootstrap and the public DataRegistry API against MySQL. */
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class DataRegistryMySqlIT {
@@ -52,6 +50,9 @@ class DataRegistryMySqlIT {
     private static final String CONNECTION_ID = "player_data_rw";
     private static final String PLAYER_NAME = "AcceptancePlayer";
     private static final UUID PLAYER_UUID = UUID.fromString("8a1c5035-c774-405e-ae4a-0948f0595d12");
+    private static final DataRegistrySettings MYSQL_SETTINGS = DataRegistrySettings.builder()
+            .ormSchemaMode("update")
+            .build();
 
     @Container
     private static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
@@ -71,7 +72,6 @@ class DataRegistryMySqlIT {
         configuration.setMinimumIdle(0);
         configuration.setPoolName("DataRegistryIntegration");
         dataSource = new HikariDataSource(configuration);
-        applyBaselineMigration();
     }
 
     @AfterAll
@@ -82,7 +82,7 @@ class DataRegistryMySqlIT {
     }
 
     @Test
-    void migratedSchemaBootsAndPersistsLifecycleAndPublicPreferenceOperations() throws Exception {
+    void ormSchemaBootsAndPersistsLifecycleAndPublicPreferenceOperations() throws Exception {
         DataProviderAPI dataProvider = mock(DataProviderAPI.class);
         RelationalDatabaseProvider provider = mock(RelationalDatabaseProvider.class);
         ILoggerAdapter platformLogger = mock(ILoggerAdapter.class);
@@ -90,13 +90,13 @@ class DataRegistryMySqlIT {
         when(provider.isConnected()).thenReturn(true);
         when(provider.getDataSource()).thenReturn(dataSource);
         when(dataProvider.createOrmContext(
-                eq(dataSource), any(LoggerAdapter.class), eq("validate"), any(Class[].class)
+                eq(dataSource), any(LoggerAdapter.class), eq("update"), any(Class[].class)
         ))
                 .thenAnswer(invocation -> createOrmContext(invocation.getArguments()));
 
-        DataRegistry registry = new DataRegistry(platformLogger, "DataRegistry", dataProvider);
+        DataRegistry registry = new DataRegistry(platformLogger, "DataRegistry", dataProvider, MYSQL_SETTINGS);
         try {
-            assertTrue(registry.initialize(), "The released baseline must satisfy Hibernate validate mode.");
+            assertTrue(registry.initialize(), "Hibernate must initialize the schema successfully.");
 
             PlayerLifecycleWriter writer = registry.newPlayerLifecycleWriter(platformLogger);
             Instant loginTime = Instant.parse("2026-07-25T12:00:00Z");
@@ -114,6 +114,8 @@ class DataRegistryMySqlIT {
                     .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow();
             assertEquals(PLAYER_UUID, identity.uuid());
             assertEquals(PLAYER_NAME, identity.username());
+            assertEquals(loginTime, registry.players().findConnection(identity.playerId())
+                    .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow().firstConnectionAt());
             registry.players().saveLanguage(identity.playerId(), "NL", "nl")
                     .toCompletableFuture().get(10, TimeUnit.SECONDS);
             registry.players().saveNickname(identity.playerId(), "Registry Tester")
@@ -139,11 +141,11 @@ class DataRegistryMySqlIT {
         when(provider.isConnected()).thenReturn(true);
         when(provider.getDataSource()).thenReturn(dataSource);
         when(dataProvider.createOrmContext(
-                eq(dataSource), any(LoggerAdapter.class), eq("validate"), any(Class[].class)
+                eq(dataSource), any(LoggerAdapter.class), eq("update"), any(Class[].class)
         ))
                 .thenAnswer(invocation -> createOrmContext(invocation.getArguments()));
 
-        DataRegistry registry = new DataRegistry(platformLogger, "DataRegistry", dataProvider);
+        DataRegistry registry = new DataRegistry(platformLogger, "DataRegistry", dataProvider, MYSQL_SETTINGS);
         try {
             assertTrue(registry.initialize());
             registry.getORM().runInTransaction(session -> {
@@ -212,7 +214,7 @@ class DataRegistryMySqlIT {
         when(provider.isConnected()).thenReturn(true);
         when(provider.getDataSource()).thenReturn(dataSource);
         when(dataProvider.createOrmContext(
-                eq(dataSource), any(LoggerAdapter.class), eq("validate"), any(Class[].class)
+                eq(dataSource), any(LoggerAdapter.class), eq("update"), any(Class[].class)
         ))
                 .thenAnswer(invocation -> createOrmContext(invocation.getArguments()));
 
@@ -231,7 +233,7 @@ class DataRegistryMySqlIT {
         PlayerSessionEntity protectedSession = session(player, closedAt, closedAt.plusSeconds(60));
         PlayerPlaytimeSegmentEntity openSegment = segment(player, protectedSession, closedAt, null);
 
-        DataRegistry registry = new DataRegistry(platformLogger, "DataRegistry", dataProvider);
+        DataRegistry registry = new DataRegistry(platformLogger, "DataRegistry", dataProvider, MYSQL_SETTINGS);
         try {
             assertTrue(registry.initialize());
             registry.getORM().runInTransaction(ormSession -> {
@@ -299,18 +301,6 @@ class DataRegistryMySqlIT {
         return segment;
     }
 
-    private void applyBaselineMigration() throws Exception {
-        String migration = readMigration();
-        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
-            for (String command : migration.split(";\\s*(?:\\R|$)")) {
-                String sql = command.strip();
-                if (!sql.isEmpty() && !sql.startsWith("--")) {
-                    statement.execute(sql);
-                }
-            }
-        }
-    }
-
     private ORMContext createOrmContext(Object[] arguments) {
         Class<?>[] entityClasses = new Class<?>[arguments.length - 3];
         for (int index = 3; index < arguments.length; index++) {
@@ -321,14 +311,4 @@ class DataRegistryMySqlIT {
         );
     }
 
-    private static String readMigration() throws IOException {
-        try (InputStream stream = DataRegistryMySqlIT.class.getClassLoader()
-                .getResourceAsStream("db/migration/V1__baseline.sql")) {
-            if (stream == null) {
-                throw new IOException("The DataRegistry V1 migration resource is missing.");
-            }
-            return new String(stream.readAllBytes(), StandardCharsets.UTF_8)
-                    .replaceFirst("(?s)^--[^\\r\\n]*(?:\\r?\\n)", "");
-        }
-    }
 }

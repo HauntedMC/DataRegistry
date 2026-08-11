@@ -37,7 +37,7 @@ public class PlayerConnectionInfoEntity {
     @Column(name = "ip_address", length = 45)  // nullable by design
     private String ipAddress;
 
-    @Column(name = "first_connection_at", columnDefinition = "TIMESTAMP", updatable = false)
+    @Column(name = "first_connection_at", columnDefinition = "TIMESTAMP")
     private Instant firstConnectionAt;
 
     @Column(name = "last_connection_at", columnDefinition = "TIMESTAMP")

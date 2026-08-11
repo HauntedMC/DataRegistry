@@ -159,7 +159,7 @@ final class DataRegistryConfigSchema {
         builder.append("  # update: auto-apply additive changes (development/staging)\n");
         builder.append("  # create: drop and recreate schema at startup (ephemeral/local only)\n");
         builder.append("  # create-drop: create at startup, drop at shutdown (tests/local only)\n");
-        builder.append("  # none: disable ORM schema management (use external migrations)\n");
+        builder.append("  # none: disable ORM schema management\n");
         builder.append("  schema-mode: ").append(settings.ormSchemaMode()).append('\n');
         builder.append('\n');
         builder.append("privacy:\n");

@@ -136,10 +136,7 @@ public final class PlayerConnectionInfoService {
         if (!featureEnabled) {
             return;
         }
-        PlayerConnectionInfoEntity info = findOrCreateConnectionInfo(session, playerEntity);
-        if (info.getFirstConnectionAt() == null) {
-            info.setFirstConnectionAt(now);
-        }
+        PlayerConnectionInfoEntity info = findOrCreateConnectionInfo(session, playerEntity, now);
         info.setLastConnectionAt(now);
         info.setIpAddress(sanitizedIp);
         info.setVirtualHost(sanitizedVirtualHost);
@@ -152,7 +149,7 @@ public final class PlayerConnectionInfoService {
         if (!featureEnabled) {
             return;
         }
-        PlayerConnectionInfoEntity info = findOrCreateConnectionInfo(session, playerEntity);
+        PlayerConnectionInfoEntity info = findOrCreateConnectionInfo(session, playerEntity, now);
         info.setLastDisconnectAt(now);
         if (!persistIpAddress) {
             info.setIpAddress(null);
@@ -176,8 +173,13 @@ public final class PlayerConnectionInfoService {
         return persistVirtualHost ? Sanitization.trimToLengthOrNull(virtualHost, virtualHostMaxLength) : null;
     }
 
-    private static PlayerConnectionInfoEntity findOrCreateConnectionInfo(Session session, PlayerEntity playerEntity) {
+    private static PlayerConnectionInfoEntity findOrCreateConnectionInfo(
+            Session session,
+            PlayerEntity playerEntity,
+            Instant firstConnectionAt
+    ) {
         Objects.requireNonNull(session, "session must not be null");
+        Objects.requireNonNull(firstConnectionAt, "firstConnectionAt must not be null");
         if (!isPersistedPlayer(playerEntity)) {
             throw new IllegalArgumentException("playerEntity must be a persisted player.");
         }
@@ -186,7 +188,11 @@ public final class PlayerConnectionInfoService {
         if (info == null) {
             info = new PlayerConnectionInfoEntity();
             info.setPlayer(managed);
+            // Set this before persist so every new connection-info row has a first-seen value in its INSERT.
+            info.setFirstConnectionAt(firstConnectionAt);
             session.persist(info);
+        } else if (info.getFirstConnectionAt() == null) {
+            info.setFirstConnectionAt(firstConnectionAt);
         }
         return info;
     }

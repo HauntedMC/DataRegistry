@@ -334,6 +334,7 @@ public final class PlayerPresenceRecoveryService {
                 }
                 info = new PlayerConnectionInfoEntity();
                 info.setPlayer(player);
+                info.setFirstConnectionAt(firstConnectionTime(session, playerId, recoveredAt));
                 info.setLastDisconnectAt(recoveredAt);
                 session.persist(info);
                 updated++;
@@ -341,6 +342,10 @@ public final class PlayerPresenceRecoveryService {
             }
 
             boolean changed = false;
+            if (info.getFirstConnectionAt() == null) {
+                info.setFirstConnectionAt(firstConnectionTime(session, playerId, recoveredAt));
+                changed = true;
+            }
             if (isAfter(recoveredAt, info.getLastDisconnectAt())) {
                 info.setLastDisconnectAt(recoveredAt);
                 changed = true;
@@ -358,6 +363,14 @@ public final class PlayerPresenceRecoveryService {
             }
         }
         return updated;
+    }
+
+    private Instant firstConnectionTime(Session session, Long playerId, Instant fallback) {
+        if (!settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)) {
+            return fallback;
+        }
+        PlayerActivitySummaryEntity summary = session.find(PlayerActivitySummaryEntity.class, playerId);
+        return summary == null || summary.getFirstSeenAt() == null ? fallback : summary.getFirstSeenAt();
     }
 
     private Instant recoveredSessionEndTime(

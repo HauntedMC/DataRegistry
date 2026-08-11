@@ -12,7 +12,7 @@ players by the stable scalar `playerId`.
 - Velocity is the authoritative writer for joins, switches, disconnects, sessions, connection info, and probes.
 - Paper prepares backend identity state and exposes the same read APIs to Paper features.
 - DataProvider supplies database connections and ORM bootstrap.
-- Production schemas must be migration-managed. Do not rely on Hibernate schema mutation in production.
+- Production defaults to Hibernate schema validation; provision the required schema before startup.
 - On Velocity startup, stale player presence from an unclean shutdown is reconciled before periodic flushing starts.
   Open sessions, visits, playtime segments, and online flags are closed from the last durable activity timestamp instead
   of from startup time.
@@ -74,7 +74,6 @@ players.whenReady(uuid).thenAccept(identity -> {
   It is an implementation dependency of the platform modules, never a feature dependency.
 - `dataregistry-platform-velocity` owns authoritative proxy lifecycle listeners, including
   `PlayerStatusListener`; `dataregistry-platform-paper` provides the Paper identity bridge.
-- `dataregistry-migrations` contains ordered schema migration resources; the default core schema mode is `validate`.
 - `dataregistry-testkit` supplies `FakeDataRegistryApi`, immutable player fixtures, temporary IDs, and async failure
   simulation for feature contract tests.
 
@@ -193,8 +192,8 @@ Authenticated GitHub Packages access may be required for private HauntedMC depen
 # Fast reactor verification: unit tests, Checkstyle, coverage and dependency hygiene.
 ./mvnw -B -ntp verify
 
-# Adds the MySQL integration suite. It applies the shipped migration and validates the
-# production Hibernate mappings before exercising the public DataRegistry API.
+# Adds the MySQL integration suite. It creates the schema from the production Hibernate
+# mappings before exercising the public DataRegistry API.
 ./mvnw -B -ntp -Pintegration-tests verify
 
 # Builds the bundled Paper and Velocity artifacts, then boots each in the real target
@@ -209,12 +208,12 @@ Authenticated GitHub Packages access may be required for private HauntedMC depen
 The integration and platform suites need a reachable Docker daemon. The platform suite additionally needs `curl`,
 `jq`, `sha256sum`, `jar`, and exactly Java 25. Java 26 is intentionally rejected because the currently supported
 DataProvider/Hibernate runtime is qualified against Java 25. The platform suite downloads the configured Paper and
-Velocity runtime builds, checks their SHA-256 values, provisions MySQL 8.4 from the migration, checks public API
+Velocity runtime builds, checks their SHA-256 values, provisions MySQL 8.4, checks public API
 reads and writes, reloads DataProvider configuration, and requires clean DataRegistry and Hikari shutdown. Set
 `PLATFORM_ACCEPTANCE_KEEP_WORK_DIRECTORY=true` to retain server logs after a local run.
 
 The tag release workflow runs both profiles against the exact tagged reactor before Maven deployment. This
-keeps the fast checks, migration/schema compatibility, and real bundled-plugin boot checks in the release gate.
+keeps the fast checks, MySQL schema compatibility, and real bundled-plugin boot checks in the release gate.
 
 Build output:
 

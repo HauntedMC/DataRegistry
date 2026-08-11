@@ -80,7 +80,6 @@
                             <include>nl.hauntedmc.dataregistry:dataregistry-api</include>
                             <include>nl.hauntedmc.dataregistry:dataregistry-platform-common</include>
                             <include>nl.hauntedmc.dataregistry:dataregistry-core</include>
-                            <include>nl.hauntedmc.dataregistry:dataregistry-migrations</include>
                             <include>org.yaml:snakeyaml</include>
                         </includes>
                     </artifactSet>

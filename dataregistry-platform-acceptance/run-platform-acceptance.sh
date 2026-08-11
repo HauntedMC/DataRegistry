@@ -162,7 +162,7 @@ write_dataprovider_configuration() {
     mkdir -p "$data_directory/databases"
     cat >"$data_directory/config.yml" <<'EOF'
 orm:
-  schema_mode: validate
+  schema_mode: update
 databases:
   mysql:
     enabled: true
@@ -197,6 +197,7 @@ write_dataregistry_configuration() {
     local data_directory=$1
     mkdir -p "$data_directory"
     cp "$ROOT_DIRECTORY/dataregistry-core/src/main/resources/config.yml" "$data_directory/config.yml"
+    sed -i 's/^  schema-mode: validate$/  schema-mode: update/' "$data_directory/config.yml"
 }
 
 start_paper() {

@@ -22,7 +22,7 @@ orm:
   # update: auto-apply additive changes (development/staging)
   # create: drop and recreate schema at startup (ephemeral/local only)
   # create-drop: create at startup, drop at shutdown (tests/local only)
-  # none: disable ORM schema management (use external migrations)
+  # none: disable ORM schema management
   schema-mode: validate
 
 privacy:

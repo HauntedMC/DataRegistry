@@ -24,12 +24,7 @@
             <version>${project.version}</version>
         </dependency>
 
-        <!-- Serialization and unit-test support. -->
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>dataregistry-migrations</artifactId>
-            <version>${project.version}</version>
-        </dependency>
+        <!-- Persistence, runtime, serialization, and test support. -->
         <dependency>
             <groupId>jakarta.persistence</groupId>
             <artifactId>jakarta.persistence-api</artifactId>

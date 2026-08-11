@@ -16,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -59,6 +60,11 @@ class PlayerConnectionInfoServiceTest {
         executeTransactionsWithSession(ormContext, session);
         when(session.merge(player)).thenReturn(managed);
         when(session.find(PlayerConnectionInfoEntity.class, managed.getId())).thenReturn(null);
+        doAnswer(invocation -> {
+            PlayerConnectionInfoEntity persisted = invocation.getArgument(0);
+            assertNotNull(persisted.getFirstConnectionAt());
+            return null;
+        }).when(session).persist(any(PlayerConnectionInfoEntity.class));
 
         service.updateOnLogin(player, "  192.168.100.200  ", "  very-long-host-name  ");
 
@@ -123,6 +129,7 @@ class PlayerConnectionInfoServiceTest {
 
         ArgumentCaptor<PlayerConnectionInfoEntity> captor = ArgumentCaptor.forClass(PlayerConnectionInfoEntity.class);
         verify(session).persist(captor.capture());
+        assertNotNull(captor.getValue().getFirstConnectionAt());
         assertNotNull(captor.getValue().getLastDisconnectAt());
         assertNotNull(existing.getLastDisconnectAt());
         assertNull(existing.getIpAddress());

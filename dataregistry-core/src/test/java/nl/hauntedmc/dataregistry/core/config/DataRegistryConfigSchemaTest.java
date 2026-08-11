@@ -58,7 +58,7 @@ class DataRegistryConfigSchemaTest {
         assertTrue(rendered.contains("update: auto-apply additive changes (development/staging)"));
         assertTrue(rendered.contains("create: drop and recreate schema at startup (ephemeral/local only)"));
         assertTrue(rendered.contains("create-drop: create at startup, drop at shutdown (tests/local only)"));
-        assertTrue(rendered.contains("none: disable ORM schema management (use external migrations)"));
+        assertTrue(rendered.contains("none: disable ORM schema management"));
         assertTrue(rendered.contains("playtime:"));
         assertTrue(rendered.contains("flush-interval-seconds: 30"));
         assertTrue(rendered.contains("resolve-unknown-servers-as-gamemode: true"));
