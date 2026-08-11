@@ -20,7 +20,7 @@ class DataRegistrySettingsTest {
         assertEquals(DatabaseType.MYSQL, settings.databaseType());
         assertEquals("player_data_rw", settings.playerDatabaseConnectionId());
         assertEquals("player_data_rw", settings.serviceDatabaseConnectionId());
-        assertEquals("validate", settings.ormSchemaMode());
+        assertEquals("update", settings.ormSchemaMode());
         assertEquals(4, settings.bukkitJoinDelayTicks());
         assertFalse(settings.bukkitRegisterServiceInstance());
         assertEquals("auto", settings.bukkitServiceName());

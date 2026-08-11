@@ -53,9 +53,9 @@ class DataRegistryConfigSchemaTest {
         assertTrue(rendered.contains("Applies to: Both."));
         assertTrue(rendered.contains("Applies to: Velocity."));
         assertTrue(rendered.contains("Applies to: Bukkit."));
-        assertTrue(rendered.contains("schema-mode: validate"));
-        assertTrue(rendered.contains("validate: verify schema only (recommended for production)"));
-        assertTrue(rendered.contains("update: auto-apply additive changes (development/staging)"));
+        assertTrue(rendered.contains("schema-mode: update"));
+        assertTrue(rendered.contains("validate: verify schema only"));
+        assertTrue(rendered.contains("update: auto-apply additive changes (default)"));
         assertTrue(rendered.contains("create: drop and recreate schema at startup (ephemeral/local only)"));
         assertTrue(rendered.contains("create-drop: create at startup, drop at shutdown (tests/local only)"));
         assertTrue(rendered.contains("none: disable ORM schema management"));

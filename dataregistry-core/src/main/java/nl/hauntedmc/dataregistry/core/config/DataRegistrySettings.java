@@ -29,7 +29,7 @@ public final class DataRegistrySettings {
     private static final int DEFAULT_SERVICE_INSTANCE_PURGE_INTERVAL_HOURS = 24;
     private static final int DEFAULT_LIFECYCLE_WRITE_MAX_ATTEMPTS = 3;
     private static final int DEFAULT_LIFECYCLE_RETRY_BASE_DELAY_MILLIS = 25;
-    private static final String DEFAULT_ORM_SCHEMA_MODE = "validate";
+    private static final String DEFAULT_ORM_SCHEMA_MODE = "update";
     private static final int DEFAULT_BUKKIT_JOIN_DELAY_TICKS = 4;
     private static final boolean DEFAULT_BUKKIT_REGISTER_SERVICE_INSTANCE = false;
     private static final String DEFAULT_BUKKIT_SERVICE_NAME = "auto";

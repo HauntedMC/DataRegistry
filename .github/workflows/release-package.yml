@@ -51,6 +51,7 @@ jobs:
           path: |
             ${{ runner.temp }}/dataregistry-platform-acceptance/runner.log
             ${{ runner.temp }}/dataregistry-platform-acceptance/backend.log
+            ${{ runner.temp }}/dataregistry-platform-acceptance/schema-bootstrap/paper.log
             ${{ runner.temp }}/dataregistry-platform-acceptance/paper/paper.log
             ${{ runner.temp }}/dataregistry-platform-acceptance/velocity/velocity.log
       - name: Upload platform distributables

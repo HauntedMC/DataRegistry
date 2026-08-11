@@ -155,8 +155,8 @@ final class DataRegistryConfigSchema {
         builder.append("orm:\n");
         builder.append("  # Applies to: Both.\n");
         builder.append("  # Schema mode controls ORM DDL behavior:\n");
-        builder.append("  # validate: verify schema only (recommended for production)\n");
-        builder.append("  # update: auto-apply additive changes (development/staging)\n");
+        builder.append("  # validate: verify schema only\n");
+        builder.append("  # update: auto-apply additive changes (default)\n");
         builder.append("  # create: drop and recreate schema at startup (ephemeral/local only)\n");
         builder.append("  # create-drop: create at startup, drop at shutdown (tests/local only)\n");
         builder.append("  # none: disable ORM schema management\n");

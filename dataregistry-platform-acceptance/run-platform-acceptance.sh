@@ -197,7 +197,29 @@ write_dataregistry_configuration() {
     local data_directory=$1
     mkdir -p "$data_directory"
     cp "$ROOT_DIRECTORY/dataregistry-core/src/main/resources/config.yml" "$data_directory/config.yml"
-    sed -i 's/^  schema-mode: validate$/  schema-mode: update/' "$data_directory/config.yml"
+}
+
+bootstrap_schema() {
+    diagnostic "Starting ORM schema bootstrap."
+    local directory="$WORK_DIRECTORY/schema-bootstrap"
+    mkdir -p "$directory/plugins/DataProvider" "$directory/plugins/DataRegistry"
+    cp "$DATAPROVIDER_PAPER_BUNDLE" "$directory/plugins/DataProvider.jar"
+    enable_data_provider_multi_release_support "$directory/plugins/DataProvider.jar"
+    cp "$PAPER_BUNDLE" "$directory/plugins/DataRegistry.jar"
+    write_dataprovider_configuration "$directory/plugins/DataProvider" "DataRegistry" "$MYSQL_PORT"
+    write_dataregistry_configuration "$directory/plugins/DataRegistry"
+    printf 'eula=true\n' >"$directory/eula.txt"
+    printf 'server-port=0\n' >"$directory/server.properties"
+    mkfifo "$directory/console.in"
+    (cd "$directory" && exec "$JAVA_EXECUTABLE" -Xms512M -Xmx1G -jar "$WORK_DIRECTORY/paper.jar" --nogui <console.in >paper.log 2>&1) &
+    paper_process=$!
+    exec {paper_input_fd}>"$directory/console.in"
+    wait_for_log "$directory/paper.log" 'DataRegistry enabled successfully' 180
+    stop_process "$paper_process" "$paper_input_fd" stop "$directory/paper.log" 'DataRegistry disabled on Paper'
+    eval "exec ${paper_input_fd}>&-"
+    paper_input_fd=""
+    paper_process=""
+    diagnostic "ORM schema bootstrap completed."
 }
 
 start_paper() {
@@ -275,6 +297,7 @@ download_runtime velocity "$(pom_property velocity.version)" "$(pom_property vel
 docker compose --file "$COMPOSE_FILE" up --detach --wait
 MYSQL_PORT="$(backend_port)"
 readonly MYSQL_PORT
+bootstrap_schema
 docker compose --file "$COMPOSE_FILE" exec --no-TTY mysql mysql -uroot -pacceptance-root minecraft -e \
     "INSERT INTO player_entity (uuid, username) VALUES ('8a1c5035-c774-405e-ae4a-0948f0595d12', 'AcceptancePlayer');"
 start_paper

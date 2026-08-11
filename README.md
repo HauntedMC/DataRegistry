@@ -12,7 +12,7 @@ players by the stable scalar `playerId`.
 - Velocity is the authoritative writer for joins, switches, disconnects, sessions, connection info, and probes.
 - Paper prepares backend identity state and exposes the same read APIs to Paper features.
 - DataProvider supplies database connections and ORM bootstrap.
-- Production defaults to Hibernate schema validation; provision the required schema before startup.
+- Hibernate automatically applies additive schema updates by default.
 - On Velocity startup, stale player presence from an unclean shutdown is reconciled before periodic flushing starts.
   Open sessions, visits, playtime segments, and online flags are closed from the last durable activity timestamp instead
   of from startup time.
