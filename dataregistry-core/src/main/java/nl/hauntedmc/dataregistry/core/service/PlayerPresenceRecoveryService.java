@@ -8,6 +8,7 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerOnlineStatusEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentCloseReason;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionVisitEntity;
 import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
@@ -143,6 +144,16 @@ public final class PlayerPresenceRecoveryService {
             Instant recoveredEndTime = recoveredSegmentEndTime(segment);
             segment.setEndedAt(recoveredEndTime);
             segment.setCloseReason(PlayerPlaytimeSegmentCloseReason.RECOVERY);
+            session.createQuery(
+                            "SELECT p FROM PlayerPlaytimeEntity p " +
+                                    "WHERE p.player.id = :playerId AND p.gamemodeKey = :gamemodeKey",
+                            PlayerPlaytimeEntity.class
+                    )
+                    .setParameter("playerId", segment.getPlayer().getId())
+                    .setParameter("gamemodeKey", segment.getGamemodeKey())
+                    .setMaxResults(1)
+                    .uniqueResultOptional()
+                    .ifPresent(aggregate -> aggregate.setLastExitedAt(recoveredEndTime));
             state.rememberSessionActivity(segment.getSession(), recoveredEndTime);
             state.rememberPlayerActivity(segment.getPlayer(), recoveredEndTime);
             recovered++;

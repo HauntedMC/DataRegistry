@@ -8,8 +8,6 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLanguageEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerNameHistoryEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerNicknameEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerOnlineStatusEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentEntity;
 import nl.hauntedmc.dataregistry.api.player.PlayerActivitySnapshot;
 import nl.hauntedmc.dataregistry.api.player.PlayerConnectionSnapshot;
 import nl.hauntedmc.dataregistry.api.player.PlayerData;
@@ -24,9 +22,11 @@ import nl.hauntedmc.dataregistry.api.player.PlayerPageRequest;
 import nl.hauntedmc.dataregistry.api.player.PlayerProfile;
 import nl.hauntedmc.dataregistry.api.player.PlayerProfileQuery;
 import nl.hauntedmc.dataregistry.api.player.PlayerProfileResult;
-import nl.hauntedmc.dataregistry.api.playtime.PlayerGamemodePlaytimeSnapshot;
 import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeLeaderboardEntry;
 import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeSnapshot;
+import nl.hauntedmc.dataregistry.api.playtime.PlayerGamemodeActivitySnapshot;
+import nl.hauntedmc.dataregistry.api.playtime.GamemodePlaytimeStatisticsSnapshot;
+import nl.hauntedmc.dataregistry.api.playtime.TrackedGamemodeSnapshot;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerActivitySummaryRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerConnectionInfoRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerLanguageRepository;
@@ -38,12 +38,8 @@ import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerRepository;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import org.hibernate.Session;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -70,7 +66,6 @@ public final class RepositoryPlayerData implements PlayerData {
     private final PlayerNicknameRepository nicknameRepository;
     private final PlayerNameHistoryRepository nameHistoryRepository;
     private final PlayerPlaytimeRepository playtimeRepository;
-    private final Set<String> playtimeExcludedGamemodeKeys;
 
     public RepositoryPlayerData(
             PlayerDirectory playerDirectory,
@@ -124,7 +119,7 @@ public final class RepositoryPlayerData implements PlayerData {
         this.nicknameRepository = nicknameRepository;
         this.nameHistoryRepository = nameHistoryRepository;
         this.playtimeRepository = playtimeRepository;
-        this.playtimeExcludedGamemodeKeys = normalizeGamemodeKeys(playtimeExcludedGamemodeKeys);
+        Objects.requireNonNull(playtimeExcludedGamemodeKeys, "playtimeExcludedGamemodeKeys must not be null");
     }
 
     @Override
@@ -454,6 +449,46 @@ public final class RepositoryPlayerData implements PlayerData {
     }
 
     @Override
+    public CompletionStage<Optional<PlayerGamemodeActivitySnapshot>> findGamemodeActivity(
+            PlayerLookup lookup,
+            String gamemodeKey
+    ) {
+        Objects.requireNonNull(lookup, "lookup must not be null");
+        requireGamemodeKey(gamemodeKey);
+        if (playtimeRepository == null) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+        return findIdentity(lookup).thenCompose(identity -> identity
+                .map(value -> findGamemodeActivity(value.playerId(), gamemodeKey))
+                .orElseGet(() -> CompletableFuture.completedFuture(Optional.empty())));
+    }
+
+    @Override
+    public CompletionStage<Optional<PlayerGamemodeActivitySnapshot>> findGamemodeActivity(
+            long playerId,
+            String gamemodeKey
+    ) {
+        requireGamemodeKey(gamemodeKey);
+        return queryExecutor.supply("player.playtime.gamemode-activity", () -> {
+            if (playtimeRepository == null || playerId <= 0L) {
+                return Optional.empty();
+            }
+            return playtimeRepository.findGamemodeActivityByPlayerId(playerId, gamemodeKey);
+        });
+    }
+
+    @Override
+    public CompletionStage<Optional<GamemodePlaytimeStatisticsSnapshot>> findGamemodeStatistics(String gamemodeKey) {
+        requireGamemodeKey(gamemodeKey);
+        return queryExecutor.supply("player.playtime.gamemode-statistics", () -> {
+            if (playtimeRepository == null) {
+                return Optional.empty();
+            }
+            return playtimeRepository.findGamemodeStatistics(gamemodeKey);
+        });
+    }
+
+    @Override
     public CompletionStage<List<PlayerPlaytimeLeaderboardEntry>> findTopPlaytime(int limit) {
         return queryExecutor.supply("player.playtime.leaderboard", () -> {
             if (playtimeRepository == null) {
@@ -480,6 +515,16 @@ public final class RepositoryPlayerData implements PlayerData {
                 return List.of();
             }
             return playtimeRepository.findTrackedGamemodeKeys();
+        });
+    }
+
+    @Override
+    public CompletionStage<List<TrackedGamemodeSnapshot>> findTrackedGamemodes() {
+        return queryExecutor.supply("player.playtime.gamemodes", () -> {
+            if (playtimeRepository == null) {
+                return List.of();
+            }
+            return playtimeRepository.findTrackedGamemodes();
         });
     }
 
@@ -646,7 +691,7 @@ public final class RepositoryPlayerData implements PlayerData {
                 findConnectionInSession(session, playerId),
                 findOnlineStatusInSession(session, playerId),
                 findActivityInSession(session, playerId),
-                findPlaytimeInSession(session, identity, query.asOf()),
+                findPlaytimeSnapshot(identity, query.asOf()),
                 findNameHistoryInSession(session, playerId, query.nameHistoryLimit())
         );
     }
@@ -723,105 +768,13 @@ public final class RepositoryPlayerData implements PlayerData {
                 .map(RepositoryPlayerData::toActivitySnapshot);
     }
 
-    private Optional<PlayerPlaytimeSnapshot> findPlaytimeInSession(
-            Session session,
-            PlayerIdentity identity,
-            Instant asOf
-    ) {
+    private Optional<PlayerPlaytimeSnapshot> findPlaytimeSnapshot(PlayerIdentity identity, Instant asOf) {
         if (playtimeRepository == null) {
             return Optional.empty();
         }
-        long playerId = identity.playerId();
-        List<PlayerPlaytimeEntity> aggregates = session.createQuery(
-                        "SELECT p FROM PlayerPlaytimeEntity p " +
-                                "WHERE p.player.id = :playerId " +
-                                "ORDER BY p.trackedMillis DESC, p.gamemodeKey ASC",
-                        PlayerPlaytimeEntity.class
-                )
-                .setParameter("playerId", playerId)
-                .list();
-        Optional<PlayerPlaytimeSegmentEntity> openSegment = session.createQuery(
-                        "SELECT s FROM PlayerPlaytimeSegmentEntity s " +
-                                "WHERE s.player.id = :playerId " +
-                                "AND s.endedAt IS NULL AND s.session.endedAt IS NULL " +
-                                "ORDER BY s.startedAt DESC, s.id DESC",
-                        PlayerPlaytimeSegmentEntity.class
-                )
-                .setParameter("playerId", playerId)
-                .setMaxResults(1)
-                .uniqueResultOptional();
-
-        Map<String, GamemodeSnapshotAccumulator> byGamemode = new LinkedHashMap<>();
-        long trackedTotalMillis = 0L;
-        long networkTotalMillis = 0L;
-        for (PlayerPlaytimeEntity aggregate : aggregates) {
-            boolean counted = !playtimeExcludedGamemodeKeys.contains(aggregate.getGamemodeKey());
-            trackedTotalMillis += aggregate.getTrackedMillis();
-            if (counted) {
-                networkTotalMillis += aggregate.getTrackedMillis();
-            }
-            byGamemode.put(
-                    aggregate.getGamemodeKey(),
-                    new GamemodeSnapshotAccumulator(
-                            aggregate.getGamemodeKey(),
-                            aggregate.getTrackedMillis(),
-                            counted,
-                            false,
-                            null,
-                            null,
-                            aggregate.getFirstTrackedAt(),
-                            aggregate.getLastTrackedAt(),
-                            aggregate.getSegmentCount()
-                    )
-            );
-        }
-
-        if (openSegment.isPresent() && isLiveSegment(openSegment.get(), asOf)) {
-            PlayerPlaytimeSegmentEntity segment = openSegment.get();
-            long liveDeltaMillis = computeLiveDeltaMillis(segment.getLastAccruedAt(), asOf);
-            boolean counted = !playtimeExcludedGamemodeKeys.contains(segment.getGamemodeKey());
-            trackedTotalMillis += liveDeltaMillis;
-            if (counted) {
-                networkTotalMillis += liveDeltaMillis;
-            }
-            GamemodeSnapshotAccumulator accumulator = byGamemode.computeIfAbsent(
-                    segment.getGamemodeKey(),
-                    key -> new GamemodeSnapshotAccumulator(
-                            key,
-                            0L,
-                            counted,
-                            false,
-                            null,
-                            null,
-                            segment.getStartedAt(),
-                            segment.getStartedAt(),
-                            1L
-                    )
-            );
-            accumulator.trackedMillis += liveDeltaMillis;
-            accumulator.countedTowardsNetworkTotal = counted;
-            accumulator.active = true;
-            accumulator.activeSince = segment.getStartedAt();
-            accumulator.activeServerName = segment.getLastServer();
-            accumulator.firstTrackedAt = minInstant(accumulator.firstTrackedAt, segment.getStartedAt());
-            accumulator.lastTrackedAt = maxInstant(accumulator.lastTrackedAt, asOf);
-        }
-
-        List<PlayerGamemodePlaytimeSnapshot> gamemodeSnapshots = byGamemode.values().stream()
-                .sorted(Comparator
-                        .comparingLong(GamemodeSnapshotAccumulator::trackedMillis).reversed()
-                        .thenComparing(GamemodeSnapshotAccumulator::gamemodeKey))
-                .map(GamemodeSnapshotAccumulator::toSnapshot)
-                .toList();
-        return Optional.of(new PlayerPlaytimeSnapshot(
-                playerId,
-                identity.uuid().toString(),
-                identity.username(),
-                trackedTotalMillis,
-                networkTotalMillis,
-                asOf,
-                gamemodeSnapshots
-        ));
+        // Keep profile projections and direct playtime reads on the exact same repository projection. The outer
+        // profile transaction only reads the other profile domains; this repository method owns its read transaction.
+        return playtimeRepository.findSnapshotByPlayerId(identity.playerId(), asOf);
     }
 
     private List<PlayerNameHistoryEntry> findNameHistoryInSession(Session session, long playerId, int limit) {
@@ -895,26 +848,13 @@ public final class RepositoryPlayerData implements PlayerData {
         }
     }
 
-    private static Set<String> normalizeGamemodeKeys(Collection<String> values) {
-        if (values == null || values.isEmpty()) {
-            return Set.of();
+    private static void requireGamemodeKey(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("gamemodeKey must not be blank");
         }
-        LinkedHashSet<String> normalized = new LinkedHashSet<>();
-        for (String value : values) {
-            String normalizedValue = normalizeGamemodeKey(value);
-            if (normalizedValue != null) {
-                normalized.add(normalizedValue);
-            }
+        if (value.trim().length() > 64) {
+            throw new IllegalArgumentException("gamemodeKey must not exceed 64 characters");
         }
-        return Set.copyOf(normalized);
-    }
-
-    private static String normalizeGamemodeKey(String value) {
-        if (value == null) {
-            return null;
-        }
-        String normalized = value.trim().toLowerCase(Locale.ROOT);
-        return normalized.isEmpty() ? null : normalized;
     }
 
     private static String normalizeUuid(String value) {
@@ -928,93 +868,4 @@ public final class RepositoryPlayerData implements PlayerData {
         }
     }
 
-    private static boolean isLiveSegment(PlayerPlaytimeSegmentEntity segment, Instant asOf) {
-        return segment.getEndedAt() == null
-                && segment.getSession() != null
-                && segment.getSession().getEndedAt() == null
-                && !asOf.isBefore(segment.getLastAccruedAt());
-    }
-
-    private static long computeLiveDeltaMillis(Instant lastAccruedAt, Instant asOf) {
-        if (lastAccruedAt == null || asOf.isBefore(lastAccruedAt)) {
-            return 0L;
-        }
-        return Math.max(0L, Duration.between(lastAccruedAt, asOf).toMillis());
-    }
-
-    private static Instant minInstant(Instant left, Instant right) {
-        if (left == null) {
-            return right;
-        }
-        if (right == null) {
-            return left;
-        }
-        return left.isBefore(right) ? left : right;
-    }
-
-    private static Instant maxInstant(Instant left, Instant right) {
-        if (left == null) {
-            return right;
-        }
-        if (right == null) {
-            return left;
-        }
-        return left.isAfter(right) ? left : right;
-    }
-
-    private static final class GamemodeSnapshotAccumulator {
-        private final String gamemodeKey;
-        private long trackedMillis;
-        private boolean countedTowardsNetworkTotal;
-        private boolean active;
-        private Instant activeSince;
-        private String activeServerName;
-        private Instant firstTrackedAt;
-        private Instant lastTrackedAt;
-        private long segmentCount;
-
-        private GamemodeSnapshotAccumulator(
-                String gamemodeKey,
-                long trackedMillis,
-                boolean countedTowardsNetworkTotal,
-                boolean active,
-                Instant activeSince,
-                String activeServerName,
-                Instant firstTrackedAt,
-                Instant lastTrackedAt,
-                long segmentCount
-        ) {
-            this.gamemodeKey = gamemodeKey;
-            this.trackedMillis = trackedMillis;
-            this.countedTowardsNetworkTotal = countedTowardsNetworkTotal;
-            this.active = active;
-            this.activeSince = activeSince;
-            this.activeServerName = activeServerName;
-            this.firstTrackedAt = firstTrackedAt;
-            this.lastTrackedAt = lastTrackedAt;
-            this.segmentCount = segmentCount;
-        }
-
-        private String gamemodeKey() {
-            return gamemodeKey;
-        }
-
-        private long trackedMillis() {
-            return trackedMillis;
-        }
-
-        private PlayerGamemodePlaytimeSnapshot toSnapshot() {
-            return new PlayerGamemodePlaytimeSnapshot(
-                    gamemodeKey,
-                    trackedMillis,
-                    countedTowardsNetworkTotal,
-                    active,
-                    activeSince,
-                    activeServerName,
-                    firstTrackedAt,
-                    lastTrackedAt,
-                    segmentCount
-            );
-        }
-    }
 }

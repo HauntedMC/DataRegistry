@@ -7,6 +7,7 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerOnlineStatusEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentCloseReason;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionVisitEntity;
 import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
@@ -27,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -236,6 +238,8 @@ class PlayerPresenceRecoveryServiceTest {
         Query<PlayerSessionVisitEntity> visitQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
         Query<PlayerOnlineStatusEntity> statusQuery = mock(Query.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerPlaytimeEntity> playtimeQuery = mock(Query.class);
 
         when(registry.getORM()).thenReturn(ormContext);
         executeTransactionsWithSession(ormContext, session);
@@ -243,6 +247,10 @@ class PlayerPresenceRecoveryServiceTest {
         when(session.createQuery(anyString(), eq(PlayerSessionEntity.class))).thenReturn(sessionQuery);
         when(session.createQuery(anyString(), eq(PlayerSessionVisitEntity.class))).thenReturn(visitQuery);
         when(session.createQuery(anyString(), eq(PlayerOnlineStatusEntity.class))).thenReturn(statusQuery);
+        when(session.createQuery(anyString(), eq(PlayerPlaytimeEntity.class))).thenReturn(playtimeQuery);
+        when(playtimeQuery.setParameter(anyString(), any())).thenReturn(playtimeQuery);
+        when(playtimeQuery.setMaxResults(anyInt())).thenReturn(playtimeQuery);
+        when(playtimeQuery.uniqueResultOptional()).thenReturn(java.util.Optional.empty());
         when(segmentQuery.list()).thenReturn(List.of());
         when(sessionQuery.list()).thenReturn(List.of());
         when(visitQuery.list()).thenReturn(List.of());

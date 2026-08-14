@@ -82,7 +82,8 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
     }
 
     DataRegistry createDataRegistry(DataProviderAPI dataProviderAPI, DataRegistrySettings runtimeSettings) {
-        return new DataRegistry(logInstance, getName(), dataProviderAPI, runtimeSettings);
+        // Paper is a read-only bridge for player lifecycle/playtime data. Velocity owns catalog reconciliation.
+        return new DataRegistry(logInstance, getName(), dataProviderAPI, runtimeSettings, false);
     }
 
     DataProviderAPI resolveDataProviderApi() {

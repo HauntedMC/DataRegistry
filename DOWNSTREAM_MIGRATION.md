@@ -1,6 +1,41 @@
 # Migrating downstream features
 
-DataRegistry `1.11.5` exposes a persistence-agnostic API for feature plugins. Downstream plugins must use the
+## 1.14.0 playtime lifecycle upgrade
+
+With the default `orm.schema-mode: update`, Hibernate adds the `tracked_gamemodes` catalog and the
+`last_joined_at`, `last_exited_at`, `last_logout_at`, and `lifecycle_history_complete` columns. DataRegistry then
+runs an idempotent, batches-of-500 backfill before publishing readiness. It derives only facts still present in raw
+segments and marks a row incomplete when retained segment count differs from its durable segment count.
+
+Install DataRegistry on Velocity first so it can reconcile the central gamemode policy from the authoritative playtime
+configuration. Paper DataRegistry instances are read-only bridges and must follow after that startup succeeds.
+
+Sites using `validate` or `none` must apply equivalent DDL before deployment. The example below is for
+MySQL-compatible databases; adapt it for your database dialect and existing migration tool:
+
+```sql
+CREATE TABLE tracked_gamemodes (
+  gamemode_key VARCHAR(64) NOT NULL,
+  counted_towards_network_total BOOLEAN NOT NULL,
+  first_observed_at TIMESTAMP NOT NULL,
+  version BIGINT NOT NULL,
+  PRIMARY KEY (gamemode_key)
+);
+
+ALTER TABLE player_playtime
+  ADD COLUMN last_joined_at TIMESTAMP NULL,
+  ADD COLUMN last_exited_at TIMESTAMP NULL,
+  ADD COLUMN last_logout_at TIMESTAMP NULL,
+  ADD COLUMN lifecycle_history_complete BOOLEAN NULL;
+
+CREATE INDEX idx_ppt_gamemode_last_joined
+  ON player_playtime (gamemode_key, last_joined_at);
+```
+
+Do not manufacture missing lifecycle timestamps during a manual migration. The startup backfill intentionally leaves
+unknown values null and exposes `lifecycleHistoryComplete=false` to consumers.
+
+DataRegistry `1.14.0` exposes a persistence-agnostic API for feature plugins. Downstream plugins must use the
 `dataregistry-api` artifact and must not depend on `dataregistry-core` or a platform implementation artifact.
 
 ## Maven dependency
@@ -11,7 +46,7 @@ Remove the old monolithic DataRegistry dependency and add the API as `provided`:
 <dependency>
   <groupId>nl.hauntedmc.dataregistry</groupId>
   <artifactId>dataregistry-api</artifactId>
-  <version>1.11.5</version>
+  <version>1.14.0</version>
   <scope>provided</scope>
 </dependency>
 ```

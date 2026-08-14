@@ -45,7 +45,7 @@ Depend only on `dataregistry-api` as `provided` (replace the version with the re
 <dependency>
   <groupId>nl.hauntedmc.dataregistry</groupId>
   <artifactId>dataregistry-api</artifactId>
-  <version>1.11.5</version>
+  <version>1.14.0</version>
   <scope>provided</scope>
 </dependency>
 ```
@@ -128,6 +128,9 @@ Use the specific facade methods when a full profile is unnecessary:
 - `players.findOnlinePlayers(limit)`
 - `players.findActivity(playerId)`
 - `players.findPlaytime(playerId)` and leaderboard helpers
+- `players.findGamemodeActivity(PlayerLookup, gamemodeKey)` for durable per-player lifecycle and playtime
+- `players.findGamemodeStatistics(gamemodeKey)` for unique-player, playtime, and visit totals
+- `players.findTrackedGamemodes()` for the central gamemode catalog and network-total policy
 - `players.findNameHistory(playerId, limit)`
 - `players.findIdentitiesSharingLastIp(playerId)` and `players.findUsernamesSharingLastIp(playerId)`
 - `players.findPlayerIdsByLastIpAddress(ip, excludePlayerId)` and `players.findUsernamesByLastIpAddress(ip, excludePlayerId)`

@@ -5,6 +5,7 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentCloseReason;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.TrackedGamemodeEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
 import nl.hauntedmc.dataregistry.core.playtime.PlaytimeGamemodeResolver;
@@ -69,12 +70,15 @@ class PlayerPlaytimeServiceTest {
         context.service.onServerSwitch(player, "Lobby-1");
 
         ArgumentCaptor<Object> persistedCaptor = ArgumentCaptor.forClass(Object.class);
-        verify(context.session, times(2)).persist(persistedCaptor.capture());
+        verify(context.session, times(3)).persist(persistedCaptor.capture());
         assertEquals(PlayerPlaytimeEntity.class, persistedCaptor.getAllValues().get(0).getClass());
         PlayerPlaytimeEntity aggregate = (PlayerPlaytimeEntity) persistedCaptor.getAllValues().get(0);
-        PlayerPlaytimeSegmentEntity segment = (PlayerPlaytimeSegmentEntity) persistedCaptor.getAllValues().get(1);
+        assertEquals(TrackedGamemodeEntity.class, persistedCaptor.getAllValues().get(1).getClass());
+        PlayerPlaytimeSegmentEntity segment = (PlayerPlaytimeSegmentEntity) persistedCaptor.getAllValues().get(2);
         assertEquals("lobby", aggregate.getGamemodeKey());
         assertEquals(1L, aggregate.getSegmentCount());
+        assertNotNull(aggregate.getLastJoinedAt());
+        assertEquals(Boolean.TRUE, aggregate.getLifecycleHistoryComplete());
         assertEquals("lobby", segment.getGamemodeKey());
         assertEquals("lobby-1", segment.getEntryServer());
         assertEquals(openSession, segment.getSession());
@@ -103,6 +107,7 @@ class PlayerPlaytimeServiceTest {
 
         assertEquals(PlayerPlaytimeSegmentCloseReason.STOP_TRACKING, openSegment.getCloseReason());
         assertNotNull(openSegment.getEndedAt());
+        assertEquals(openSegment.getEndedAt(), aggregate.getLastExitedAt());
         assertTrue(aggregate.getTrackedMillis() >= 14_000L);
         verify(context.session, never()).persist(any(PlayerPlaytimeSegmentEntity.class));
     }
@@ -124,6 +129,8 @@ class PlayerPlaytimeServiceTest {
 
         assertEquals(PlayerPlaytimeSegmentCloseReason.DISCONNECT, openSegment.getCloseReason());
         assertNotNull(openSegment.getEndedAt());
+        assertEquals(openSegment.getEndedAt(), aggregate.getLastExitedAt());
+        assertEquals(openSegment.getEndedAt(), aggregate.getLastLogoutAt());
         assertTrue(aggregate.getTrackedMillis() >= 6_000L);
     }
 
@@ -146,6 +153,7 @@ class PlayerPlaytimeServiceTest {
 
         assertEquals(PlayerPlaytimeSegmentCloseReason.RECOVERY, openSegment.getCloseReason());
         assertEquals(lastAccruedAt, openSegment.getEndedAt());
+        assertEquals(lastAccruedAt, aggregate.getLastExitedAt());
         assertEquals(2_000L, aggregate.getTrackedMillis());
     }
 

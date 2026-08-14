@@ -14,6 +14,7 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEn
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerOnlineStatusEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.TrackedGamemodeEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionVisitEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLanguageEntity;
@@ -74,6 +75,7 @@ public class DataRegistry implements DataRegistryApi {
     private final ILoggerAdapter logger;
     private final DataProviderAPI dataProviderAPI;
     private final DataRegistrySettings settings;
+    private final boolean playtimeCatalogAuthority;
     private final nl.hauntedmc.dataprovider.logging.LoggerAdapter ormLogger;
     private final FeatureServiceDirectory featureServiceDirectory = new DefaultFeatureServiceDirectory();
 
@@ -100,7 +102,7 @@ public class DataRegistry implements DataRegistryApi {
     private ORMContext serviceOrmContext;
 
     public DataRegistry(ILoggerAdapter logger, String pluginName, DataProviderAPI dataProviderAPI) {
-        this(logger, pluginName, dataProviderAPI, DataRegistrySettings.defaults());
+        this(logger, pluginName, dataProviderAPI, DataRegistrySettings.defaults(), true);
     }
 
     public DataRegistry(
@@ -109,10 +111,28 @@ public class DataRegistry implements DataRegistryApi {
             DataProviderAPI dataProviderAPI,
             DataRegistrySettings settings
     ) {
+        this(logger, pluginName, dataProviderAPI, settings, true);
+    }
+
+    /**
+     * Creates a registry runtime.
+     *
+     * @param playtimeCatalogAuthority whether this runtime may reconcile the central playtime catalog. Only the
+     *                                 Velocity lifecycle owner should pass {@code true}; Paper bridge instances are
+     *                                 read-only consumers of that catalog.
+     */
+    public DataRegistry(
+            ILoggerAdapter logger,
+            String pluginName,
+            DataProviderAPI dataProviderAPI,
+            DataRegistrySettings settings,
+            boolean playtimeCatalogAuthority
+    ) {
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
         validatePluginName(pluginName);
         this.dataProviderAPI = Objects.requireNonNull(dataProviderAPI, "dataProviderAPI must not be null");
         this.settings = Objects.requireNonNull(settings, "settings must not be null");
+        this.playtimeCatalogAuthority = playtimeCatalogAuthority;
         this.ormLogger = new DataProviderLoggerAdapter(this.logger);
     }
 
@@ -175,6 +195,13 @@ public class DataRegistry implements DataRegistryApi {
             this.playerPlaytimeRepository = settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
                     ? newPlayerPlaytimeRepository(queryOrmContext)
                     : null;
+            if (playerPlaytimeRepository != null) {
+                if (playtimeCatalogAuthority) {
+                    playerPlaytimeRepository.initializeMetadata();
+                } else {
+                    playerPlaytimeRepository.initializeReadOnlyMetadata();
+                }
+            }
             this.playerPlaytimeSegmentRepository = settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
                     ? newPlayerPlaytimeSegmentRepository(queryOrmContext)
                     : null;
@@ -407,7 +434,8 @@ public class DataRegistry implements DataRegistryApi {
                                 settings.playtimeTrackingSettings()
                         ),
                         settings.serverNameMaxLength(),
-                        settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
+                        settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME),
+                        settings.playtimeTrackingSettings().excludedFromNetworkTotalGamemodes()
                 ),
                 serviceLogger,
                 settings.lifecycleWriteMaxAttempts(),
@@ -616,6 +644,7 @@ public class DataRegistry implements DataRegistryApi {
         if (settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)) {
             entityClasses.add(PlayerPlaytimeEntity.class);
             entityClasses.add(PlayerPlaytimeSegmentEntity.class);
+            entityClasses.add(TrackedGamemodeEntity.class);
         }
         if (settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE)) {
             entityClasses.add(PlayerLanguageEntity.class);

@@ -62,7 +62,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @Plugin(
         id = "dataregistry",
         name = "DataRegistry",
-        version = "1.13.5",
+        version = "1.14.0",
         description = "DataRegistry for cross-platform data handling.",
         authors = {"HauntedMC"},
         dependencies = @Dependency(id = "dataprovider")
@@ -255,7 +255,8 @@ public class VelocityDataRegistry implements PlatformPlugin {
                 getPlatformLogger(),
                 new PlaytimeGamemodeResolver(settings.playtimeTrackingSettings()),
                 settings.serverNameMaxLength(),
-                settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
+                settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME),
+                settings.playtimeTrackingSettings().excludedFromNetworkTotalGamemodes()
         );
         PlayerLifecycleWriter lifecycleWriter = new PlayerLifecycleWriter(
                 registry,

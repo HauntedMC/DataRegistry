@@ -6,6 +6,7 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentCloseReason;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.TrackedGamemodeEntity;
 import nl.hauntedmc.dataregistry.core.playtime.PlaytimeGamemodeResolver;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import org.hibernate.Session;
@@ -14,6 +15,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.Locale;
+import java.util.Set;
 
 /**
  * Backend service for player playtime accrual and segment lifecycle updates.
@@ -25,6 +30,7 @@ public final class PlayerPlaytimeService {
     private final PlaytimeGamemodeResolver gamemodeResolver;
     private final int serverNameMaxLength;
     private final boolean featureEnabled;
+    private final Set<String> excludedFromNetworkTotalGamemodes;
 
     public PlayerPlaytimeService(
             DataRegistry dataRegistry,
@@ -32,7 +38,7 @@ public final class PlayerPlaytimeService {
             PlaytimeGamemodeResolver gamemodeResolver,
             int serverNameMaxLength
     ) {
-        this(dataRegistry, logger, gamemodeResolver, serverNameMaxLength, true);
+        this(dataRegistry, logger, gamemodeResolver, serverNameMaxLength, true, Set.of());
     }
 
     public PlayerPlaytimeService(
@@ -42,6 +48,17 @@ public final class PlayerPlaytimeService {
             int serverNameMaxLength,
             boolean featureEnabled
     ) {
+        this(dataRegistry, logger, gamemodeResolver, serverNameMaxLength, featureEnabled, Set.of());
+    }
+
+    public PlayerPlaytimeService(
+            DataRegistry dataRegistry,
+            ILoggerAdapter logger,
+            PlaytimeGamemodeResolver gamemodeResolver,
+            int serverNameMaxLength,
+            boolean featureEnabled,
+            Collection<String> excludedFromNetworkTotalGamemodes
+    ) {
         this.dataRegistry = Objects.requireNonNull(dataRegistry, "dataRegistry must not be null");
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
         this.gamemodeResolver = Objects.requireNonNull(gamemodeResolver, "gamemodeResolver must not be null");
@@ -50,6 +67,16 @@ public final class PlayerPlaytimeService {
         }
         this.serverNameMaxLength = serverNameMaxLength;
         this.featureEnabled = featureEnabled;
+        LinkedHashSet<String> excluded = new LinkedHashSet<>();
+        for (String key : Objects.requireNonNull(
+                excludedFromNetworkTotalGamemodes,
+                "excludedFromNetworkTotalGamemodes must not be null"
+        )) {
+            if (key != null && !key.isBlank()) {
+                excluded.add(key.trim().toLowerCase(Locale.ROOT));
+            }
+        }
+        this.excludedFromNetworkTotalGamemodes = Set.copyOf(excluded);
     }
 
     public void onServerSwitch(PlayerEntity playerEntity, String serverName) {
@@ -159,7 +186,7 @@ public final class PlayerPlaytimeService {
 
         if (openSegment.isPresent()
                 && !belongsToOpenSession(openSegment.get(), openSession.orElse(null))) {
-            recoverStaleSegment(openSegment.get());
+            recoverStaleSegment(openSegment.get(), session);
             openSegment = Optional.empty();
         }
 
@@ -218,7 +245,7 @@ public final class PlayerPlaytimeService {
         Optional<PlayerSessionEntity> openSession = findOpenSession(session, playerEntity.getId());
         PlayerPlaytimeSegmentEntity segment = openSegment.get();
         if (!belongsToOpenSession(segment, openSession.orElse(null))) {
-            recoverStaleSegment(segment);
+            recoverStaleSegment(segment, session);
             return;
         }
 
@@ -244,7 +271,7 @@ public final class PlayerPlaytimeService {
         Optional<PlayerSessionEntity> openSession = findOpenSession(session, playerEntity.getId());
         PlayerPlaytimeSegmentEntity segment = openSegment.get();
         if (!belongsToOpenSession(segment, openSession.orElse(null))) {
-            recoverStaleSegment(segment);
+            recoverStaleSegment(segment, session);
             return;
         }
 
@@ -307,6 +334,8 @@ public final class PlayerPlaytimeService {
         PlayerPlaytimeEntity aggregate = findOrCreateAggregate(session, player, gamemodeKey, now);
         aggregate.setSegmentCount(Math.addExact(aggregate.getSegmentCount(), 1L));
         aggregate.setLastTrackedAt(now);
+        aggregate.setLastJoinedAt(now);
+        ensureGamemodePolicy(session, gamemodeKey, now);
 
         PlayerPlaytimeSegmentEntity segment = new PlayerPlaytimeSegmentEntity();
         segment.setPlayer(player);
@@ -326,8 +355,19 @@ public final class PlayerPlaytimeService {
             Session session
     ) {
         flushSegment(segment, now, session);
-        segment.setEndedAt(maxInstant(now, segment.getStartedAt()));
+        Instant endedAt = maxInstant(now, segment.getStartedAt());
+        segment.setEndedAt(endedAt);
         segment.setCloseReason(closeReason);
+        PlayerPlaytimeEntity aggregate = findOrCreateAggregate(
+                session,
+                segment.getPlayer(),
+                segment.getGamemodeKey(),
+                segment.getStartedAt()
+        );
+        aggregate.setLastExitedAt(endedAt);
+        if (closeReason == PlayerPlaytimeSegmentCloseReason.DISCONNECT) {
+            aggregate.setLastLogoutAt(endedAt);
+        }
     }
 
     private void flushSegment(
@@ -385,14 +425,38 @@ public final class PlayerPlaytimeService {
         aggregate.setSegmentCount(0L);
         aggregate.setFirstTrackedAt(anchorTime);
         aggregate.setLastTrackedAt(anchorTime);
+        aggregate.setLastJoinedAt(anchorTime);
+        aggregate.setLifecycleHistoryComplete(true);
         session.persist(aggregate);
         return aggregate;
     }
 
-    private static void recoverStaleSegment(PlayerPlaytimeSegmentEntity segment) {
+    private void ensureGamemodePolicy(Session session, String gamemodeKey, Instant observedAt) {
+        TrackedGamemodeEntity policy = session.find(TrackedGamemodeEntity.class, gamemodeKey);
+        if (policy != null) {
+            return;
+        }
+        policy = new TrackedGamemodeEntity();
+        policy.setGamemodeKey(gamemodeKey);
+        policy.setCountedTowardsNetworkTotal(!excludedFromNetworkTotalGamemodes.contains(gamemodeKey));
+        policy.setFirstObservedAt(observedAt);
+        session.persist(policy);
+    }
+
+    private static void recoverStaleSegment(PlayerPlaytimeSegmentEntity segment, Session session) {
         Instant recoveredEndTime = maxInstant(segment.getLastAccruedAt(), segment.getStartedAt());
         segment.setEndedAt(recoveredEndTime);
         segment.setCloseReason(PlayerPlaytimeSegmentCloseReason.RECOVERY);
+        session.createQuery(
+                        "SELECT p FROM PlayerPlaytimeEntity p " +
+                                "WHERE p.player.id = :playerId AND p.gamemodeKey = :gamemodeKey",
+                        PlayerPlaytimeEntity.class
+                )
+                .setParameter("playerId", segment.getPlayer().getId())
+                .setParameter("gamemodeKey", segment.getGamemodeKey())
+                .setMaxResults(1)
+                .uniqueResultOptional()
+                .ifPresent(aggregate -> aggregate.setLastExitedAt(recoveredEndTime));
     }
 
     private static Instant maxInstant(Instant left, Instant right) {

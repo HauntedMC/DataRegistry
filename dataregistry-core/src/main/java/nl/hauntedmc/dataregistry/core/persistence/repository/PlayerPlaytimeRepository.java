@@ -3,9 +3,14 @@ package nl.hauntedmc.dataregistry.core.persistence.repository;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentCloseReason;
+import nl.hauntedmc.dataregistry.core.persistence.entity.TrackedGamemodeEntity;
+import nl.hauntedmc.dataregistry.api.playtime.GamemodePlaytimeStatisticsSnapshot;
+import nl.hauntedmc.dataregistry.api.playtime.PlayerGamemodeActivitySnapshot;
 import nl.hauntedmc.dataregistry.api.playtime.PlayerGamemodePlaytimeSnapshot;
 import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeLeaderboardEntry;
 import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeSnapshot;
+import nl.hauntedmc.dataregistry.api.playtime.TrackedGamemodeSnapshot;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import org.hibernate.query.NativeQuery;
 
@@ -27,6 +32,7 @@ import java.util.UUID;
 public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeEntity, Long> {
 
     private final Set<String> defaultExcludedGamemodeKeys;
+    private volatile Set<String> centralExcludedGamemodeKeys;
 
     public PlayerPlaytimeRepository(ORMContext ormContext) {
         this(ormContext, Set.of());
@@ -43,6 +49,113 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
             }
         }
         this.defaultExcludedGamemodeKeys = Set.copyOf(normalizedExcludedGamemodes);
+        this.centralExcludedGamemodeKeys = this.defaultExcludedGamemodeKeys;
+    }
+
+    /**
+     * Reconciles the central gamemode catalog and performs the bounded, idempotent lifecycle-summary backfill.
+     * Only the Velocity lifecycle owner may mutate catalog policy; bridge runtimes only refresh their read cache.
+     */
+    public void initializeMetadata() {
+        reconcileCatalogPolicy();
+        backfillLifecycleSummaries();
+        refreshCentralExcludedGamemodeKeys();
+    }
+
+    /** Refreshes the central policy cache without mutating shared playtime state. */
+    public void initializeReadOnlyMetadata() {
+        refreshCentralExcludedGamemodeKeys();
+    }
+
+    private void reconcileCatalogPolicy() {
+        ormContext.runInTransaction(session -> {
+            LinkedHashSet<String> knownKeys = new LinkedHashSet<>(session.createQuery(
+                    "SELECT DISTINCT p.gamemodeKey FROM PlayerPlaytimeEntity p", String.class
+            ).list());
+            for (String key : knownKeys) {
+                TrackedGamemodeEntity policy = session.find(TrackedGamemodeEntity.class, key);
+                if (policy == null) {
+                    policy = new TrackedGamemodeEntity();
+                    policy.setGamemodeKey(key);
+                    Instant firstObservedAt = session.createQuery(
+                                    "SELECT MIN(p.firstTrackedAt) FROM PlayerPlaytimeEntity p " +
+                                            "WHERE p.gamemodeKey = :gamemodeKey",
+                                    Instant.class
+                            )
+                            .setParameter("gamemodeKey", key)
+                            .getSingleResult();
+                    policy.setFirstObservedAt(Objects.requireNonNull(firstObservedAt, "firstObservedAt"));
+                    policy.setCountedTowardsNetworkTotal(!defaultExcludedGamemodeKeys.contains(key));
+                    session.persist(policy);
+                } else {
+                    // Velocity configuration is the authoritative policy source. Reconcile existing rows so a
+                    // configuration change takes effect on the next Velocity restart.
+                    policy.setCountedTowardsNetworkTotal(!defaultExcludedGamemodeKeys.contains(key));
+                }
+            }
+            return null;
+        });
+    }
+
+    private void refreshCentralExcludedGamemodeKeys() {
+        centralExcludedGamemodeKeys = ormContext.runInTransaction(session -> Set.copyOf(
+                session.createQuery(
+                                "SELECT g.gamemodeKey FROM TrackedGamemodeEntity g " +
+                                        "WHERE g.countedTowardsNetworkTotal = false",
+                                String.class
+                        )
+                        .list()
+        ));
+    }
+
+    private void backfillLifecycleSummaries() {
+        while (true) {
+            Boolean processed = ormContext.runInTransaction(PlayerPlaytimeRepository::backfillLifecycleSummaryBatch);
+            if (!Boolean.TRUE.equals(processed)) {
+                return;
+            }
+        }
+    }
+
+    private static boolean backfillLifecycleSummaryBatch(org.hibernate.Session session) {
+        List<PlayerPlaytimeEntity> pending = session.createQuery(
+                            "SELECT p FROM PlayerPlaytimeEntity p " +
+                                    "WHERE p.lifecycleHistoryComplete IS NULL ORDER BY p.id ASC",
+                            PlayerPlaytimeEntity.class
+                    )
+                    .setMaxResults(500)
+                    .list();
+        if (pending.isEmpty()) {
+            return false;
+        }
+        List<Long> ids = pending.stream().map(PlayerPlaytimeEntity::getId).toList();
+        Map<Long, LifecycleSummary> summaries = new LinkedHashMap<>();
+        for (Long id : ids) {
+            summaries.put(id, new LifecycleSummary());
+        }
+        List<Object[]> rows = session.createQuery(
+                        "SELECT a.id, s FROM PlayerPlaytimeEntity a " +
+                                "LEFT JOIN PlayerPlaytimeSegmentEntity s ON s.player.id = a.player.id " +
+                                "AND s.gamemodeKey = a.gamemodeKey WHERE a.id IN :ids",
+                        Object[].class
+                )
+                .setParameter("ids", ids)
+                .list();
+        for (Object[] row : rows) {
+            if (row == null || row.length < 2 || !(row[0] instanceof Number aggregateId)
+                    || !(row[1] instanceof PlayerPlaytimeSegmentEntity segment)) {
+                continue;
+            }
+            summaries.computeIfAbsent(aggregateId.longValue(), ignored -> new LifecycleSummary()).add(segment);
+        }
+        for (PlayerPlaytimeEntity aggregate : pending) {
+            LifecycleSummary summary = summaries.get(aggregate.getId());
+            aggregate.setLastJoinedAt(summary.lastJoinedAt);
+            aggregate.setLastExitedAt(summary.lastExitedAt);
+            aggregate.setLastLogoutAt(summary.lastLogoutAt);
+            aggregate.setLifecycleHistoryComplete(summary.segmentCount == aggregate.getSegmentCount());
+        }
+        return true;
     }
 
     public Optional<PlayerPlaytimeEntity> findByPlayerAndGamemode(Long playerId, String gamemodeKey) {
@@ -91,11 +204,11 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
     }
 
     public Optional<PlayerPlaytimeSnapshot> findSnapshotByPlayerId(Long playerId) {
-        return findSnapshotByPlayerId(playerId, Instant.now(), defaultExcludedGamemodeKeys);
+        return findSnapshotByPlayerId(playerId, Instant.now(), centralExcludedGamemodeKeys);
     }
 
     public Optional<PlayerPlaytimeSnapshot> findSnapshotByPlayerId(Long playerId, Instant asOf) {
-        return findSnapshotByPlayerId(playerId, asOf, defaultExcludedGamemodeKeys);
+        return findSnapshotByPlayerId(playerId, asOf, centralExcludedGamemodeKeys);
     }
 
     public Optional<PlayerPlaytimeSnapshot> findSnapshotByPlayerId(
@@ -203,7 +316,7 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
     }
 
     public Optional<PlayerPlaytimeSnapshot> findSnapshotByPlayerUuid(String playerUuid) {
-        return findSnapshotByPlayerUuid(playerUuid, Instant.now(), defaultExcludedGamemodeKeys);
+        return findSnapshotByPlayerUuid(playerUuid, Instant.now(), centralExcludedGamemodeKeys);
     }
 
     public Optional<PlayerPlaytimeSnapshot> findSnapshotByPlayerUuid(
@@ -254,7 +367,7 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
     }
 
     public List<PlayerPlaytimeLeaderboardEntry> findTopPlayersByNetworkTotal(int limit) {
-        return findTopPlayersByNetworkTotal(limit, defaultExcludedGamemodeKeys);
+        return findTopPlayersByNetworkTotal(limit, centralExcludedGamemodeKeys);
     }
 
     public List<PlayerPlaytimeLeaderboardEntry> findTopPlayersByNetworkTotal(
@@ -292,13 +405,108 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
     }
 
     public List<String> findTrackedGamemodeKeys() {
-        return ormContext.runInTransaction(session ->
-                session.createQuery(
-                                "SELECT DISTINCT p.gamemodeKey FROM PlayerPlaytimeEntity p ORDER BY p.gamemodeKey ASC",
-                                String.class
-                        )
-                        .list()
-        );
+        return findTrackedGamemodes().stream().map(TrackedGamemodeSnapshot::gamemodeKey).toList();
+    }
+
+    public List<TrackedGamemodeSnapshot> findTrackedGamemodes() {
+        return ormContext.runInTransaction(session -> session.createQuery(
+                        "SELECT g FROM TrackedGamemodeEntity g ORDER BY g.gamemodeKey ASC",
+                        TrackedGamemodeEntity.class
+                ).list().stream().map(g -> new TrackedGamemodeSnapshot(
+                        g.getGamemodeKey(),
+                        g.isCountedTowardsNetworkTotal(),
+                        g.getFirstObservedAt()
+                )).toList());
+    }
+
+    public Optional<PlayerGamemodeActivitySnapshot> findGamemodeActivityByPlayerId(
+            long playerId,
+            String gamemodeKey
+    ) {
+        String normalizedKey = requireNormalizedGamemodeKey(gamemodeKey);
+        Instant generatedAt = Instant.now();
+        return ormContext.runInTransaction(session -> {
+            PlayerEntity player = session.find(PlayerEntity.class, playerId);
+            if (player == null) {
+                return Optional.empty();
+            }
+            PlayerPlaytimeEntity aggregate = session.createQuery(
+                            "SELECT p FROM PlayerPlaytimeEntity p " +
+                                    "WHERE p.player.id = :playerId AND p.gamemodeKey = :gamemodeKey",
+                            PlayerPlaytimeEntity.class
+                    )
+                    .setParameter("playerId", playerId)
+                    .setParameter("gamemodeKey", normalizedKey)
+                    .setMaxResults(1)
+                    .uniqueResult();
+            if (aggregate == null) {
+                return Optional.empty();
+            }
+            Optional<PlayerPlaytimeSegmentEntity> openSegment = findLiveOpenSegmentForPlayer(session, playerId)
+                    .filter(segment -> normalizedKey.equals(segment.getGamemodeKey()))
+                    .filter(segment -> isLiveSegment(segment, generatedAt));
+            long trackedMillis = aggregate.getTrackedMillis() + openSegment
+                    .map(segment -> computeLiveDeltaMillis(segment.getLastAccruedAt(), generatedAt))
+                    .orElse(0L);
+            return Optional.of(new PlayerGamemodeActivitySnapshot(
+                    player.getId(),
+                    player.getUuid(),
+                    player.getUsername(),
+                    normalizedKey,
+                    trackedMillis,
+                    !centralExcludedGamemodeKeys.contains(normalizedKey),
+                    aggregate.getSegmentCount(),
+                    aggregate.getFirstTrackedAt(),
+                    aggregate.getLastJoinedAt(),
+                    aggregate.getLastExitedAt(),
+                    aggregate.getLastLogoutAt(),
+                    openSegment.isPresent(),
+                    openSegment.map(PlayerPlaytimeSegmentEntity::getStartedAt).orElse(null),
+                    openSegment.map(PlayerPlaytimeSegmentEntity::getLastServer).orElse(null),
+                    generatedAt,
+                    Boolean.TRUE.equals(aggregate.getLifecycleHistoryComplete())
+            ));
+        });
+    }
+
+    public Optional<GamemodePlaytimeStatisticsSnapshot> findGamemodeStatistics(String gamemodeKey) {
+        String normalizedKey = requireNormalizedGamemodeKey(gamemodeKey);
+        Instant generatedAt = Instant.now();
+        return ormContext.runInTransaction(session -> {
+            Object[] totals = session.createQuery(
+                            "SELECT COUNT(p), COALESCE(SUM(p.trackedMillis), 0), " +
+                                    "COALESCE(SUM(p.segmentCount), 0), MIN(p.firstTrackedAt), " +
+                                    "MAX(p.lastTrackedAt) FROM PlayerPlaytimeEntity p " +
+                                    "WHERE p.gamemodeKey = :gamemodeKey",
+                            Object[].class
+                    )
+                    .setParameter("gamemodeKey", normalizedKey)
+                    .getSingleResult();
+            long uniquePlayers = ((Number) totals[0]).longValue();
+            if (uniquePlayers == 0L) {
+                return Optional.empty();
+            }
+            long liveMillis = session.createQuery(
+                            "SELECT s.lastAccruedAt FROM PlayerPlaytimeSegmentEntity s " +
+                                    "WHERE s.gamemodeKey = :gamemodeKey AND s.endedAt IS NULL " +
+                                    "AND s.session.endedAt IS NULL",
+                            Instant.class
+                    )
+                    .setParameter("gamemodeKey", normalizedKey)
+                    .list().stream()
+                    .mapToLong(lastAccruedAt -> computeLiveDeltaMillis(lastAccruedAt, generatedAt))
+                    .sum();
+            return Optional.of(new GamemodePlaytimeStatisticsSnapshot(
+                    normalizedKey,
+                    uniquePlayers,
+                    ((Number) totals[1]).longValue() + liveMillis,
+                    ((Number) totals[2]).longValue(),
+                    (Instant) totals[3],
+                    maxInstant((Instant) totals[4], liveMillis > 0L ? generatedAt : null),
+                    !centralExcludedGamemodeKeys.contains(normalizedKey),
+                    generatedAt
+            ));
+        });
     }
 
     private static Optional<PlayerPlaytimeSegmentEntity> findLiveOpenSegmentForPlayer(
@@ -386,6 +594,12 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
         String normalized = normalizeGamemodeKey(value);
         if (normalized == null) {
             throw new IllegalArgumentException("gamemodeKey must not be blank");
+        }
+        if (normalized.length() > 64) {
+            throw new IllegalArgumentException("gamemodeKey must not exceed 64 characters");
+        }
+        if (!normalized.matches("[a-z0-9._:-]+")) {
+            throw new IllegalArgumentException("gamemodeKey contains unsupported characters");
         }
         return normalized;
     }
@@ -486,6 +700,22 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
                     lastTrackedAt,
                     segmentCount
             );
+        }
+    }
+
+    private static final class LifecycleSummary {
+        private long segmentCount;
+        private Instant lastJoinedAt;
+        private Instant lastExitedAt;
+        private Instant lastLogoutAt;
+
+        private void add(PlayerPlaytimeSegmentEntity segment) {
+            segmentCount++;
+            lastJoinedAt = maxInstant(lastJoinedAt, segment.getStartedAt());
+            lastExitedAt = maxInstant(lastExitedAt, segment.getEndedAt());
+            if (segment.getCloseReason() == PlayerPlaytimeSegmentCloseReason.DISCONNECT) {
+                lastLogoutAt = maxInstant(lastLogoutAt, segment.getEndedAt());
+            }
         }
     }
 

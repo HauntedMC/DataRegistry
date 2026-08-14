@@ -3,6 +3,9 @@ package nl.hauntedmc.dataregistry.api.player;
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeLeaderboardEntry;
 import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeSnapshot;
+import nl.hauntedmc.dataregistry.api.playtime.PlayerGamemodeActivitySnapshot;
+import nl.hauntedmc.dataregistry.api.playtime.GamemodePlaytimeStatisticsSnapshot;
+import nl.hauntedmc.dataregistry.api.playtime.TrackedGamemodeSnapshot;
 
 import java.time.Instant;
 import java.util.Collection;
@@ -113,11 +116,31 @@ public interface PlayerData {
 
     CompletionStage<Optional<PlayerPlaytimeSnapshot>> findPlaytime(long playerId, Instant asOf);
 
+    /**
+     * Finds one player's durable activity within a logical gamemode. The gamemode key is normalized lowercase and
+     * must contain only letters, digits, {@code .}, {@code _}, {@code :}, or {@code -}.
+     */
+    CompletionStage<Optional<PlayerGamemodeActivitySnapshot>> findGamemodeActivity(
+            PlayerLookup lookup,
+            String gamemodeKey
+    );
+
+    CompletionStage<Optional<PlayerGamemodeActivitySnapshot>> findGamemodeActivity(
+            long playerId,
+            String gamemodeKey
+    );
+
+    /** Returns unique-player, visit, and playtime statistics for an observed logical gamemode. */
+    CompletionStage<Optional<GamemodePlaytimeStatisticsSnapshot>> findGamemodeStatistics(String gamemodeKey);
+
     CompletionStage<List<PlayerPlaytimeLeaderboardEntry>> findTopPlaytime(int limit);
 
     CompletionStage<List<PlayerPlaytimeLeaderboardEntry>> findTopPlaytimeByGamemode(String gamemodeKey, int limit);
 
+    /** Returns observed gamemode keys only; configured-but-unseen mappings are intentionally omitted. */
     CompletionStage<List<String>> findTrackedGamemodeKeys();
+
+    CompletionStage<List<TrackedGamemodeSnapshot>> findTrackedGamemodes();
 
     CompletionStage<PlayerProfileResult> findProfile(PlayerLookup lookup, PlayerProfileQuery query);
 

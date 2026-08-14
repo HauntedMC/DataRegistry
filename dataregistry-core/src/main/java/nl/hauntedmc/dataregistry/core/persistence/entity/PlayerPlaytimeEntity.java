@@ -26,7 +26,8 @@ import java.time.Instant;
         indexes = {
                 @Index(name = "idx_ppt_player", columnList = "player_id"),
                 @Index(name = "idx_ppt_gamemode_time", columnList = "gamemode_key, tracked_millis"),
-                @Index(name = "idx_ppt_last_tracked", columnList = "last_tracked_at")
+                @Index(name = "idx_ppt_last_tracked", columnList = "last_tracked_at"),
+                @Index(name = "idx_ppt_gamemode_last_joined", columnList = "gamemode_key, last_joined_at")
         }
 )
 public class PlayerPlaytimeEntity {
@@ -53,6 +54,19 @@ public class PlayerPlaytimeEntity {
 
     @Column(name = "last_tracked_at", nullable = false, columnDefinition = "TIMESTAMP")
     private Instant lastTrackedAt;
+
+    @Column(name = "last_joined_at", columnDefinition = "TIMESTAMP")
+    private Instant lastJoinedAt;
+
+    @Column(name = "last_exited_at", columnDefinition = "TIMESTAMP")
+    private Instant lastExitedAt;
+
+    @Column(name = "last_logout_at", columnDefinition = "TIMESTAMP")
+    private Instant lastLogoutAt;
+
+    /* Nullable only so an additive schema upgrade can distinguish rows awaiting backfill. */
+    @Column(name = "lifecycle_history_complete")
+    private Boolean lifecycleHistoryComplete;
 
     @Version
     @Column(name = "version", nullable = false)
@@ -115,5 +129,37 @@ public class PlayerPlaytimeEntity {
 
     public void setLastTrackedAt(Instant lastTrackedAt) {
         this.lastTrackedAt = lastTrackedAt;
+    }
+
+    public Instant getLastJoinedAt() {
+        return lastJoinedAt;
+    }
+
+    public void setLastJoinedAt(Instant lastJoinedAt) {
+        this.lastJoinedAt = lastJoinedAt;
+    }
+
+    public Instant getLastExitedAt() {
+        return lastExitedAt;
+    }
+
+    public void setLastExitedAt(Instant lastExitedAt) {
+        this.lastExitedAt = lastExitedAt;
+    }
+
+    public Instant getLastLogoutAt() {
+        return lastLogoutAt;
+    }
+
+    public void setLastLogoutAt(Instant lastLogoutAt) {
+        this.lastLogoutAt = lastLogoutAt;
+    }
+
+    public Boolean getLifecycleHistoryComplete() {
+        return lifecycleHistoryComplete;
+    }
+
+    public void setLifecycleHistoryComplete(Boolean lifecycleHistoryComplete) {
+        this.lifecycleHistoryComplete = lifecycleHistoryComplete;
     }
 }
