@@ -76,7 +76,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @Plugin(
         id = "dataregistry",
         name = "DataRegistry",
-        version = "1.13.7",
+        version = "1.13.8",
         description = "DataRegistry for cross-platform data handling.",
         authors = {"HauntedMC"},
         dependencies = @Dependency(id = "dataprovider")
