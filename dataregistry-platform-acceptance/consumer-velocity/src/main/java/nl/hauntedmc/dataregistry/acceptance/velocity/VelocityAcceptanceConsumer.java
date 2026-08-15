@@ -55,7 +55,7 @@ public final class VelocityAcceptanceConsumer {
                         .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow()),
                         "Nickname preference did not round-trip through the public API.");
                 require(proxy.getCommandManager().executeAsync(
-                        proxy.getConsoleCommandSource(), "dataprovider reload"
+                        proxy.getConsoleCommandSource(), "dataproviderproxy reload"
                 ).get(10, TimeUnit.SECONDS), "DataProvider reload command was rejected.");
                 require("Velocity Registry Tester".equals(api.players().findNickname(identity.playerId())
                         .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow()),
