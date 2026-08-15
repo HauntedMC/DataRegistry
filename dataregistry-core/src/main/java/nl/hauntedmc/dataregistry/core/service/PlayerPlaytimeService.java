@@ -235,6 +235,12 @@ public final class PlayerPlaytimeService {
 
         PlayerEntity managedPlayer = session.merge(playerEntity);
         Optional<PlayerSessionEntity> openSession = findOpenSession(session, managedPlayer.getId());
+        String entryServer = openSession
+                .map(PlayerSessionEntity::getLastServer)
+                .map(this::sanitizeServerName)
+                .map(gamemodeResolver::resolve)
+                .map(PlaytimeGamemodeResolver.ResolvedGamemode::serverName)
+                .orElse(resolvedGamemode.serverName());
         Optional<PlayerPlaytimeSegmentEntity> openSegment = findOpenSegment(session, managedPlayer.getId());
 
         if (openSegment.isPresent()
@@ -246,6 +252,8 @@ public final class PlayerPlaytimeService {
         if (openSegment.isPresent()) {
             PlayerPlaytimeSegmentEntity currentSegment = openSegment.get();
             if (!resolvedGamemode.tracked()) {
+                // The target is where this tracked segment ended, even when that target itself is ignored.
+                currentSegment.setLastServer(resolvedGamemode.serverName());
                 flushAndCloseSegment(
                         currentSegment,
                         now,
@@ -259,6 +267,8 @@ public final class PlayerPlaytimeService {
                 currentSegment.setLastServer(resolvedGamemode.serverName());
                 return;
             }
+            // Preserve the backend the player is transferring to as the exit side of this segment.
+            currentSegment.setLastServer(resolvedGamemode.serverName());
             flushAndCloseSegment(
                     currentSegment,
                     now,
@@ -272,6 +282,7 @@ public final class PlayerPlaytimeService {
                     managedPlayer,
                     openSession.get(),
                     resolvedGamemode.gamemodeKey(),
+                    entryServer,
                     resolvedGamemode.serverName(),
                     now,
                     session
@@ -380,7 +391,8 @@ public final class PlayerPlaytimeService {
             PlayerEntity player,
             PlayerSessionEntity sessionEntity,
             String gamemodeKey,
-            String serverName,
+            String entryServer,
+            String currentServer,
             Instant now,
             Session session
     ) {
@@ -394,8 +406,8 @@ public final class PlayerPlaytimeService {
         segment.setPlayer(player);
         segment.setSession(sessionEntity);
         segment.setGamemodeKey(gamemodeKey);
-        segment.setEntryServer(serverName);
-        segment.setLastServer(serverName);
+        segment.setEntryServer(entryServer);
+        segment.setLastServer(currentServer);
         segment.setStartedAt(now);
         segment.setLastAccruedAt(now);
         session.persist(segment);

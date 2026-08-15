@@ -89,6 +89,32 @@ class PlayerPlaytimeServiceTest {
     }
 
     @Test
+    void onServerSwitchStoresIgnoredSourceServerWhenOpeningTrackedSegment() {
+        TestContext context = createContext(PlaytimeTrackingSettings.builder()
+                .ignoredGamemodes(Set.of("lobby"))
+                .serverGamemodeRules(List.of(
+                        new PlaytimeTrackingSettings.ServerGamemodeRule("lobby-*", "lobby"),
+                        new PlaytimeTrackingSettings.ServerGamemodeRule("survival-*", "survival")
+                ))
+                .build());
+        PlayerEntity player = persistedPlayer();
+        PlayerSessionEntity openSession = openSession(player, 4L);
+        openSession.setLastServer("Lobby-1");
+
+        when(context.sessionQuery.uniqueResultOptional()).thenReturn(Optional.of(openSession));
+        when(context.segmentQuery.uniqueResultOptional()).thenReturn(Optional.empty());
+        when(context.aggregateQuery.uniqueResultOptional()).thenReturn(Optional.empty());
+
+        context.service.onServerSwitch(context.session, player, "survival-1", Instant.parse("2026-08-15T12:00:00Z"));
+
+        ArgumentCaptor<Object> persistedCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(context.session, times(3)).persist(persistedCaptor.capture());
+        PlayerPlaytimeSegmentEntity segment = (PlayerPlaytimeSegmentEntity) persistedCaptor.getAllValues().get(2);
+        assertEquals("lobby-1", segment.getEntryServer());
+        assertEquals("survival-1", segment.getLastServer());
+    }
+
+    @Test
     void onServerSwitchFlushesAndStopsTrackingWhenTargetGamemodeIsIgnored() {
         TestContext context = createContext(PlaytimeTrackingSettings.builder()
                 .ignoredGamemodes(Set.of("queue"))
@@ -109,6 +135,7 @@ class PlayerPlaytimeServiceTest {
         context.service.onServerSwitch(player, "queue-1");
 
         assertEquals(PlayerPlaytimeSegmentCloseReason.STOP_TRACKING, openSegment.getCloseReason());
+        assertEquals("queue-1", openSegment.getLastServer());
         assertNotNull(openSegment.getEndedAt());
         assertEquals(openSegment.getEndedAt(), aggregate.getLastExitedAt());
         assertTrue(aggregate.getTrackedMillis() >= 14_000L);

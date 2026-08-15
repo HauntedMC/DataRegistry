@@ -38,6 +38,7 @@ import org.hibernate.Session;
 import org.hibernate.query.MutationQuery;
 import org.hibernate.query.Query;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
 import java.net.InetAddress;
@@ -70,6 +71,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -333,7 +335,7 @@ class PlayerStatusListenerTest {
     }
 
     @Test
-    void onServerSwitchInvokesPlaytimeAfterStatusAndSessionUpdate() {
+    void onServerSwitchInvokesPlaytimeBeforeSessionServerUpdate() {
         PlayerRepository repository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
         DataRegistry registry = mock(DataRegistry.class);
@@ -365,7 +367,7 @@ class PlayerStatusListenerTest {
                         "WHERE s.player.id = :playerId AND s.endedAt IS NULL " +
                         "ORDER BY s.startedAt DESC, s.id DESC",
                 PlayerSessionEntity.class
-        )).thenReturn(sessionUpdateQuery, playtimeSessionQuery);
+        )).thenReturn(playtimeSessionQuery, sessionUpdateQuery);
         when(sessionUpdateQuery.setParameter(anyString(), any())).thenReturn(sessionUpdateQuery);
         when(sessionUpdateQuery.setMaxResults(1)).thenReturn(sessionUpdateQuery);
         when(playtimeSessionQuery.setParameter(anyString(), any())).thenReturn(playtimeSessionQuery);
@@ -373,6 +375,7 @@ class PlayerStatusListenerTest {
         PlayerSessionEntity openSession = new PlayerSessionEntity();
         openSession.setPlayer(persistedPlayer("00000000-0000-0000-0000-000000000001", "Alice"));
         openSession.setId(4L);
+        openSession.setLastServer("lobby-1");
         when(sessionUpdateQuery.uniqueResultOptional()).thenReturn(Optional.of(openSession));
         when(playtimeSessionQuery.uniqueResultOptional()).thenReturn(Optional.of(openSession));
         when(session.createQuery(
@@ -438,17 +441,27 @@ class PlayerStatusListenerTest {
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
         when(player.getUsername()).thenReturn("Alice");
         RegisteredServer server = mock(RegisteredServer.class);
-        when(server.getServerInfo()).thenReturn(new ServerInfo("lobby-1", new InetSocketAddress("127.0.0.1", 25567)));
+        when(server.getServerInfo()).thenReturn(new ServerInfo("survival-1", new InetSocketAddress("127.0.0.1", 25567)));
 
         listener.onPlayerJoin(new PostLoginEvent(player));
         listener.onServerSwitch(new ServerConnectedEvent(player, server, null));
 
         InOrder inOrder = inOrder(session, sessionUpdateQuery, sessionVisitQuery, playtimeSessionQuery, playtimeSegmentQuery);
         inOrder.verify(session).find(PlayerOnlineStatusEntity.class, persistent.getId());
-        inOrder.verify(sessionUpdateQuery).uniqueResultOptional();
-        inOrder.verify(sessionVisitQuery).uniqueResultOptional();
         inOrder.verify(playtimeSessionQuery).uniqueResultOptional();
         inOrder.verify(playtimeSegmentQuery).uniqueResultOptional();
+        inOrder.verify(sessionUpdateQuery).uniqueResultOptional();
+        inOrder.verify(sessionVisitQuery).uniqueResultOptional();
+
+        ArgumentCaptor<Object> persistedCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(session, atLeastOnce()).persist(persistedCaptor.capture());
+        PlayerPlaytimeSegmentEntity segment = persistedCaptor.getAllValues().stream()
+                .filter(PlayerPlaytimeSegmentEntity.class::isInstance)
+                .map(PlayerPlaytimeSegmentEntity.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("lobby-1", segment.getEntryServer());
+        assertEquals("survival-1", segment.getLastServer());
     }
 
     @Test

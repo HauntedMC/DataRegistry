@@ -43,9 +43,11 @@ public class PlayerPlaytimeSegmentEntity {
     @Column(name = "gamemode_key", length = 64, nullable = false)
     private String gamemodeKey;
 
+    // Backend immediately before the player entered this tracked gamemode. It may be an ignored gamemode.
     @Column(name = "entry_server", length = 64, nullable = false)
     private String entryServer;
 
+    // Most recently connected backend; a closed segment records the backend the player transferred to.
     @Column(name = "last_server", length = 64, nullable = false)
     private String lastServer;
 

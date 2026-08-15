@@ -214,8 +214,11 @@ public final class PlayerLifecycleWriter {
             flushForGeneratedId(session, player);
             activitySummaryService.recordSeen(session, player, now);
             statusService.updateStatus(session, player, command.serverName());
-            sessionService.updateServerOnSwitch(session, player, command.serverName(), now);
+            // Playtime must observe the session's previous backend before this transfer replaces it.
+            // That previous backend is persisted as the segment entry server, including when it is
+            // an ignored gamemode such as a lobby or queue.
             playtimeService.onServerSwitch(session, player, command.serverName(), now);
+            sessionService.updateServerOnSwitch(session, player, command.serverName(), now);
             persistOutbox(
                     session,
                     command.eventId(),
