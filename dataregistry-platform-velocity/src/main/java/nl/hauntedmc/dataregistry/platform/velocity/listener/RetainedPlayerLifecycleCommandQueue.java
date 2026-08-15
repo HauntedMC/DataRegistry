@@ -8,6 +8,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
@@ -128,6 +129,12 @@ final class RetainedPlayerLifecycleCommandQueue {
     int pendingCommandCount() {
         synchronized (this) {
             return queues.values().stream().mapToInt(queue -> queue.commands.size()).sum();
+        }
+    }
+
+    Set<String> snapshotPlayerUuids() {
+        synchronized (this) {
+            return Set.copyOf(queues.keySet());
         }
     }
 

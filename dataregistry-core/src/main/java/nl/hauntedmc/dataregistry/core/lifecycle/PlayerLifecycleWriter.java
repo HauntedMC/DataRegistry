@@ -1,10 +1,8 @@
 package nl.hauntedmc.dataregistry.core.lifecycle;
 
-import jakarta.persistence.OptimisticLockException;
-import jakarta.persistence.PersistenceException;
-import jakarta.persistence.PessimisticLockException;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
+import nl.hauntedmc.dataregistry.core.persistence.RetryableDatabaseFailure;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEventType;
@@ -18,13 +16,8 @@ import nl.hauntedmc.dataregistry.core.service.PlayerService;
 import nl.hauntedmc.dataregistry.core.service.PlayerSessionService;
 import nl.hauntedmc.dataregistry.core.service.PlayerStatusService;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
-import org.hibernate.JDBCException;
 import org.hibernate.Session;
-import org.hibernate.exception.LockAcquisitionException;
 
-import java.sql.SQLException;
-import java.sql.SQLIntegrityConstraintViolationException;
-import java.sql.SQLTransientException;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
@@ -286,7 +279,7 @@ public final class PlayerLifecycleWriter {
                         : PlayerLifecycleWriteResult.success(eventId, identity);
             } catch (RuntimeException exception) {
                 lastFailure = exception;
-                boolean transientFailure = isTransientFailure(exception);
+                boolean transientFailure = RetryableDatabaseFailure.isRetryable(exception);
                 if (!transientFailure || attempt == maxAttempts) {
                     PlayerLifecycleWriteStatus status = transientFailure
                             ? PlayerLifecycleWriteStatus.TRANSIENT_FAILURE
@@ -380,58 +373,6 @@ public final class PlayerLifecycleWriter {
         if (player.getId() == null) {
             throw new IllegalStateException("Player lifecycle write did not produce a player id.");
         }
-    }
-
-    private static boolean isTransientFailure(Throwable throwable) {
-        Throwable current = throwable;
-        while (current != null) {
-            if (current instanceof SQLTransientException
-                    || current instanceof LockAcquisitionException
-                    || current instanceof PessimisticLockException
-                    || current instanceof OptimisticLockException) {
-                return true;
-            }
-            if (current instanceof SQLException sqlException && isTransientSqlFailure(sqlException)) {
-                return true;
-            }
-            if (current instanceof JDBCException jdbcException
-                    && (jdbcException.getSQLException() instanceof SQLTransientException
-                    || isTransientSqlFailure(jdbcException.getSQLException()))) {
-                return true;
-            }
-            if (current instanceof PersistenceException persistenceException
-                    && persistenceException.getCause() instanceof SQLException sqlException
-                    && isTransientSqlFailure(sqlException)) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        return false;
-    }
-
-    /**
-     * Integrity violations are retryable here because the lifecycle commands are idempotent and can legitimately race
-     * on unique player/outbox inserts across services. A retried transaction will observe the committed row.
-     */
-    private static boolean isRetryableConstraintFailure(SQLException sqlException) {
-        if (sqlException == null) {
-            return false;
-        }
-        if (sqlException instanceof SQLIntegrityConstraintViolationException) {
-            return true;
-        }
-        String sqlState = sqlException.getSQLState();
-        return sqlState != null && sqlState.startsWith("23");
-    }
-
-    private static boolean isTransientSqlFailure(SQLException sqlException) {
-        if (isRetryableConstraintFailure(sqlException)) {
-            return true;
-        }
-        String sqlState = sqlException.getSQLState();
-        // SQLState class 08 is a connection exception; class 40 covers transaction rollback/deadlock conditions.
-        // JDBC drivers do not consistently expose these as SQLTransientException during an outage.
-        return sqlState != null && (sqlState.startsWith("08") || sqlState.startsWith("40"));
     }
 
     private void pauseBeforeRetry(int completedAttempts) {

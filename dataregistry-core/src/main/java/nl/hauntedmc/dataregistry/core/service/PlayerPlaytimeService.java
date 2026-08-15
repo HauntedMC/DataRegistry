@@ -2,6 +2,7 @@ package nl.hauntedmc.dataregistry.core.service;
 
 import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
+import nl.hauntedmc.dataregistry.core.persistence.RetryableDatabaseFailure;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentCloseReason;
@@ -20,11 +21,16 @@ import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
  * Backend service for player playtime accrual and segment lifecycle updates.
  */
 public final class PlayerPlaytimeService {
+
+    private static final int STANDALONE_TRANSACTION_MAX_ATTEMPTS = 3;
+    private static final long STANDALONE_RETRY_BASE_DELAY_MILLIS = 25L;
 
     private final DataRegistry dataRegistry;
     private final ILoggerAdapter logger;
@@ -107,15 +113,11 @@ public final class PlayerPlaytimeService {
 
         PlaytimeGamemodeResolver.ResolvedGamemode resolvedGamemode = gamemodeResolver.resolve(sanitizedServerName);
         Instant now = Instant.now();
-        try {
-            dataRegistry.getORM().runInTransaction(session -> {
-                onServerSwitch(session, playerEntity, resolvedGamemode, now);
-                return null;
-            });
-        } catch (RuntimeException exception) {
-            logger.error("Failed to update playtime for uuid=" +
-                    Sanitization.safeForLog(playerEntity.getUuid()), exception);
-        }
+        executeStandaloneTransaction(
+                playerEntity,
+                "update",
+                session -> onServerSwitch(session, playerEntity, resolvedGamemode, now)
+        );
     }
 
     public void flushActivePlaytime(PlayerEntity playerEntity) {
@@ -128,15 +130,11 @@ public final class PlayerPlaytimeService {
         }
 
         Instant now = Instant.now();
-        try {
-            dataRegistry.getORM().runInTransaction(session -> {
-                flushActivePlaytime(session, playerEntity, now);
-                return null;
-            });
-        } catch (RuntimeException exception) {
-            logger.error("Failed to flush playtime for uuid=" +
-                    Sanitization.safeForLog(playerEntity.getUuid()), exception);
-        }
+        executeStandaloneTransaction(
+                playerEntity,
+                "flush",
+                session -> flushActivePlaytime(session, playerEntity, now)
+        );
     }
 
     public void closeActivePlaytimeOnDisconnect(PlayerEntity playerEntity) {
@@ -149,14 +147,57 @@ public final class PlayerPlaytimeService {
         }
 
         Instant now = Instant.now();
+        executeStandaloneTransaction(
+                playerEntity,
+                "close",
+                session -> closeActivePlaytimeOnDisconnect(session, playerEntity, now)
+        );
+    }
+
+    private void executeStandaloneTransaction(
+            PlayerEntity playerEntity,
+            String operation,
+            Consumer<Session> transactionWork
+    ) {
+        RuntimeException lastFailure = null;
+        for (int attempt = 1; attempt <= STANDALONE_TRANSACTION_MAX_ATTEMPTS; attempt++) {
+            try {
+                dataRegistry.getORM().runInTransaction(session -> {
+                    transactionWork.accept(session);
+                    return null;
+                });
+                return;
+            } catch (RuntimeException exception) {
+                lastFailure = exception;
+                if (!RetryableDatabaseFailure.isRetryable(exception)
+                        || attempt == STANDALONE_TRANSACTION_MAX_ATTEMPTS) {
+                    break;
+                }
+                logger.warn(
+                        "Transient playtime " + operation + " failure for uuid=" +
+                                Sanitization.safeForLog(playerEntity.getUuid()) + "; retrying attempt " +
+                                (attempt + 1) + " of " + STANDALONE_TRANSACTION_MAX_ATTEMPTS + ".",
+                        exception
+                );
+                if (!pauseBeforeStandaloneRetry(attempt)) {
+                    break;
+                }
+            }
+        }
+        logger.error(
+                "Failed to " + operation + " playtime for uuid=" +
+                        Sanitization.safeForLog(playerEntity.getUuid()),
+                lastFailure
+        );
+    }
+
+    private static boolean pauseBeforeStandaloneRetry(int completedAttempts) {
         try {
-            dataRegistry.getORM().runInTransaction(session -> {
-                closeActivePlaytimeOnDisconnect(session, playerEntity, now);
-                return null;
-            });
-        } catch (RuntimeException exception) {
-            logger.error("Failed to close playtime for uuid=" +
-                    Sanitization.safeForLog(playerEntity.getUuid()), exception);
+            TimeUnit.MILLISECONDS.sleep(STANDALONE_RETRY_BASE_DELAY_MILLIS * completedAttempts);
+            return true;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 

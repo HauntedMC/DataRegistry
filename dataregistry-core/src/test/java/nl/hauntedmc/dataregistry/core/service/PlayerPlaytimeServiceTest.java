@@ -1,5 +1,6 @@
 package nl.hauntedmc.dataregistry.core.service;
 
+import jakarta.persistence.OptimisticLockException;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
@@ -20,6 +21,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.executeTransactionsWithSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -31,6 +33,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -158,6 +161,49 @@ class PlayerPlaytimeServiceTest {
     }
 
     @Test
+    void standaloneFlushRetriesCompleteTransactionAfterOptimisticConflict() {
+        TestContext context = createContext(PlaytimeTrackingSettings.defaults());
+        RuntimeException conflict = new RuntimeException(
+                "Transaction failed",
+                new OptimisticLockException("segment version changed")
+        );
+        AtomicInteger attempts = new AtomicInteger();
+        reset(context.ormContext);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            ORMContext.TransactionCallback<Object> callback =
+                    (ORMContext.TransactionCallback<Object>) invocation.getArgument(0);
+            Object result = callback.execute(context.session);
+            if (attempts.getAndIncrement() == 0) {
+                throw conflict;
+            }
+            return result;
+        }).when(context.ormContext).runInTransaction(any());
+
+        context.service.flushActivePlaytime(persistedPlayer());
+
+        assertEquals(2, attempts.get());
+        verify(context.ormContext, times(2)).runInTransaction(any());
+        verify(context.logger).warn(anyString(), org.mockito.ArgumentMatchers.eq(conflict));
+    }
+
+    @Test
+    void standaloneFlushDoesNotRetryPermanentFailure() {
+        TestContext context = createContext(PlaytimeTrackingSettings.defaults());
+        RuntimeException permanentFailure = new RuntimeException("invalid playtime state");
+        reset(context.ormContext);
+        org.mockito.Mockito.doThrow(permanentFailure)
+                .when(context.ormContext)
+                .runInTransaction(any());
+
+        context.service.flushActivePlaytime(persistedPlayer());
+
+        verify(context.ormContext).runInTransaction(any());
+        verify(context.logger, never()).warn(anyString(), any(RuntimeException.class));
+        verify(context.logger).error(anyString(), org.mockito.ArgumentMatchers.eq(permanentFailure));
+    }
+
+    @Test
     void invalidEntityOrDisabledFeatureSkipWork() {
         DataRegistry registry = mock(DataRegistry.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
@@ -210,7 +256,7 @@ class PlayerPlaytimeServiceTest {
                 new PlaytimeGamemodeResolver(playtimeSettings),
                 64
         );
-        return new TestContext(service, session, sessionQuery, segmentQuery, aggregateQuery);
+        return new TestContext(service, ormContext, session, sessionQuery, segmentQuery, aggregateQuery, logger);
     }
 
     private static PlayerEntity persistedPlayer() {
@@ -260,10 +306,12 @@ class PlayerPlaytimeServiceTest {
 
     private record TestContext(
             PlayerPlaytimeService service,
+            ORMContext ormContext,
             Session session,
             Query<PlayerSessionEntity> sessionQuery,
             Query<PlayerPlaytimeSegmentEntity> segmentQuery,
-            Query<PlayerPlaytimeEntity> aggregateQuery
+            Query<PlayerPlaytimeEntity> aggregateQuery,
+            ILoggerAdapter logger
     ) {
     }
 }

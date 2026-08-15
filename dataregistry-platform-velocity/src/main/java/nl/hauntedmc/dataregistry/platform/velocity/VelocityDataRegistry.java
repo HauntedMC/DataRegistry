@@ -358,7 +358,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
         PlayerPresenceRecoveryResult result = new PlayerPresenceRecoveryService(registry, settings)
                 .recoverAfterBackendRecovery(
                         listener.snapshotDisconnectsAwaitingReconciliation(),
-                        listener.snapshotCurrentPlayerUuids()
+                        listener.snapshotPlayersProtectedFromRecovery()
                 );
         if (result.recoveredAnyState()) {
             logger.warn(

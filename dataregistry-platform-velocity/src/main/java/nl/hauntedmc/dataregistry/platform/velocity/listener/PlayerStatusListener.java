@@ -23,6 +23,7 @@ import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -46,7 +47,9 @@ import java.util.function.Supplier;
  * <p>
  * Velocity can emit login, server switch, and disconnect events in quick succession. This listener snapshots the
  * platform state synchronously, then processes all database-backed lifecycle work through a per-player queue so
- * dependent feature tables observe identity creation before later lifecycle updates.
+ * dependent feature tables observe identity creation before later lifecycle updates. Periodic playtime writes use a
+ * separate lightweight pipeline, but share a keyed write coordinator with lifecycle commands so transactions for the
+ * same player cannot overlap.
  */
 public class PlayerStatusListener {
 
@@ -66,9 +69,10 @@ public class PlayerStatusListener {
     private final ILoggerAdapter logger;
     private final Executor eventExecutor;
     private final RetainedPlayerLifecycleCommandQueue retainedCommands;
+    private final PlayerWriteCoordinator playerWriteCoordinator = new PlayerWriteCoordinator();
     private final ConcurrentMap<String, CompletableFuture<Void>> playerEventPipelines = new ConcurrentHashMap<>();
     private final Set<String> disconnectsAwaitingReconciliation = ConcurrentHashMap.newKeySet();
-    private final ReentrantReadWriteLock playtimePolicyLock = new ReentrantReadWriteLock();
+    private final ReentrantReadWriteLock playtimePolicyLock = new ReentrantReadWriteLock(true);
     /**
      * The current Velocity connection for each UUID. Presence is owned by a concrete proxy connection, rather than
      * {@link DisconnectEvent.LoginStatus}: a backend connection failure can use a non-successful login status even
@@ -169,7 +173,7 @@ public class PlayerStatusListener {
         retainedCommands.submit(
                 uuid,
                 command.eventId(),
-                () -> withPlaytimePolicyReadLock(() -> lifecycleWriter.login(command)),
+                () -> executePlayerWrite(uuid, () -> lifecycleWriter.login(command)),
                 result -> result.identityOptional().ifPresentOrElse(
                         identity -> playerService.completeIdentityInitialization(initialization, identity),
                         () -> playerService.failIdentityInitialization(
@@ -197,7 +201,7 @@ public class PlayerStatusListener {
         retainedCommands.submit(
                 uuid,
                 command.eventId(),
-                () -> withPlaytimePolicyReadLock(() -> lifecycleWriter.transfer(command)),
+                () -> executePlayerWrite(uuid, () -> lifecycleWriter.transfer(command)),
                 ignored -> {
                 },
                 ignored -> {
@@ -220,7 +224,7 @@ public class PlayerStatusListener {
         retainedCommands.submit(
                 uuid,
                 command.eventId(),
-                () -> withPlaytimePolicyReadLock(() -> lifecycleWriter.disconnect(command)),
+                () -> executePlayerWrite(uuid, () -> lifecycleWriter.disconnect(command)),
                 ignored -> {
                     disconnectsAwaitingReconciliation.remove(uuid);
                     playerService.onPlayerQuit(username, uuid);
@@ -247,19 +251,11 @@ public class PlayerStatusListener {
     }
 
     private Optional<CompletableFuture<Void>> enqueuePlayerEvent(String uuid, Runnable task) {
-        return enqueuePlayerEvent(uuid, task, false);
-    }
-
-    private Optional<CompletableFuture<Void>> enqueuePlayerEvent(
-            String uuid,
-            Runnable task,
-            boolean allowDuringShutdown
-    ) {
         AtomicReference<CompletableFuture<Void>> queuedPipeline = new AtomicReference<>();
         AtomicReference<String> queuedKey = new AtomicReference<>();
         AtomicReference<RuntimeException> schedulingFailure = new AtomicReference<>();
         playerEventPipelines.compute(uuid, (key, currentPipeline) -> {
-            if (!allowDuringShutdown && !acceptingEvents.get()) {
+            if (!acceptingEvents.get()) {
                 return currentPipeline;
             }
             CompletableFuture<Void> base = currentPipeline == null
@@ -284,7 +280,7 @@ public class PlayerStatusListener {
             scheduledPipeline.whenComplete((ignored, throwable) -> {
                 if (throwable != null) {
                     logger.error(
-                            "Unhandled exception while processing queued lifecycle event for uuid=" + safeForLog(uuid),
+                            "Unhandled exception while processing queued player task for uuid=" + safeForLog(uuid),
                             throwable
                     );
                 }
@@ -317,9 +313,22 @@ public class PlayerStatusListener {
         return Set.copyOf(disconnectsAwaitingReconciliation);
     }
 
+    /**
+     * Returns players that live recovery must not mutate because they are connected or still have local writes in
+     * flight. This closes the race between backend recovery and a retained disconnect retry.
+     */
+    public Set<String> snapshotPlayersProtectedFromRecovery() {
+        Set<String> protectedPlayers = new HashSet<>(currentPlayerConnections.keySet());
+        protectedPlayers.addAll(retainedCommands.snapshotPlayerUuids());
+        protectedPlayers.addAll(playerEventPipelines.keySet());
+        return Set.copyOf(protectedPlayers);
+    }
+
     /** Returns the number of player lifecycle pipelines currently queued or executing. */
     public int activeLifecyclePipelineCount() {
-        return playerEventPipelines.size();
+        Set<String> activePlayers = new HashSet<>(retainedCommands.snapshotPlayerUuids());
+        activePlayers.addAll(playerEventPipelines.keySet());
+        return activePlayers.size();
     }
 
     /** Returns the number of disconnected players awaiting backend-recovery reconciliation. */
@@ -346,10 +355,17 @@ public class PlayerStatusListener {
             if (player == null) {
                 continue;
             }
-            if (enqueuePlayerEvent(entry.getKey(), () -> withPlaytimePolicyReadLock(() -> {
-                playtimeService.flushActivePlaytime(player);
-                return null;
-            })).isPresent()) {
+            String uuid = entry.getKey();
+            if (enqueuePlayerEvent(uuid, () -> executePlayerWrite(
+                    uuid,
+                    () -> {
+                        // A retained lifecycle command owns the logical ordering for this player even while it is
+                        // waiting for its next database retry. A maintenance flush must not overtake that command.
+                        if (!retainedCommands.hasPendingCommand(uuid)) {
+                            playtimeService.flushActivePlaytime(player);
+                        }
+                    }
+            )).isPresent()) {
                 queuedPlayers++;
             }
         }
@@ -391,7 +407,7 @@ public class PlayerStatusListener {
             retainedCommands.submit(
                     uuid,
                     command.eventId(),
-                    () -> withPlaytimePolicyReadLock(() -> lifecycleWriter.disconnect(command)),
+                    () -> executePlayerWrite(uuid, () -> lifecycleWriter.disconnect(command)),
                     ignored -> {
                         disconnectsAwaitingReconciliation.remove(uuid);
                         playerService.onPlayerQuit(player.getUsername(), uuid);
@@ -423,7 +439,7 @@ public class PlayerStatusListener {
             try {
                 CompletableFuture.allOf(pendingPipelines).get(remainingNanos, TimeUnit.NANOSECONDS);
             } catch (ExecutionException ignored) {
-                // Individual pipeline failures are logged by enqueuePlayerEvent and still count as completed work.
+                // Individual pipeline failures are logged and still count as completed work.
             } catch (TimeoutException timeoutException) {
                 return false;
             } catch (InterruptedException interruptedException) {
@@ -431,6 +447,17 @@ public class PlayerStatusListener {
                 return false;
             }
         }
+    }
+
+    private <T> T executePlayerWrite(String uuid, Supplier<T> action) {
+        return playerWriteCoordinator.execute(uuid, () -> withPlaytimePolicyReadLock(action));
+    }
+
+    private void executePlayerWrite(String uuid, Runnable action) {
+        playerWriteCoordinator.execute(uuid, () -> withPlaytimePolicyReadLock(() -> {
+            action.run();
+            return null;
+        }));
     }
 
     private static String safeForLog(String value) {

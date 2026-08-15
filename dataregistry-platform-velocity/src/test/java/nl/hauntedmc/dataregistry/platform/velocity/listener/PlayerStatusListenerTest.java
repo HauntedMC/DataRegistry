@@ -50,10 +50,14 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.executeTransactionsWithSession;
@@ -752,6 +756,22 @@ class PlayerStatusListenerTest {
     }
 
     @Test
+    void disconnectedPlayerWithPendingLifecycleWriteIsProtectedFromLiveRecovery() {
+        TestContext context = createContext(runnable -> {
+        });
+        String uuid = UUID.randomUUID().toString();
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
+        when(player.getUsername()).thenReturn("Alice");
+
+        context.listener.onPlayerJoin(new PostLoginEvent(player));
+        context.listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN));
+
+        assertTrue(context.listener.snapshotCurrentPlayerUuids().isEmpty());
+        assertTrue(context.listener.snapshotPlayersProtectedFromRecovery().contains(uuid));
+    }
+
+    @Test
     void onPlayerJoinQueuesIdentityPersistenceOffEventThread() {
         Deque<Runnable> queuedTasks = new ArrayDeque<>();
         TestContext context = createContext(queuedTasks::addLast);
@@ -863,6 +883,83 @@ class PlayerStatusListenerTest {
         context.listener.flushActivePlaytime();
 
         verify(context.ormContext).runInTransaction(any());
+    }
+
+    @Test
+    void periodicPlaytimeFlushDoesNotOvertakePendingLifecycleCommand() {
+        Deque<Runnable> queuedTasks = new ArrayDeque<>();
+        TestContext context = createContext(queuedTasks::addLast);
+        String uuid = UUID.randomUUID().toString();
+        PlayerEntity persistent = persistedPlayer(uuid, "Alice");
+        when(context.repository.snapshotActivePlayers()).thenReturn(Map.of(uuid, persistent));
+
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
+        when(player.getUsername()).thenReturn("Alice");
+
+        context.listener.onPlayerJoin(new PostLoginEvent(player));
+        context.listener.flushActivePlaytime();
+        assertEquals(2, queuedTasks.size());
+
+        reset(context.ormContext);
+        queuedTasks.removeLast().run();
+
+        verify(context.ormContext, never()).runInTransaction(any());
+    }
+
+    @Test
+    void periodicPlaytimeFlushCannotOverlapLifecycleWriteForTheSamePlayer() throws Exception {
+        ExecutorService eventExecutor = Executors.newFixedThreadPool(2);
+        TestContext context = createContext(eventExecutor);
+        String uuid = UUID.randomUUID().toString();
+        PlayerEntity persistent = persistedPlayer(uuid, "Alice");
+        when(context.repository.getOrCreatePlayer(eq(context.session), eq(uuid), eq("Alice"))).thenReturn(persistent);
+        when(context.repository.snapshotActivePlayers()).thenReturn(Map.of(uuid, persistent));
+
+        CountDownLatch transferTransactionEntered = new CountDownLatch(1);
+        CountDownLatch releaseTransfer = new CountDownLatch(1);
+        CountDownLatch flushTransactionEntered = new CountDownLatch(1);
+        AtomicInteger transactionCalls = new AtomicInteger();
+
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
+        when(player.getUsername()).thenReturn("Alice");
+        RegisteredServer server = mock(RegisteredServer.class);
+        when(server.getServerInfo()).thenReturn(new ServerInfo("survival", new InetSocketAddress("127.0.0.1", 25567)));
+
+        try {
+            context.listener.onPlayerJoin(new PostLoginEvent(player));
+            assertTrue(context.listener.awaitPipelineDrain(1L, TimeUnit.SECONDS));
+
+            reset(context.ormContext);
+            doAnswer(invocation -> {
+                int call = transactionCalls.incrementAndGet();
+                if (call == 1) {
+                    transferTransactionEntered.countDown();
+                    releaseTransfer.await();
+                } else {
+                    flushTransactionEntered.countDown();
+                }
+                @SuppressWarnings("unchecked")
+                ORMContext.TransactionCallback<Object> callback =
+                        (ORMContext.TransactionCallback<Object>) invocation.getArgument(0);
+                return callback.execute(context.session);
+            }).when(context.ormContext).runInTransaction(any());
+
+            context.listener.onServerSwitch(new ServerConnectedEvent(player, server, null));
+            assertTrue(transferTransactionEntered.await(1L, TimeUnit.SECONDS));
+            context.listener.flushActivePlaytime();
+
+            assertFalse(flushTransactionEntered.await(100L, TimeUnit.MILLISECONDS));
+            releaseTransfer.countDown();
+            assertTrue(context.listener.awaitPipelineDrain(1L, TimeUnit.SECONDS));
+            // The maintenance flush may run after the transfer is removed from the retained queue or be skipped as
+            // redundant while completion is being published. Both outcomes preserve lifecycle ordering.
+            assertTrue(transactionCalls.get() == 1 || transactionCalls.get() == 2);
+        } finally {
+            releaseTransfer.countDown();
+            eventExecutor.shutdownNow();
+        }
     }
 
     private static TestContext createContext() {
