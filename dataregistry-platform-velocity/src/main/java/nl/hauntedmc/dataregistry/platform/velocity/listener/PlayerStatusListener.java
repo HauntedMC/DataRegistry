@@ -5,6 +5,7 @@ import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.connection.PostLoginEvent;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.proxy.Player;
+import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.lifecycle.DisconnectCommand;
 import nl.hauntedmc.dataregistry.core.lifecycle.LoginCommand;
@@ -37,6 +38,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Supplier;
 
 /**
  * Serializes Velocity player lifecycle persistence off the proxy event thread.
@@ -65,6 +68,7 @@ public class PlayerStatusListener {
     private final RetainedPlayerLifecycleCommandQueue retainedCommands;
     private final ConcurrentMap<String, CompletableFuture<Void>> playerEventPipelines = new ConcurrentHashMap<>();
     private final Set<String> disconnectsAwaitingReconciliation = ConcurrentHashMap.newKeySet();
+    private final ReentrantReadWriteLock playtimePolicyLock = new ReentrantReadWriteLock();
     /**
      * The current Velocity connection for each UUID. Presence is owned by a concrete proxy connection, rather than
      * {@link DisconnectEvent.LoginStatus}: a backend connection failure can use a non-successful login status even
@@ -165,7 +169,7 @@ public class PlayerStatusListener {
         retainedCommands.submit(
                 uuid,
                 command.eventId(),
-                () -> lifecycleWriter.login(command),
+                () -> withPlaytimePolicyReadLock(() -> lifecycleWriter.login(command)),
                 result -> result.identityOptional().ifPresentOrElse(
                         identity -> playerService.completeIdentityInitialization(initialization, identity),
                         () -> playerService.failIdentityInitialization(
@@ -193,7 +197,7 @@ public class PlayerStatusListener {
         retainedCommands.submit(
                 uuid,
                 command.eventId(),
-                () -> lifecycleWriter.transfer(command),
+                () -> withPlaytimePolicyReadLock(() -> lifecycleWriter.transfer(command)),
                 ignored -> {
                 },
                 ignored -> {
@@ -216,7 +220,7 @@ public class PlayerStatusListener {
         retainedCommands.submit(
                 uuid,
                 command.eventId(),
-                () -> lifecycleWriter.disconnect(command),
+                () -> withPlaytimePolicyReadLock(() -> lifecycleWriter.disconnect(command)),
                 ignored -> {
                     disconnectsAwaitingReconciliation.remove(uuid);
                     playerService.onPlayerQuit(username, uuid);
@@ -313,16 +317,60 @@ public class PlayerStatusListener {
         return Set.copyOf(disconnectsAwaitingReconciliation);
     }
 
+    /** Returns the number of player lifecycle pipelines currently queued or executing. */
+    public int activeLifecyclePipelineCount() {
+        return playerEventPipelines.size();
+    }
+
+    /** Returns the number of disconnected players awaiting backend-recovery reconciliation. */
+    public int disconnectsAwaitingReconciliationCount() {
+        return disconnectsAwaitingReconciliation.size();
+    }
+
     /**
      * Enqueues a lightweight playtime accrual flush for currently active players.
      */
     public void flushActivePlaytime() {
+        queueActivePlaytimeFlushes();
+    }
+
+    /**
+     * Enqueues a lightweight playtime accrual flush for currently active players.
+     *
+     * @return number of player queues that accepted a flush task.
+     */
+    public int queueActivePlaytimeFlushes() {
+        int queuedPlayers = 0;
         for (Map.Entry<String, PlayerEntity> entry : playerService.snapshotActivePlayers().entrySet()) {
             PlayerEntity player = entry.getValue();
             if (player == null) {
                 continue;
             }
-            enqueuePlayerEvent(entry.getKey(), () -> playtimeService.flushActivePlaytime(player));
+            if (enqueuePlayerEvent(entry.getKey(), () -> withPlaytimePolicyReadLock(() -> {
+                playtimeService.flushActivePlaytime(player);
+                return null;
+            })).isPresent()) {
+                queuedPlayers++;
+            }
+        }
+        return queuedPlayers;
+    }
+
+    /** Applies updated playtime mapping and total-exclusion settings to subsequent lifecycle events. */
+    public void updatePlaytimeTrackingSettings(PlaytimeTrackingSettings settings) {
+        playtimeService.updatePlaytimeTrackingSettings(settings);
+    }
+
+    /**
+     * Runs a policy update while preventing lifecycle writes from recreating data with the previous policy.
+     */
+    public <T> T runWithExclusivePlaytimePolicyLock(Supplier<T> action) {
+        Objects.requireNonNull(action, "action must not be null");
+        playtimePolicyLock.writeLock().lock();
+        try {
+            return action.get();
+        } finally {
+            playtimePolicyLock.writeLock().unlock();
         }
     }
 
@@ -343,7 +391,7 @@ public class PlayerStatusListener {
             retainedCommands.submit(
                     uuid,
                     command.eventId(),
-                    () -> lifecycleWriter.disconnect(command),
+                    () -> withPlaytimePolicyReadLock(() -> lifecycleWriter.disconnect(command)),
                     ignored -> {
                         disconnectsAwaitingReconciliation.remove(uuid);
                         playerService.onPlayerQuit(player.getUsername(), uuid);
@@ -399,6 +447,15 @@ public class PlayerStatusListener {
             sanitized.append("...");
         }
         return sanitized.toString();
+    }
+
+    private <T> T withPlaytimePolicyReadLock(Supplier<T> action) {
+        playtimePolicyLock.readLock().lock();
+        try {
+            return action.get();
+        } finally {
+            playtimePolicyLock.readLock().unlock();
+        }
     }
 
     private String extractIp(Player player) {

@@ -8,6 +8,7 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -69,10 +70,34 @@ final class DataRegistryConfigIO {
             if (current.equals(content)) {
                 return false;
             }
-            Files.writeString(configPath, content, StandardCharsets.UTF_8);
+            writeAtomically(configPath, content);
             return true;
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to write DataRegistry config file at " + configPath, exception);
+        }
+    }
+
+    private static void writeAtomically(Path configPath, String content) throws IOException {
+        Path directory = configPath.toAbsolutePath().getParent();
+        if (directory == null) {
+            throw new IOException("Config path has no parent directory: " + configPath);
+        }
+
+        Path temporaryPath = Files.createTempFile(directory, ".config.yml-", ".tmp");
+        try {
+            Files.writeString(temporaryPath, content, StandardCharsets.UTF_8);
+            try {
+                Files.move(
+                        temporaryPath,
+                        configPath,
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING
+                );
+            } catch (AtomicMoveNotSupportedException ignored) {
+                Files.move(temporaryPath, configPath, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temporaryPath);
         }
     }
 
@@ -88,10 +113,10 @@ final class DataRegistryConfigIO {
     private static void writeInitialConfig(Path configPath, ClassLoader resourceLoader) throws IOException {
         try (InputStream input = resourceLoader.getResourceAsStream(FILE_NAME)) {
             if (input != null) {
-                Files.copy(input, configPath, StandardCopyOption.REPLACE_EXISTING);
+                writeAtomically(configPath, new String(input.readAllBytes(), StandardCharsets.UTF_8));
                 return;
             }
         }
-        Files.writeString(configPath, DataRegistryConfigSchema.defaultTemplate(), StandardCharsets.UTF_8);
+        writeAtomically(configPath, DataRegistryConfigSchema.defaultTemplate());
     }
 }

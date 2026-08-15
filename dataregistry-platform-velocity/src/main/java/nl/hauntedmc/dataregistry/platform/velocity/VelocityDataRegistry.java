@@ -1,6 +1,9 @@
 package nl.hauntedmc.dataregistry.platform.velocity;
 
 import com.google.inject.Inject;
+import com.velocitypowered.api.command.BrigadierCommand;
+import com.velocitypowered.api.command.CommandManager;
+import com.velocitypowered.api.command.CommandMeta;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.event.Subscribe;
@@ -9,6 +12,7 @@ import com.velocitypowered.api.plugin.Dependency;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
+import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.velocitypowered.api.proxy.server.ServerInfo;
 import nl.hauntedmc.dataprovider.api.DataProviderAPI;
@@ -16,6 +20,9 @@ import nl.hauntedmc.dataprovider.api.DataProviderApiSupplier;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.api.DataRegistryApi;
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
+import nl.hauntedmc.dataregistry.api.player.PlayerLookup;
+import nl.hauntedmc.dataregistry.api.player.PlayerProfileQuery;
+import nl.hauntedmc.dataregistry.api.player.PlayerProfileResult;
 import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceKind;
 import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceProbeStatus;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerLifecycleOutboxRepository;
@@ -27,16 +34,20 @@ import nl.hauntedmc.dataregistry.core.playtime.PlaytimeGamemodeResolver;
 import nl.hauntedmc.dataregistry.core.service.PlayerPlaytimeService;
 import nl.hauntedmc.dataregistry.core.service.PlayerPresenceRecoveryResult;
 import nl.hauntedmc.dataregistry.core.service.PlayerPresenceRecoveryService;
+import nl.hauntedmc.dataregistry.core.service.PlayerPresenceRepairResult;
 import nl.hauntedmc.dataregistry.core.service.PlayerService;
 import nl.hauntedmc.dataregistry.core.service.PlayerSessionService;
 import nl.hauntedmc.dataregistry.core.service.PlayerStatusService;
 import nl.hauntedmc.dataregistry.core.service.ServiceRegistryService;
 import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.core.config.DataRegistrySettingsLoader;
+import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlaytimePolicyReconciliationResult;
 import nl.hauntedmc.dataregistry.platform.common.PlatformPlugin;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import nl.hauntedmc.dataregistry.core.runtime.PlatformDataRegistryRuntime;
 import nl.hauntedmc.dataregistry.platform.velocity.listener.PlayerStatusListener;
+import nl.hauntedmc.dataregistry.platform.velocity.command.DataRegistryBrigadierCommand;
 import nl.hauntedmc.dataregistry.platform.velocity.logger.SLF4JLoggerAdapter;
 import nl.hauntedmc.dataregistry.platform.velocity.util.VelocityPlayerAdapter;
 import org.slf4j.Logger;
@@ -46,8 +57,11 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -85,7 +99,10 @@ public class VelocityDataRegistry implements PlatformPlugin {
 
     private SLF4JLoggerAdapter logInstance;
     private DataRegistrySettings settings = DataRegistrySettings.defaults();
+    private volatile PlaytimeTrackingSettings activePlaytimeTrackingSettings = PlaytimeTrackingSettings.defaults();
     private ExecutorService playerEventExecutor;
+    private ExecutorService playtimePolicyExecutor;
+    private ExecutorService adminCommandExecutor;
     private ScheduledExecutorService playerLifecycleRetryExecutor;
     private ScheduledExecutorService playerPlaytimeFlushExecutor;
     private ScheduledExecutorService serviceRegistryHeartbeatExecutor;
@@ -96,6 +113,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
     private final AtomicReference<String> localServiceInstanceId = new AtomicReference<>();
     private final AtomicLong nextProbePurgeAtEpochMillis = new AtomicLong(0L);
     private final AtomicLong nextServiceInstancePurgeAtEpochMillis = new AtomicLong(0L);
+    private CommandMeta dataRegistryCommandMeta;
 
     @Inject
     public VelocityDataRegistry(ProxyServer proxyServer, Logger logger, @DataDirectory Path dataDirectory) {
@@ -109,6 +127,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
         logInstance = new SLF4JLoggerAdapter(logger);
         VelocityPlayerAdapter.setProxy(proxyServer);
         settings = settingsLoader.load(dataDirectory, getClass().getClassLoader(), logInstance);
+        activePlaytimeTrackingSettings = settings.playtimeTrackingSettings();
 
         DataProviderAPI dataProviderAPI = resolveDataProviderApi();
         if (dataProviderAPI == null) {
@@ -127,6 +146,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
             startPlaytimeFlushLifecycle();
             startServiceRegistryLifecycle();
             startPlayerHistoryRetention();
+            registerDataRegistryCommand();
         } catch (RuntimeException | Error startupFailure) {
             rollbackFailedStartup();
             logger.error("DataRegistry startup failed on Velocity.", startupFailure);
@@ -139,11 +159,14 @@ public class VelocityDataRegistry implements PlatformPlugin {
 
     @Subscribe(priority = SHUTDOWN_EVENT_PRIORITY)
     public void onProxyShutdown(ProxyShutdownEvent event) {
+        unregisterDataRegistryCommand();
         stopPlaytimeFlushLifecycle();
         stopAcceptingAndDrainPlayerEvents();
         shutdownLifecycleOutboxRetentionExecutor();
         stopServiceRegistryLifecycle();
         shutdownPlayerLifecycleRetryExecutor();
+        shutdownPlaytimePolicyExecutor();
+        shutdownAdminCommandExecutor();
         runtime.stop(getPlatformLogger());
         shutdownPlayerEventExecutor();
         shutdownPlayerPlaytimeFlushExecutor();
@@ -359,11 +382,14 @@ public class VelocityDataRegistry implements PlatformPlugin {
     }
 
     private void rollbackFailedStartup() {
+        unregisterDataRegistryCommand();
         stopPlaytimeFlushLifecycle();
         stopAcceptingAndDrainPlayerEvents();
         shutdownLifecycleOutboxRetentionExecutor();
         stopServiceRegistryLifecycle();
         shutdownPlayerLifecycleRetryExecutor();
+        shutdownPlaytimePolicyExecutor();
+        shutdownAdminCommandExecutor();
         runtime.stop(getPlatformLogger());
         shutdownPlayerEventExecutor();
         shutdownPlayerPlaytimeFlushExecutor();
@@ -461,13 +487,280 @@ public class VelocityDataRegistry implements PlatformPlugin {
         if (listener == null) {
             return;
         }
-        int flushIntervalSeconds = settings.playtimeTrackingSettings().flushIntervalSeconds();
+        int flushIntervalSeconds = activePlaytimeTrackingSettings.flushIntervalSeconds();
         playerPlaytimeFlushExecutor.scheduleAtFixedRate(
                 listener::flushActivePlaytime,
                 flushIntervalSeconds,
                 flushIntervalSeconds,
                 TimeUnit.SECONDS
         );
+    }
+
+    void registerDataRegistryCommand() {
+        CommandManager commandManager = proxyServer.getCommandManager();
+        BrigadierCommand command = DataRegistryBrigadierCommand.create(
+                new DataRegistryBrigadierCommand.Handler() {
+                    @Override
+                    public DataRegistryBrigadierCommand.Status status() {
+                        return dataRegistryCommandStatus();
+                    }
+
+                    @Override
+                    public int flushActivePlaytime() {
+                        if (!settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)) {
+                            throw new IllegalStateException("Playtime tracking is disabled.");
+                        }
+                        PlayerStatusListener listener = playerStatusListener;
+                        if (listener == null) {
+                            throw new IllegalStateException("Player lifecycle listener is unavailable.");
+                        }
+                        return listener.queueActivePlaytimeFlushes();
+                    }
+
+                    @Override
+                    public java.util.concurrent.CompletionStage<PlaytimePolicyReconciliationResult>
+                    reconcilePlaytimePolicy() {
+                        return reconcilePlaytimePolicyFromConfig();
+                    }
+
+                    @Override
+                    public java.util.concurrent.CompletionStage<DataRegistryBrigadierCommand.Diagnostics> diagnostics() {
+                        return collectCommandDiagnostics();
+                    }
+
+                    @Override
+                    public java.util.concurrent.CompletionStage<List<DataRegistryBrigadierCommand.OnlinePlayer>>
+                    onlinePlayers() {
+                        return listCommandOnlinePlayers();
+                    }
+
+                    @Override
+                    public java.util.concurrent.CompletionStage<List<DataRegistryBrigadierCommand.RecentPlayer>>
+                    recentPlayers() {
+                        return listCommandRecentPlayers();
+                    }
+
+                    @Override
+                    public java.util.concurrent.CompletionStage<PlayerProfileResult> playerProfile(String identifier) {
+                        return runtimeDataRegistry().players().findProfile(
+                                PlayerLookup.identifier(identifier),
+                                PlayerProfileQuery.withNameHistoryLimit(5)
+                        );
+                    }
+
+                    @Override
+                    public java.util.concurrent.CompletionStage<List<DataRegistryBrigadierCommand.ServiceHealth>> services() {
+                        return listCommandServiceHealth();
+                    }
+
+                    @Override
+                    public java.util.concurrent.CompletionStage<PlayerPresenceRepairResult> repairPresence() {
+                        return repairPresenceFromCommand();
+                    }
+                }
+        );
+        CommandMeta commandMeta = commandManager.metaBuilder(command)
+                .aliases("dr")
+                .plugin(this)
+                .build();
+        commandManager.register(commandMeta, command);
+        dataRegistryCommandMeta = commandMeta;
+    }
+
+    private void unregisterDataRegistryCommand() {
+        CommandMeta commandMeta = dataRegistryCommandMeta;
+        dataRegistryCommandMeta = null;
+        if (commandMeta != null) {
+            proxyServer.getCommandManager().unregister(commandMeta);
+        }
+    }
+
+    DataRegistryBrigadierCommand.Status dataRegistryCommandStatus() {
+        boolean ready;
+        try {
+            ready = runtimeDataRegistry().isReady();
+        } catch (IllegalStateException ignored) {
+            ready = false;
+        }
+        PlaytimeTrackingSettings playtimeSettings = activePlaytimeTrackingSettings;
+        return new DataRegistryBrigadierCommand.Status(
+                ready,
+                settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME),
+                proxyServer.getPlayerCount(),
+                playtimeSettings.flushIntervalSeconds(),
+                playtimeSettings.ignoredGamemodes(),
+                playtimeSettings.excludedFromNetworkTotalGamemodes(),
+                settings.enabledFeatures().stream()
+                        .map(DataRegistryFeature::configKey)
+                        .collect(Collectors.toSet()),
+                playtimeSettings.resolveUnknownServersAsGamemode(),
+                playtimeSettings.serverGamemodeRules().stream()
+                        .map(rule -> new DataRegistryBrigadierCommand.MappingRule(rule.match(), rule.gamemodeKey()))
+                        .toList()
+        );
+    }
+
+    private java.util.concurrent.CompletionStage<DataRegistryBrigadierCommand.Diagnostics> collectCommandDiagnostics() {
+        ensureAdminCommandExecutor();
+        return CompletableFuture.supplyAsync(() -> {
+            DataRegistry registry = runtimeDataRegistry();
+            long knownPlayers = countPlayerRows(registry);
+            long durableOnlinePlayers = settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)
+                    ? countRows(registry, "SELECT COUNT(s) FROM PlayerOnlineStatusEntity s WHERE s.online = true")
+                    : 0L;
+            long openSessions = settings.isFeatureEnabled(DataRegistryFeature.SESSIONS)
+                    ? countRows(registry, "SELECT COUNT(s) FROM PlayerSessionEntity s WHERE s.endedAt IS NULL")
+                    : 0L;
+            long openVisits = settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS)
+                    ? countRows(registry, "SELECT COUNT(v) FROM PlayerSessionVisitEntity v WHERE v.leftAt IS NULL")
+                    : 0L;
+            long openSegments = settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
+                    ? countRows(registry, "SELECT COUNT(s) FROM PlayerPlaytimeSegmentEntity s WHERE s.endedAt IS NULL")
+                    : 0L;
+            long lifecycleEvents = countRows(registry, "SELECT COUNT(o) FROM PlayerLifecycleOutboxEntity o");
+            PlayerStatusListener listener = playerStatusListener;
+            long serviceCount = 0L;
+            long runningServiceInstances = 0L;
+            if (settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY)) {
+                ServiceRegistryService registryService = registry.newServiceRegistryService();
+                serviceCount = registryService.listServices().size();
+                runningServiceInstances = registryService.listRunningInstances().size();
+            }
+            return new DataRegistryBrigadierCommand.Diagnostics(
+                    knownPlayers,
+                    durableOnlinePlayers,
+                    proxyServer.getPlayerCount(),
+                    openSessions,
+                    openVisits,
+                    openSegments,
+                    lifecycleEvents,
+                    listener == null ? 0 : listener.activeLifecyclePipelineCount(),
+                    listener == null ? 0 : listener.disconnectsAwaitingReconciliationCount(),
+                    settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY),
+                    serviceCount,
+                    runningServiceInstances
+            );
+        }, adminCommandExecutor);
+    }
+
+    private java.util.concurrent.CompletionStage<List<DataRegistryBrigadierCommand.OnlinePlayer>> listCommandOnlinePlayers() {
+        if (!settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)) {
+            return CompletableFuture.completedFuture(List.of());
+        }
+        return runtimeDataRegistry().players().findOnlinePlayers(20)
+                .thenApply(players -> players.stream()
+                        .map(player -> new DataRegistryBrigadierCommand.OnlinePlayer(
+                                player.playerId(),
+                                player.currentServer()
+                        ))
+                        .toList());
+    }
+
+    private java.util.concurrent.CompletionStage<List<DataRegistryBrigadierCommand.RecentPlayer>> listCommandRecentPlayers() {
+        if (!settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)) {
+            return CompletableFuture.completedFuture(List.of());
+        }
+        return runtimeDataRegistry().players().findRecentlySeen(20)
+                .thenApply(players -> players.stream()
+                        .map(player -> new DataRegistryBrigadierCommand.RecentPlayer(
+                                player.playerId(),
+                                player.lastSeenAt()
+                        ))
+                        .toList());
+    }
+
+    private java.util.concurrent.CompletionStage<List<DataRegistryBrigadierCommand.ServiceHealth>> listCommandServiceHealth() {
+        if (!settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY)) {
+            return CompletableFuture.completedFuture(List.of());
+        }
+        ensureAdminCommandExecutor();
+        return CompletableFuture.supplyAsync(() -> {
+            Duration heartbeatFreshness = Duration.ofSeconds(settings.serviceHeartbeatIntervalSeconds() * 3L);
+            Duration probeFreshness = Duration.ofSeconds(settings.serviceProbeIntervalSeconds() * 3L);
+            return runtimeDataRegistry().newServiceRegistryService()
+                    .listServiceEffectiveHealth(heartbeatFreshness, probeFreshness)
+                    .stream()
+                    .map(health -> new DataRegistryBrigadierCommand.ServiceHealth(
+                            health.serviceKind().name(),
+                            health.serviceName(),
+                            health.effectiveStatus().name(),
+                            health.totalInstanceCount(),
+                            health.runningInstanceCount()
+                    ))
+                    .toList();
+        }, adminCommandExecutor);
+    }
+
+    private java.util.concurrent.CompletionStage<PlayerPresenceRepairResult> repairPresenceFromCommand() {
+        if (!settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Online-status tracking is disabled."));
+        }
+        Map<String, String> livePlayerServers = new LinkedHashMap<>();
+        for (Player player : proxyServer.getAllPlayers()) {
+            String currentServer = player.getCurrentServer()
+                    .map(connection -> connection.getServerInfo().getName())
+                    .orElse("");
+            livePlayerServers.put(player.getUniqueId().toString(), currentServer);
+        }
+        ensureAdminCommandExecutor();
+        return CompletableFuture.supplyAsync(
+                () -> new PlayerPresenceRecoveryService(runtimeDataRegistry(), settings).repairPresence(livePlayerServers),
+                adminCommandExecutor
+        );
+    }
+
+    private static long countPlayerRows(DataRegistry registry) {
+        return registry.getORM().runInTransaction(session -> session.createQuery(
+                        "SELECT COUNT(p) FROM PlayerEntity p",
+                        Long.class
+                )
+                .getSingleResult());
+    }
+
+    private static long countRows(DataRegistry registry, String query) {
+        return registry.getORM().runInTransaction(session -> session.createQuery(query, Long.class).getSingleResult());
+    }
+
+    java.util.concurrent.CompletionStage<PlaytimePolicyReconciliationResult> reconcilePlaytimePolicyFromConfig() {
+        if (!settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Playtime tracking is disabled."));
+        }
+        ensurePlaytimePolicyExecutor();
+        return CompletableFuture.supplyAsync(() -> {
+            DataRegistrySettings reloadedSettings = settingsLoader.load(
+                    dataDirectory,
+                    getClass().getClassLoader(),
+                    getPlatformLogger()
+            );
+            PlaytimeTrackingSettings replacementSettings = reloadedSettings.playtimeTrackingSettings();
+            PlaytimeTrackingSettings previousSettings = activePlaytimeTrackingSettings;
+            PlayerStatusListener listener = playerStatusListener;
+            if (listener == null) {
+                throw new IllegalStateException("Player lifecycle listener is unavailable.");
+            }
+            DataRegistry registry = runtimeDataRegistry();
+            PlaytimePolicyReconciliationResult result = listener.runWithExclusivePlaytimePolicyLock(() -> {
+                listener.updatePlaytimeTrackingSettings(replacementSettings);
+                try {
+                    return registry.reconcilePlaytimePolicy(replacementSettings);
+                } catch (RuntimeException exception) {
+                    listener.updatePlaytimeTrackingSettings(previousSettings);
+                    throw exception;
+                }
+            });
+            activePlaytimeTrackingSettings = replacementSettings;
+            if (previousSettings.flushIntervalSeconds() != replacementSettings.flushIntervalSeconds()) {
+                shutdownPlayerPlaytimeFlushExecutor();
+                startPlaytimeFlushLifecycle();
+            }
+            logger.info(
+                    "Applied playtime policy from config: ignored={}, excludedFromNetworkTotal={}, flushIntervalSeconds={}",
+                    replacementSettings.ignoredGamemodes(),
+                    replacementSettings.excludedFromNetworkTotalGamemodes(),
+                    replacementSettings.flushIntervalSeconds()
+            );
+            return result;
+        }, playtimePolicyExecutor);
     }
 
     private void startPlayerHistoryRetention() {
@@ -907,6 +1200,32 @@ public class VelocityDataRegistry implements PlatformPlugin {
         playerPlaytimeFlushExecutor = Executors.newSingleThreadScheduledExecutor(threadFactory);
     }
 
+    private void ensurePlaytimePolicyExecutor() {
+        if (playtimePolicyExecutor != null && !playtimePolicyExecutor.isShutdown()) {
+            return;
+        }
+        ThreadFactory threadFactory = runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("DataRegistry-velocity-playtime-policy");
+            thread.setDaemon(true);
+            return thread;
+        };
+        playtimePolicyExecutor = Executors.newSingleThreadExecutor(threadFactory);
+    }
+
+    private void ensureAdminCommandExecutor() {
+        if (adminCommandExecutor != null && !adminCommandExecutor.isShutdown()) {
+            return;
+        }
+        ThreadFactory threadFactory = runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("DataRegistry-velocity-admin-command");
+            thread.setDaemon(true);
+            return thread;
+        };
+        adminCommandExecutor = Executors.newSingleThreadExecutor(threadFactory);
+    }
+
     private void shutdownPlayerEventExecutor() {
         ExecutorService executor = playerEventExecutor;
         playerEventExecutor = null;
@@ -916,6 +1235,40 @@ public class VelocityDataRegistry implements PlatformPlugin {
         executor.shutdown();
         try {
             if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            executor.shutdownNow();
+        }
+    }
+
+    private void shutdownPlaytimePolicyExecutor() {
+        ExecutorService executor = playtimePolicyExecutor;
+        playtimePolicyExecutor = null;
+        if (executor == null) {
+            return;
+        }
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(PLAYTIME_FLUSH_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            executor.shutdownNow();
+        }
+    }
+
+    private void shutdownAdminCommandExecutor() {
+        ExecutorService executor = adminCommandExecutor;
+        adminCommandExecutor = null;
+        if (executor == null) {
+            return;
+        }
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(PLAYTIME_FLUSH_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 executor.shutdownNow();
             }
         } catch (InterruptedException interruptedException) {

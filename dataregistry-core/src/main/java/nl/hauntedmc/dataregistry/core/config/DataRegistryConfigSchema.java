@@ -66,7 +66,10 @@ final class DataRegistryConfigSchema {
                 "excluded-from-network-total-gamemodes",
                 List.copyOf(playtimeSettings.excludedFromNetworkTotalGamemodes())
         );
-        playtime.put("server-gamemode-rules", List.of());
+        List<Map<String, String>> serverGamemodeRules = playtimeSettings.serverGamemodeRules().stream()
+                .map(rule -> Map.of("match", rule.match(), "gamemode", rule.gamemodeKey()))
+                .toList();
+        playtime.put("server-gamemode-rules", serverGamemodeRules);
         root.put("playtime", playtime);
 
         Map<String, Object> serviceRegistry = new LinkedHashMap<>();
@@ -195,16 +198,20 @@ final class DataRegistryConfigSchema {
         builder.append("  resolve-unknown-servers-as-gamemode: ")
                 .append(playtimeSettings.resolveUnknownServersAsGamemode())
                 .append('\n');
-        builder.append("  # Gamemode keys that should never accrue tracked playtime.\n");
-        builder.append("  ignored-gamemodes: []\n");
+        builder.append("  # Gamemode keys that should never accrue new tracked playtime. Existing historical records are retained.\n");
+        builder.append("  ignored-gamemodes: ");
+        appendInlineGamemodeKeys(builder, playtimeSettings.ignoredGamemodes());
+        builder.append('\n');
         builder.append("  # Gamemode keys that should track individually but not count toward network totals.\n");
-        builder.append("  excluded-from-network-total-gamemodes: []\n");
+        builder.append("  excluded-from-network-total-gamemodes: ");
+        appendInlineGamemodeKeys(builder, playtimeSettings.excludedFromNetworkTotalGamemodes());
+        builder.append('\n');
         builder.append("  # Ordered first-match server mapping rules. Supports '*' and '?' wildcards.\n");
         builder.append("  # Example:\n");
         builder.append("  # server-gamemode-rules:\n");
         builder.append("  #   - match: \"lobby-*\"\n");
         builder.append("  #     gamemode: lobby\n");
-        builder.append("  server-gamemode-rules: []\n");
+        appendServerGamemodeRules(builder, playtimeSettings.serverGamemodeRules());
         builder.append('\n');
         builder.append("service-registry:\n");
         builder.append("  # Applies to: Both.\n");
@@ -295,5 +302,34 @@ final class DataRegistryConfigSchema {
         builder.append("    # Max persisted IP text length (7-45).\n");
         builder.append("    max-length: ").append(settings.ipAddressMaxLength()).append('\n');
         return builder.toString();
+    }
+
+    private static void appendInlineGamemodeKeys(StringBuilder builder, Iterable<String> gamemodeKeys) {
+        builder.append('[');
+        boolean first = true;
+        for (String gamemodeKey : gamemodeKeys) {
+            if (!first) {
+                builder.append(", ");
+            }
+            builder.append(gamemodeKey);
+            first = false;
+        }
+        builder.append(']');
+    }
+
+    private static void appendServerGamemodeRules(
+            StringBuilder builder,
+            List<PlaytimeTrackingSettings.ServerGamemodeRule> rules
+    ) {
+        if (rules.isEmpty()) {
+            builder.append("  server-gamemode-rules: []\n");
+            return;
+        }
+
+        builder.append("  server-gamemode-rules:\n");
+        for (PlaytimeTrackingSettings.ServerGamemodeRule rule : rules) {
+            builder.append("    - match: \"").append(rule.match()).append("\"\n");
+            builder.append("      gamemode: ").append(rule.gamemodeKey()).append('\n');
+        }
     }
 }

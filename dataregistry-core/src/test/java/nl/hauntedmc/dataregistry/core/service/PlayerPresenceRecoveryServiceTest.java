@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.executeTransactionsWithSession;
@@ -195,6 +196,68 @@ class PlayerPresenceRecoveryServiceTest {
 
         assertEquals(PlayerPresenceRecoveryResult.empty(), result);
         verify(registry, never()).getORM();
+    }
+
+    @Test
+    void repairPresenceSkipsDatabaseWorkWhenOnlineStatusIsDisabled() {
+        DataRegistry registry = mock(DataRegistry.class);
+        PlayerPresenceRecoveryService service = new PlayerPresenceRecoveryService(
+                registry,
+                DataRegistrySettings.builder().enabledFeatures(Set.of()).build()
+        );
+
+        PlayerPresenceRepairResult result = service.repairPresence(Map.of(
+                "5636f31b-ca53-424d-a5d1-aa98a4b02e71",
+                "lobby"
+        ));
+
+        assertEquals(0, result.onlineStatusesRefreshed());
+        assertEquals(0, result.livePlayersMissing());
+        verify(registry, never()).getORM();
+    }
+
+    @Test
+    void repairPresenceRefreshesOnlyLiveOnlineStatusWithoutClosingLifecycleRows() {
+        DataRegistry registry = mock(DataRegistry.class);
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerEntity> playerQuery = mock(Query.class);
+        @SuppressWarnings("unchecked")
+        Query<PlayerOnlineStatusEntity> statusQuery = mock(Query.class);
+        PlayerEntity player = persistedPlayer();
+        PlayerOnlineStatusEntity status = onlineStatus(player);
+        PlayerPresenceRecoveryService service = new PlayerPresenceRecoveryService(registry, DataRegistrySettings.defaults());
+
+        when(registry.getORM()).thenReturn(ormContext);
+        executeTransactionsWithSession(ormContext, session);
+        when(session.createQuery(
+                "SELECT p FROM PlayerEntity p WHERE p.uuid IN :uuids",
+                PlayerEntity.class
+        )).thenReturn(playerQuery);
+        when(playerQuery.setParameter(eq("uuids"), any())).thenReturn(playerQuery);
+        when(playerQuery.list()).thenReturn(List.of(player));
+        when(session.createQuery(
+                "SELECT s FROM PlayerOnlineStatusEntity s WHERE s.player.id IN :playerIds",
+                PlayerOnlineStatusEntity.class
+        )).thenReturn(statusQuery);
+        when(statusQuery.setParameter(eq("playerIds"), any())).thenReturn(statusQuery);
+        when(statusQuery.list()).thenReturn(List.of(status));
+
+        PlayerPresenceRepairResult result = service.repairPresence(Map.of(
+                player.getUuid().toUpperCase(),
+                " lobby "
+        ));
+
+        assertEquals(1, result.onlineStatusesRefreshed());
+        assertEquals(0, result.livePlayersMissing());
+        assertTrue(status.isOnline());
+        assertEquals("lobby", status.getCurrentServer());
+        assertEquals("survival", status.getPreviousServer());
+        verify(session, never()).createQuery(
+                "SELECT s FROM PlayerSessionEntity s WHERE s.endedAt IS NULL",
+                PlayerSessionEntity.class
+        );
     }
 
     @Test

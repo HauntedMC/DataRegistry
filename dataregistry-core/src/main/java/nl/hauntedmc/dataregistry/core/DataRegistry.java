@@ -32,6 +32,7 @@ import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerOnlineStatusR
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerNicknameRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerPlaytimeRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerPlaytimeSegmentRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlaytimePolicyReconciliationResult;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerNameHistoryRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerSessionRepository;
@@ -40,6 +41,7 @@ import nl.hauntedmc.dataregistry.core.persistence.repository.ServiceInstanceRepo
 import nl.hauntedmc.dataregistry.core.persistence.repository.ServiceProbeRepository;
 import nl.hauntedmc.dataregistry.api.service.FeatureServiceDirectory;
 import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
+import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerIdentityInitializationTracker;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerLifecycleWriter;
 import nl.hauntedmc.dataregistry.core.player.DataRegistryQueryExecutor;
@@ -315,6 +317,29 @@ public class DataRegistry implements DataRegistryApi {
             throw new IllegalStateException("DataRegistry is not initialized.");
         }
         return ormContext;
+    }
+
+    /**
+     * Applies Velocity's authoritative ignored/excluded gamemode policy to playtime aggregation.
+     *
+     * @throws IllegalStateException when playtime is unavailable or this runtime is not the catalog authority.
+     */
+    public PlaytimePolicyReconciliationResult reconcilePlaytimePolicy(PlaytimeTrackingSettings playtimeSettings) {
+        Objects.requireNonNull(playtimeSettings, "playtimeSettings must not be null");
+        PlayerPlaytimeRepository repository;
+        synchronized (this) {
+            if (!playtimeCatalogAuthority) {
+                throw new IllegalStateException("Only the Velocity catalog authority may reconcile playtime policy.");
+            }
+            if (playerPlaytimeRepository == null) {
+                throw new IllegalStateException("The playtime feature is not initialized.");
+            }
+            repository = playerPlaytimeRepository;
+        }
+        return repository.reconcilePlaytimePolicy(
+                playtimeSettings.excludedFromNetworkTotalGamemodes(),
+                playtimeSettings.ignoredGamemodes()
+        );
     }
 
     /**

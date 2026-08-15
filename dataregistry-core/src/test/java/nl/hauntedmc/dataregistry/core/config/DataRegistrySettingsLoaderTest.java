@@ -452,6 +452,173 @@ class DataRegistrySettingsLoaderTest {
         assertTrue(logger.infoMessages.stream().anyMatch(msg -> msg.contains("Reconciled DataRegistry config schema")));
     }
 
+    @Test
+    void loadPreservesConfiguredPlaytimeListsAndRulesAcrossRestarts() throws Exception {
+        Path configFile = temporaryDirectory.resolve("config.yml");
+        Files.writeString(configFile, """
+                playtime:
+                  ignored-gamemodes: [dev, demo, event, limbo]
+                  excluded-from-network-total-gamemodes: [lobby, bouwserver]
+                  server-gamemode-rules:
+                    - match: "lobby-*"
+                      gamemode: lobby
+                    - match: "skyblock-?"
+                      gamemode: skyblock
+                """);
+
+        DataRegistrySettingsLoader loader = new DataRegistrySettingsLoader();
+        RecordingLogger logger = new RecordingLogger();
+
+        DataRegistrySettings firstLoad = loader.load(temporaryDirectory, getClass().getClassLoader(), logger);
+        DataRegistrySettings secondLoad = loader.load(temporaryDirectory, getClass().getClassLoader(), logger);
+        String persistedConfig = Files.readString(configFile);
+
+        assertEquals(
+                List.of("dev", "demo", "event", "limbo"),
+                List.copyOf(firstLoad.playtimeTrackingSettings().ignoredGamemodes())
+        );
+        assertEquals(
+                List.of("lobby", "bouwserver"),
+                List.copyOf(firstLoad.playtimeTrackingSettings().excludedFromNetworkTotalGamemodes())
+        );
+        assertEquals(2, firstLoad.playtimeTrackingSettings().serverGamemodeRules().size());
+        assertEquals("lobby-*", firstLoad.playtimeTrackingSettings().serverGamemodeRules().get(0).match());
+        assertEquals("skyblock", firstLoad.playtimeTrackingSettings().serverGamemodeRules().get(1).gamemodeKey());
+        assertEquals(
+                firstLoad.playtimeTrackingSettings().ignoredGamemodes(),
+                secondLoad.playtimeTrackingSettings().ignoredGamemodes()
+        );
+        assertEquals(
+                firstLoad.playtimeTrackingSettings().excludedFromNetworkTotalGamemodes(),
+                secondLoad.playtimeTrackingSettings().excludedFromNetworkTotalGamemodes()
+        );
+        assertEquals(
+                firstLoad.playtimeTrackingSettings().serverGamemodeRules(),
+                secondLoad.playtimeTrackingSettings().serverGamemodeRules()
+        );
+        assertTrue(persistedConfig.contains("ignored-gamemodes: [dev, demo, event, limbo]"));
+        assertTrue(persistedConfig.contains("excluded-from-network-total-gamemodes: [lobby, bouwserver]"));
+        assertTrue(persistedConfig.contains("- match: \"lobby-*\""));
+        assertTrue(persistedConfig.contains("- match: \"skyblock-?\""));
+    }
+
+    @Test
+    void loadPreservesNonDefaultScalarSettingsAcrossRestarts() throws Exception {
+        Path configFile = temporaryDirectory.resolve("config.yml");
+        Files.writeString(configFile, """
+                database:
+                  type: MYSQL
+                  profiles:
+                    players:
+                      connection-id: players-main
+                    services:
+                      connection-id: services-main
+                orm:
+                  schema-mode: validate
+                privacy:
+                  persist-ip-address: true
+                  persist-virtual-host: true
+                features:
+                  online-status: false
+                  connection-info: false
+                  activity-summary: false
+                  sessions: true
+                  session-visits: true
+                  playtime: true
+                  language: false
+                  nicknames: false
+                  name-history: false
+                  service-registry: false
+                playtime:
+                  flush-interval-seconds: 45
+                  resolve-unknown-servers-as-gamemode: false
+                service-registry:
+                  heartbeat-interval-seconds: 50
+                  probe-interval-seconds: 20
+                  probe-timeout-millis: 2500
+                  probe-retention-hours: 48
+                  probe-purge-interval-hours: 36
+                retention:
+                  lifecycle-outbox-days: 90
+                  service-instance-days: 60
+                  closed-session-history-days: 30
+                  purge-batch-size: 750
+                  player-history-purge-interval-hours: 6
+                  service-instance-purge-interval-hours: 12
+                lifecycle:
+                  write-max-attempts: 5
+                  retry-base-delay-millis: 100
+                platform:
+                  bukkit:
+                    join-delay-ticks: 12
+                    register-service-instance: true
+                    service-name: lobby-01
+                  velocity:
+                    service-name: proxy-eu
+                query:
+                  executor-threads: 4
+                  timeout-millis: 2500
+                  development-thread-checks: true
+                validation:
+                  username:
+                    max-length: 24
+                  server:
+                    max-length: 48
+                  gamemode:
+                    max-length: 32
+                  virtual-host:
+                    max-length: 180
+                  ip:
+                    max-length: 39
+                """);
+
+        DataRegistrySettingsLoader loader = new DataRegistrySettingsLoader();
+        RecordingLogger logger = new RecordingLogger();
+
+        DataRegistrySettings firstLoad = loader.load(temporaryDirectory, getClass().getClassLoader(), logger);
+        DataRegistrySettings secondLoad = loader.load(temporaryDirectory, getClass().getClassLoader(), logger);
+        String persistedConfig = Files.readString(configFile);
+
+        assertEquals("players-main", secondLoad.playerDatabaseConnectionId());
+        assertEquals("services-main", secondLoad.serviceDatabaseConnectionId());
+        assertEquals("validate", secondLoad.ormSchemaMode());
+        assertTrue(secondLoad.persistIpAddress());
+        assertTrue(secondLoad.persistVirtualHost());
+        assertFalse(secondLoad.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS));
+        assertFalse(secondLoad.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
+        assertEquals(45, secondLoad.playtimeTrackingSettings().flushIntervalSeconds());
+        assertFalse(secondLoad.playtimeTrackingSettings().resolveUnknownServersAsGamemode());
+        assertEquals(50, secondLoad.serviceHeartbeatIntervalSeconds());
+        assertEquals(20, secondLoad.serviceProbeIntervalSeconds());
+        assertEquals(2500, secondLoad.serviceProbeTimeoutMillis());
+        assertEquals(48, secondLoad.serviceProbeRetentionHours());
+        assertEquals(36, secondLoad.serviceProbePurgeIntervalHours());
+        assertEquals(90, secondLoad.lifecycleOutboxRetentionDays());
+        assertEquals(60, secondLoad.serviceInstanceRetentionDays());
+        assertEquals(30, secondLoad.closedSessionHistoryRetentionDays());
+        assertEquals(750, secondLoad.retentionPurgeBatchSize());
+        assertEquals(6, secondLoad.playerHistoryPurgeIntervalHours());
+        assertEquals(12, secondLoad.serviceInstancePurgeIntervalHours());
+        assertEquals(5, secondLoad.lifecycleWriteMaxAttempts());
+        assertEquals(100, secondLoad.lifecycleRetryBaseDelayMillis());
+        assertEquals(12, secondLoad.bukkitJoinDelayTicks());
+        assertTrue(secondLoad.bukkitRegisterServiceInstance());
+        assertEquals("lobby-01", secondLoad.bukkitServiceName());
+        assertEquals("proxy-eu", secondLoad.velocityServiceName());
+        assertEquals(4, secondLoad.queryExecutorThreads());
+        assertEquals(2500, secondLoad.queryTimeoutMillis());
+        assertTrue(secondLoad.queryDevelopmentThreadChecks());
+        assertEquals(24, secondLoad.usernameMaxLength());
+        assertEquals(48, secondLoad.serverNameMaxLength());
+        assertEquals(32, secondLoad.playtimeTrackingSettings().gamemodeKeyMaxLength());
+        assertEquals(180, secondLoad.virtualHostMaxLength());
+        assertEquals(39, secondLoad.ipAddressMaxLength());
+        assertEquals(firstLoad.enabledFeatures(), secondLoad.enabledFeatures());
+        assertTrue(persistedConfig.contains("connection-id: players-main"));
+        assertTrue(persistedConfig.contains("schema-mode: validate"));
+        assertTrue(persistedConfig.contains("timeout-millis: 2500"));
+    }
+
     private static final class SingleResourceClassLoader extends ClassLoader {
         private final String configContent;
 

@@ -55,7 +55,7 @@ playtime:
   flush-interval-seconds: 30
   # When true, unknown server names fall back to their normalized name only when it is a valid gamemode key.
   resolve-unknown-servers-as-gamemode: true
-  # Gamemode keys that should never accrue tracked playtime.
+  # Gamemode keys that should never accrue new tracked playtime. Existing historical records are retained.
   ignored-gamemodes: []
   # Gamemode keys that should track individually but not count toward network totals.
   excluded-from-network-total-gamemodes: []

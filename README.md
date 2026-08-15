@@ -37,6 +37,31 @@ privacy, playtime, service-registry, and platform sections.
 Defaults and comments live in [dataregistry-core/src/main/resources/config.yml](dataregistry-core/src/main/resources/config.yml). Missing supported
 keys are restored on load and stale keys are removed.
 
+## Velocity administration
+
+The Velocity command `/dataregistry` (alias `/dr`) requires `dataregistry.admin`.
+
+- `/dataregistry status` shows runtime, player-count, and playtime-policy status.
+- `/dataregistry features` lists enabled built-in data domains. Feature changes require a Velocity restart.
+- `/dataregistry diagnostics` compares live and durable presence, reports playerbase/lifecycle state, and shows
+  service-registry totals.
+- `/dataregistry players online`, `players recent`, and `players inspect <name-or-uuid>` provide durable playerbase,
+  activity, and profile views.
+- `/dataregistry services health` reports effective service/probe health.
+- `/dataregistry presence repair` force-refreshes durable online status from the players connected to this proxy. It
+  never marks absent players offline, which keeps it safe for a shared multi-proxy database.
+- `/dataregistry playtime status` shows the active flush interval plus ignored and network-total-excluded keys.
+- `/dataregistry playtime mappings` shows the ordered server-to-gamemode mapping rules (first match wins) and the
+  unknown-server fallback behavior.
+- `/dataregistry playtime flush` queues an immediate playtime accrual flush for active players. It is useful before
+  inspecting persisted totals; the command reports how many player queues accepted the flush.
+- `/dataregistry playtime reconcile` reloads the playtime section of `config.yml` and applies it immediately. It
+  updates server-to-gamemode mapping, unknown-server handling, network-total exclusions, and flush cadence while
+  retaining historic playtime records.
+
+The command deliberately does not live-reload feature flags, database settings, or other non-playtime configuration;
+restart Velocity for those changes.
+
 ## Developer API
 
 Depend only on `dataregistry-api` as `provided` (replace the version with the release you target):

@@ -8,8 +8,8 @@ import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeLeaderboardEntry;
 import nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeSnapshot;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import org.hibernate.Session;
-import org.hibernate.query.Query;
 import org.hibernate.query.NativeQuery;
+import org.hibernate.query.Query;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -24,10 +24,44 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class PlayerPlaytimeRepositoryTest {
+
+    @Test
+    void reconcilePlaytimePolicyRetainsIgnoredGamemodeHistoryAndRefreshesCatalogPolicy() {
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<String> knownGamemodesQuery = mock(Query.class);
+        @SuppressWarnings("unchecked")
+        Query<String> centralExclusionsQuery = mock(Query.class);
+        PlayerPlaytimeRepository repository = new PlayerPlaytimeRepository(ormContext, Set.of());
+
+        executeTransactionsWithSession(ormContext, session);
+        when(session.createQuery(
+                "SELECT DISTINCT p.gamemodeKey FROM PlayerPlaytimeEntity p",
+                String.class
+        )).thenReturn(knownGamemodesQuery);
+        when(knownGamemodesQuery.list()).thenReturn(List.of());
+        when(session.createQuery(
+                "SELECT g.gamemodeKey FROM TrackedGamemodeEntity g " +
+                        "WHERE g.countedTowardsNetworkTotal = false",
+                String.class
+        )).thenReturn(centralExclusionsQuery);
+        when(centralExclusionsQuery.list()).thenReturn(List.of());
+
+        PlaytimePolicyReconciliationResult result = repository.reconcilePlaytimePolicy(
+                Set.of(),
+                Set.of(" Dev ", "demo")
+        );
+
+        assertEquals(Set.of("dev", "demo"), result.ignoredGamemodeKeys());
+        assertEquals(Set.of(), result.excludedFromNetworkTotalGamemodeKeys());
+        verify(session, never()).createMutationQuery(anyString());
+    }
 
     @Test
     void findSnapshotByPlayerIdIncludesLiveSegmentAndNetworkExclusions() {

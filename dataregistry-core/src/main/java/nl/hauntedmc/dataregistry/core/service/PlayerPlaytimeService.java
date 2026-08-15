@@ -1,6 +1,7 @@
 package nl.hauntedmc.dataregistry.core.service;
 
 import nl.hauntedmc.dataregistry.core.DataRegistry;
+import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentCloseReason;
@@ -27,10 +28,10 @@ public final class PlayerPlaytimeService {
 
     private final DataRegistry dataRegistry;
     private final ILoggerAdapter logger;
-    private final PlaytimeGamemodeResolver gamemodeResolver;
+    private volatile PlaytimeGamemodeResolver gamemodeResolver;
     private final int serverNameMaxLength;
     private final boolean featureEnabled;
-    private final Set<String> excludedFromNetworkTotalGamemodes;
+    private volatile Set<String> excludedFromNetworkTotalGamemodes;
 
     public PlayerPlaytimeService(
             DataRegistry dataRegistry,
@@ -67,16 +68,27 @@ public final class PlayerPlaytimeService {
         }
         this.serverNameMaxLength = serverNameMaxLength;
         this.featureEnabled = featureEnabled;
+        this.excludedFromNetworkTotalGamemodes = normalizeGamemodeKeys(excludedFromNetworkTotalGamemodes);
+    }
+
+    /** Updates the active Velocity tracking policy without interrupting open playtime segments. */
+    public void updatePlaytimeTrackingSettings(PlaytimeTrackingSettings settings) {
+        Objects.requireNonNull(settings, "settings must not be null");
+        gamemodeResolver = new PlaytimeGamemodeResolver(settings);
+        excludedFromNetworkTotalGamemodes = normalizeGamemodeKeys(settings.excludedFromNetworkTotalGamemodes());
+    }
+
+    private static Set<String> normalizeGamemodeKeys(Collection<String> gamemodeKeys) {
         LinkedHashSet<String> excluded = new LinkedHashSet<>();
         for (String key : Objects.requireNonNull(
-                excludedFromNetworkTotalGamemodes,
-                "excludedFromNetworkTotalGamemodes must not be null"
+                gamemodeKeys,
+                "gamemodeKeys must not be null"
         )) {
             if (key != null && !key.isBlank()) {
                 excluded.add(key.trim().toLowerCase(Locale.ROOT));
             }
         }
-        this.excludedFromNetworkTotalGamemodes = Set.copyOf(excluded);
+        return Set.copyOf(excluded);
     }
 
     public void onServerSwitch(PlayerEntity playerEntity, String serverName) {

@@ -15,12 +15,15 @@ import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
 import org.hibernate.Session;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Reconciles player presence rows that can be left open by process crashes.
@@ -77,6 +80,73 @@ public final class PlayerPresenceRecoveryService {
                 Set.copyOf(activePlayerUuids),
                 "Failed to recover stale player presence state after backend recovery."
         );
+    }
+
+    /**
+     * Refreshes durable online-status rows from supplied live proxy connections.
+     * <p>
+     * This deliberately does not close rows for absent players: a shared DataRegistry database can be used by
+     * multiple proxies, and this proxy cannot authoritatively determine their connections. Startup recovery remains
+     * responsible for stale lifecycle rows after an unclean shutdown.
+     */
+    public PlayerPresenceRepairResult repairPresence(Map<String, String> livePlayerServers) {
+        Objects.requireNonNull(livePlayerServers, "livePlayerServers must not be null");
+        Map<String, String> normalizedLivePlayers = normalizeLivePlayers(livePlayerServers);
+        if (!settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS) || normalizedLivePlayers.isEmpty()) {
+            return new PlayerPresenceRepairResult(0, 0);
+        }
+
+        try {
+            return dataRegistry.getORM().runInTransaction(session -> {
+                Map<String, PlayerEntity> playersByUuid = new HashMap<>();
+                for (PlayerEntity player : session.createQuery(
+                                "SELECT p FROM PlayerEntity p WHERE p.uuid IN :uuids",
+                                PlayerEntity.class
+                        )
+                        .setParameter("uuids", normalizedLivePlayers.keySet())
+                        .list()) {
+                    playersByUuid.put(player.getUuid(), player);
+                }
+                Map<Long, PlayerOnlineStatusEntity> statusesByPlayerId = new HashMap<>();
+                if (!playersByUuid.isEmpty()) {
+                    for (PlayerOnlineStatusEntity status : session.createQuery(
+                                    "SELECT s FROM PlayerOnlineStatusEntity s WHERE s.player.id IN :playerIds",
+                                    PlayerOnlineStatusEntity.class
+                            )
+                            .setParameter("playerIds", playersByUuid.values().stream()
+                                    .map(PlayerEntity::getId)
+                                    .toList())
+                            .list()) {
+                        statusesByPlayerId.put(status.getPlayer().getId(), status);
+                    }
+                }
+                int refreshed = 0;
+                int missing = 0;
+                for (Map.Entry<String, String> livePlayer : normalizedLivePlayers.entrySet()) {
+                    PlayerEntity player = playersByUuid.get(livePlayer.getKey());
+                    if (player == null) {
+                        missing++;
+                        continue;
+                    }
+                    PlayerOnlineStatusEntity status = statusesByPlayerId.get(player.getId());
+                    if (status == null) {
+                        status = new PlayerOnlineStatusEntity();
+                        status.setPlayer(player);
+                        session.persist(status);
+                    }
+                    String currentServer = livePlayer.getValue();
+                    if (!Objects.equals(status.getCurrentServer(), currentServer)) {
+                        status.setPreviousServer(status.getCurrentServer());
+                    }
+                    status.setCurrentServer(currentServer);
+                    status.setOnline(true);
+                    refreshed++;
+                }
+                return new PlayerPresenceRepairResult(refreshed, missing);
+            });
+        } catch (RuntimeException exception) {
+            throw new IllegalStateException("Failed to refresh durable online statuses during presence repair.", exception);
+        }
     }
 
     private PlayerPresenceRecoveryResult recover(
@@ -277,6 +347,32 @@ public final class PlayerPresenceRecoveryService {
         }
         // Startup passes an empty scope and intentionally recovers every stale row. Live backend recovery is scoped.
         return affectedPlayerUuids.isEmpty() || affectedPlayerUuids.contains(player.getUuid());
+    }
+
+    private Map<String, String> normalizeLivePlayers(Map<String, String> livePlayerServers) {
+        Map<String, String> normalized = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : livePlayerServers.entrySet()) {
+            String uuid = entry.getKey();
+            if (uuid == null || uuid.isBlank()) {
+                continue;
+            }
+            try {
+                uuid = UUID.fromString(uuid.trim()).toString().toLowerCase(Locale.ROOT);
+            } catch (IllegalArgumentException ignored) {
+                continue;
+            }
+            String currentServer = entry.getValue();
+            if (currentServer == null) {
+                currentServer = "";
+            } else {
+                currentServer = currentServer.trim();
+                if (currentServer.length() > settings.serverNameMaxLength()) {
+                    currentServer = currentServer.substring(0, settings.serverNameMaxLength());
+                }
+            }
+            normalized.put(uuid, currentServer);
+        }
+        return normalized;
     }
 
     private int recoverActivitySummaries(Session session, RecoveryState state) {

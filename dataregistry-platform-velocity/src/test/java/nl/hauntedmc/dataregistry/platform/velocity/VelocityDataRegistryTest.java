@@ -4,6 +4,9 @@ import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.event.EventManager;
+import com.velocitypowered.api.command.CommandManager;
+import com.velocitypowered.api.command.CommandMeta;
+import com.velocitypowered.api.command.BrigadierCommand;
 import com.velocitypowered.api.plugin.PluginContainer;
 import com.velocitypowered.api.plugin.PluginDescription;
 import com.velocitypowered.api.plugin.PluginManager;
@@ -204,6 +207,28 @@ class VelocityDataRegistryTest {
 
         assertNotNull(logger1);
         assertSame(logger1, logger2);
+    }
+
+    @Test
+    void registerDataRegistryCommandRegistersDataRegistryAndDrAliases() {
+        ProxyServer proxyServer = mock(ProxyServer.class);
+        CommandManager commandManager = mock(CommandManager.class);
+        CommandMeta.Builder commandBuilder = mock(CommandMeta.Builder.class);
+        CommandMeta commandMeta = mock(CommandMeta.class);
+        VelocityDataRegistry plugin = new VelocityDataRegistry(
+                proxyServer,
+                mock(Logger.class),
+                TEST_DATA_DIRECTORY
+        );
+        when(proxyServer.getCommandManager()).thenReturn(commandManager);
+        when(commandManager.metaBuilder(any(BrigadierCommand.class))).thenReturn(commandBuilder);
+        when(commandBuilder.aliases("dr")).thenReturn(commandBuilder);
+        when(commandBuilder.plugin(plugin)).thenReturn(commandBuilder);
+        when(commandBuilder.build()).thenReturn(commandMeta);
+
+        plugin.registerDataRegistryCommand();
+
+        verify(commandManager).register(same(commandMeta), any(BrigadierCommand.class));
     }
 
     @Test
@@ -531,6 +556,11 @@ class VelocityDataRegistryTest {
         void registerPlayerStatusListener() {
             startupSteps.add("register-listener");
             this.listenerRegistered = true;
+        }
+
+        @Override
+        void registerDataRegistryCommand() {
+            // Command-manager wiring is covered independently; this startup fixture has no command manager.
         }
 
         @Override

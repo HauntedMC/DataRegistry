@@ -31,7 +31,7 @@ import java.util.UUID;
 
 public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeEntity, Long> {
 
-    private final Set<String> defaultExcludedGamemodeKeys;
+    private volatile Set<String> defaultExcludedGamemodeKeys;
     private volatile Set<String> centralExcludedGamemodeKeys;
 
     public PlayerPlaytimeRepository(ORMContext ormContext) {
@@ -41,14 +41,7 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
     public PlayerPlaytimeRepository(ORMContext ormContext, Collection<String> defaultExcludedGamemodeKeys) {
         super(ormContext, PlayerPlaytimeEntity.class);
         Objects.requireNonNull(defaultExcludedGamemodeKeys, "defaultExcludedGamemodeKeys must not be null");
-        LinkedHashSet<String> normalizedExcludedGamemodes = new LinkedHashSet<>();
-        for (String gamemodeKey : defaultExcludedGamemodeKeys) {
-            String normalized = normalizeGamemodeKey(gamemodeKey);
-            if (normalized != null) {
-                normalizedExcludedGamemodes.add(normalized);
-            }
-        }
-        this.defaultExcludedGamemodeKeys = Set.copyOf(normalizedExcludedGamemodes);
+        this.defaultExcludedGamemodeKeys = normalizeGamemodeKeys(defaultExcludedGamemodeKeys);
         this.centralExcludedGamemodeKeys = this.defaultExcludedGamemodeKeys;
     }
 
@@ -57,9 +50,9 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
      * Only the Velocity lifecycle owner may mutate catalog policy; bridge runtimes only refresh their read cache.
      */
     public void initializeMetadata() {
-        reconcileCatalogPolicy();
-        backfillLifecycleSummaries();
+        reconcileCatalogPolicy(defaultExcludedGamemodeKeys);
         refreshCentralExcludedGamemodeKeys();
+        backfillLifecycleSummaries();
     }
 
     /** Refreshes the central policy cache without mutating shared playtime state. */
@@ -67,7 +60,25 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
         refreshCentralExcludedGamemodeKeys();
     }
 
-    private void reconcileCatalogPolicy() {
+    /**
+     * Applies the current aggregation policy. Ignored gamemodes are enforced by the lifecycle resolver, while their
+     * existing historical records remain intact for auditability.
+     */
+    public synchronized PlaytimePolicyReconciliationResult reconcilePlaytimePolicy(
+            Collection<String> excludedGamemodeKeys,
+            Collection<String> ignoredGamemodeKeys
+    ) {
+        Objects.requireNonNull(excludedGamemodeKeys, "excludedGamemodeKeys must not be null");
+        Objects.requireNonNull(ignoredGamemodeKeys, "ignoredGamemodeKeys must not be null");
+        Set<String> normalizedExcluded = normalizeGamemodeKeys(excludedGamemodeKeys);
+        Set<String> normalizedIgnored = normalizeGamemodeKeys(ignoredGamemodeKeys);
+        this.defaultExcludedGamemodeKeys = normalizedExcluded;
+        reconcileCatalogPolicy(normalizedExcluded);
+        refreshCentralExcludedGamemodeKeys();
+        return new PlaytimePolicyReconciliationResult(normalizedIgnored, normalizedExcluded);
+    }
+
+    private void reconcileCatalogPolicy(Set<String> excludedGamemodeKeys) {
         ormContext.runInTransaction(session -> {
             LinkedHashSet<String> knownKeys = new LinkedHashSet<>(session.createQuery(
                     "SELECT DISTINCT p.gamemodeKey FROM PlayerPlaytimeEntity p", String.class
@@ -85,12 +96,12 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
                             .setParameter("gamemodeKey", key)
                             .getSingleResult();
                     policy.setFirstObservedAt(Objects.requireNonNull(firstObservedAt, "firstObservedAt"));
-                    policy.setCountedTowardsNetworkTotal(!defaultExcludedGamemodeKeys.contains(key));
+                    policy.setCountedTowardsNetworkTotal(!excludedGamemodeKeys.contains(key));
                     session.persist(policy);
                 } else {
                     // Velocity configuration is the authoritative policy source. Reconcile existing rows so a
-                    // configuration change takes effect on the next Velocity restart.
-                    policy.setCountedTowardsNetworkTotal(!defaultExcludedGamemodeKeys.contains(key));
+                    // configuration change takes effect on the next authoritative policy reconciliation.
+                    policy.setCountedTowardsNetworkTotal(!excludedGamemodeKeys.contains(key));
                 }
             }
             return null;
