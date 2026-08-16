@@ -62,6 +62,9 @@ The Velocity command `/dataregistry` (alias `/dr`) requires `dataregistry.admin`
 The command deliberately does not live-reload feature flags, database settings, or other non-playtime configuration;
 restart Velocity for those changes.
 
+The Velocity administration command uses the shared `hauntedmc-theme-palette` artifact, which is included in the bundled
+plugin jar and does not add a runtime plugin dependency.
+
 ## Developer API
 
 Depend only on `dataregistry-api` as `provided` (replace the version with the release you target):
@@ -70,7 +73,7 @@ Depend only on `dataregistry-api` as `provided` (replace the version with the re
 <dependency>
   <groupId>nl.hauntedmc.dataregistry</groupId>
   <artifactId>dataregistry-api</artifactId>
-  <version>1.14.0</version>
+  <version>1.13.10</version>
   <scope>provided</scope>
 </dependency>
 ```

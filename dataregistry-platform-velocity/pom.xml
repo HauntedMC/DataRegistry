@@ -30,6 +30,11 @@
             <scope>provided</scope>
         </dependency>
         <dependency>
+            <groupId>nl.hauntedmc.theme</groupId>
+            <artifactId>hauntedmc-theme-palette</artifactId>
+            <version>${hauntedmc-theme.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>${junit.version}</version>
@@ -80,6 +85,7 @@
                             <include>nl.hauntedmc.dataregistry:dataregistry-api</include>
                             <include>nl.hauntedmc.dataregistry:dataregistry-platform-common</include>
                             <include>nl.hauntedmc.dataregistry:dataregistry-core</include>
+                            <include>nl.hauntedmc.theme:hauntedmc-theme-palette</include>
                             <include>org.yaml:snakeyaml</include>
                         </includes>
                     </artifactSet>
