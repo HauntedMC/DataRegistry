@@ -16,9 +16,11 @@ jobs:
     env:
       PACKAGES_USER: ${{ secrets.HAUNTEDMC_PACKAGES_USERNAME }}
       PACKAGES_TOKEN: ${{ secrets.HAUNTEDMC_PACKAGES_TOKEN }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
       - name: Set up JDK 25
         uses: actions/setup-java@v5
         with:
@@ -28,9 +30,11 @@ jobs:
           server-id: github
           server-username: PACKAGES_USER
           server-password: PACKAGES_TOKEN
+
       - name: Run unit and MySQL integration tests
         id: tests
         run: ./mvnw -U -B -ntp -Pintegration-tests verify
+
       - name: Print failing test reports
         if: failure() && steps.tests.outcome == 'failure'
         shell: bash
@@ -38,6 +42,7 @@ jobs:
           find . -type f \( -path '*/target/surefire-reports/*.txt' -o -path '*/target/failsafe-reports/*.txt' \) -print0 \
             | sort -z \
             | xargs -0 -r -n1 sh -c 'echo "::group::$0"; cat "$0"; echo "::endgroup::"'
+
       - name: Upload JaCoCo report
         if: always()
         uses: actions/upload-artifact@v7
@@ -45,6 +50,7 @@ jobs:
           name: jacoco-report
           if-no-files-found: warn
           path: "**/target/site/jacoco"
+
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -65,9 +71,11 @@ jobs:
     env:
       PACKAGES_USER: ${{ secrets.HAUNTEDMC_PACKAGES_USERNAME }}
       PACKAGES_TOKEN: ${{ secrets.HAUNTEDMC_PACKAGES_TOKEN }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
       - name: Set up JDK 25
         uses: actions/setup-java@v5
         with:
@@ -77,11 +85,13 @@ jobs:
           server-id: github
           server-username: PACKAGES_USER
           server-password: PACKAGES_TOKEN
+
       - name: Run bundled platform acceptance
         run: ./mvnw -U -B -ntp -Pplatform-acceptance verify
         env:
           PLATFORM_ACCEPTANCE_WORK_DIRECTORY: ${{ runner.temp }}/dataregistry-platform-acceptance
           PLATFORM_ACCEPTANCE_KEEP_WORK_DIRECTORY: "true"
+
       - name: Upload platform acceptance logs
         if: always()
         uses: actions/upload-artifact@v7

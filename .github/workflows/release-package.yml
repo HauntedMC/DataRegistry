@@ -15,11 +15,13 @@ jobs:
     env:
       PACKAGES_USER: ${{ secrets.HAUNTEDMC_PACKAGES_USERNAME }}
       PACKAGES_TOKEN: ${{ secrets.HAUNTEDMC_PACKAGES_TOKEN }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
       - name: Set up JDK 25
         uses: actions/setup-java@v5
         with:
@@ -29,6 +31,7 @@ jobs:
           server-id: github
           server-username: PACKAGES_USER
           server-password: PACKAGES_TOKEN
+
       - name: Validate release version
         id: release-version
         run: |
@@ -36,12 +39,14 @@ jobs:
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           test "$PROJECT_VERSION" = "$TAG_VERSION" || { echo "Tag version does not match Maven project version." >&2; exit 1; }
           echo "value=$PROJECT_VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Verify and publish exact release reactor
         # deployAtEnd prevents publication until the final fixture boots the just-built Paper and Velocity jars.
         run: ./mvnw -U -B -ntp -Pintegration-tests,platform-acceptance deploy
         env:
           PLATFORM_ACCEPTANCE_WORK_DIRECTORY: ${{ runner.temp }}/dataregistry-platform-acceptance
           PLATFORM_ACCEPTANCE_KEEP_WORK_DIRECTORY: "true"
+
       - name: Upload failing platform acceptance logs
         if: failure()
         uses: actions/upload-artifact@v7
@@ -54,6 +59,7 @@ jobs:
             ${{ runner.temp }}/dataregistry-platform-acceptance/schema-bootstrap/paper.log
             ${{ runner.temp }}/dataregistry-platform-acceptance/paper/paper.log
             ${{ runner.temp }}/dataregistry-platform-acceptance/velocity/velocity.log
+
       - name: Upload platform distributables
         uses: actions/upload-artifact@v7
         with:
@@ -62,9 +68,11 @@ jobs:
           path: |
             dataregistry-platform-paper/target/dataregistry-platform-paper-${{ steps.release-version.outputs.value }}-bundled.jar
             dataregistry-platform-velocity/target/dataregistry-platform-velocity-${{ steps.release-version.outputs.value }}-bundled.jar
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v3
         with:
+          token: ${{ github.token }}
           name: DataRegistry ${{ github.ref_name }}
           draft: false
           prerelease: false
