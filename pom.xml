@@ -90,7 +90,7 @@
         </repository>
         <repository>
             <id>github</id>
-            <url>https://maven.pkg.github.com/HauntedMC/DataProvider</url>
+            <url>https://maven.pkg.github.com/HauntedMC/*</url>
         </repository>
         <repository>
             <id>papermc</id>
