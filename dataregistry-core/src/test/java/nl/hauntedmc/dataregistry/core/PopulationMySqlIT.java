@@ -328,7 +328,7 @@ class PopulationMySqlIT {
             PlayerPopulationMembership membership = registry.population()
                     .findMembership(PlayerLookup.uuid(uuid), PopulationScope.gamemode("survival"))
                     .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow();
-            assertEquals(PopulationOrdinalQuality.RECORDED_EXACT, membership.ordinalQuality());
+            assertEquals(PopulationOrdinalQuality.BACKFILLED_DETERMINISTIC, membership.ordinalQuality());
 
             var reconciliationTransitions = registry.population().findTransitions(
                             PopulationTransitionQuery.after(0L, 1000)
