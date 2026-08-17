@@ -9,9 +9,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 
-/**
- * Immutable runtime settings for DataRegistry.
- */
+/** Immutable runtime settings for DataRegistry. */
 public final class DataRegistrySettings {
 
     private static final String DEFAULT_PLAYER_CONNECTION_ID = "player_data_rw";
@@ -22,6 +20,7 @@ public final class DataRegistrySettings {
     private static final int DEFAULT_SERVICE_PROBE_RETENTION_HOURS = -1;
     private static final int DEFAULT_SERVICE_PROBE_PURGE_INTERVAL_HOURS = 12;
     private static final int DEFAULT_LIFECYCLE_OUTBOX_RETENTION_DAYS = -1;
+    private static final int DEFAULT_POPULATION_TRANSITION_RETENTION_DAYS = 90;
     private static final int DEFAULT_SERVICE_INSTANCE_RETENTION_DAYS = -1;
     private static final int DEFAULT_CLOSED_SESSION_HISTORY_RETENTION_DAYS = -1;
     private static final int DEFAULT_RETENTION_PURGE_BATCH_SIZE = 500;
@@ -68,6 +67,7 @@ public final class DataRegistrySettings {
     private final int serviceProbeRetentionHours;
     private final int serviceProbePurgeIntervalHours;
     private final int lifecycleOutboxRetentionDays;
+    private final int populationTransitionRetentionDays;
     private final int serviceInstanceRetentionDays;
     private final int closedSessionHistoryRetentionDays;
     private final int retentionPurgeBatchSize;
@@ -91,58 +91,22 @@ public final class DataRegistrySettings {
         this.ormSchemaMode = normalizeSchemaMode(builder.ormSchemaMode);
         this.persistIpAddress = builder.persistIpAddress;
         this.persistVirtualHost = builder.persistVirtualHost;
-        this.bukkitJoinDelayTicks = validateRange(
-                builder.bukkitJoinDelayTicks,
-                "bukkitJoinDelayTicks",
-                0,
-                200
-        );
+        this.bukkitJoinDelayTicks = validateRange(builder.bukkitJoinDelayTicks, "bukkitJoinDelayTicks", 0, 200);
         this.bukkitRegisterServiceInstance = builder.bukkitRegisterServiceInstance;
-        this.bukkitServiceName = normalizeServiceName(
-                builder.bukkitServiceName,
-                "bukkitServiceName"
-        );
-        this.velocityServiceName = normalizeServiceName(
-                builder.velocityServiceName,
-                "velocityServiceName"
-        );
-        this.queryExecutorThreads = validateRange(
-                builder.queryExecutorThreads,
-                "queryExecutorThreads",
-                1,
-                32
-        );
-        this.queryTimeoutMillis = validateRange(
-                builder.queryTimeoutMillis,
-                "queryTimeoutMillis",
-                50,
-                60000
-        );
+        this.bukkitServiceName = normalizeServiceName(builder.bukkitServiceName, "bukkitServiceName");
+        this.velocityServiceName = normalizeServiceName(builder.velocityServiceName, "velocityServiceName");
+        this.queryExecutorThreads = validateRange(builder.queryExecutorThreads, "queryExecutorThreads", 1, 32);
+        this.queryTimeoutMillis = validateRange(builder.queryTimeoutMillis, "queryTimeoutMillis", 50, 60000);
         this.queryDevelopmentThreadChecks = builder.queryDevelopmentThreadChecks;
-        this.usernameMaxLength = validateRange(
-                builder.usernameMaxLength,
-                "usernameMaxLength",
-                1,
-                DEFAULT_USERNAME_MAX_LENGTH
-        );
+        this.usernameMaxLength = validateRange(builder.usernameMaxLength, "usernameMaxLength", 1, DEFAULT_USERNAME_MAX_LENGTH);
         this.serverNameMaxLength = validateRange(
                 builder.serverNameMaxLength,
                 "serverNameMaxLength",
                 1,
                 DEFAULT_SERVER_NAME_MAX_LENGTH
         );
-        this.virtualHostMaxLength = validateRange(
-                builder.virtualHostMaxLength,
-                "virtualHostMaxLength",
-                1,
-                255
-        );
-        this.ipAddressMaxLength = validateRange(
-                builder.ipAddressMaxLength,
-                "ipAddressMaxLength",
-                7,
-                45
-        );
+        this.virtualHostMaxLength = validateRange(builder.virtualHostMaxLength, "virtualHostMaxLength", 1, 255);
+        this.ipAddressMaxLength = validateRange(builder.ipAddressMaxLength, "ipAddressMaxLength", 7, 45);
         this.serviceHeartbeatIntervalSeconds = validateRange(
                 builder.serviceHeartbeatIntervalSeconds,
                 "serviceHeartbeatIntervalSeconds",
@@ -179,6 +143,12 @@ public final class DataRegistrySettings {
                 -1,
                 36500
         );
+        this.populationTransitionRetentionDays = validateRange(
+                builder.populationTransitionRetentionDays,
+                "populationTransitionRetentionDays",
+                -1,
+                36500
+        );
         this.serviceInstanceRetentionDays = validateRange(
                 builder.serviceInstanceRetentionDays,
                 "serviceInstanceRetentionDays",
@@ -191,12 +161,7 @@ public final class DataRegistrySettings {
                 -1,
                 36500
         );
-        this.retentionPurgeBatchSize = validateRange(
-                builder.retentionPurgeBatchSize,
-                "retentionPurgeBatchSize",
-                1,
-                5000
-        );
+        this.retentionPurgeBatchSize = validateRange(builder.retentionPurgeBatchSize, "retentionPurgeBatchSize", 1, 5000);
         this.playerHistoryPurgeIntervalHours = validateRange(
                 builder.playerHistoryPurgeIntervalHours,
                 "playerHistoryPurgeIntervalHours",
@@ -225,179 +190,81 @@ public final class DataRegistrySettings {
                 builder.playtimeTrackingSettings,
                 "playtimeTrackingSettings must not be null"
         );
-        this.enabledFeatures = Collections.unmodifiableSet(EnumSet.copyOf(builder.enabledFeatures));
-        if (!enabledFeatures.contains(DataRegistryFeature.SESSIONS)
-                && (enabledFeatures.contains(DataRegistryFeature.PLAYTIME)
-                || enabledFeatures.contains(DataRegistryFeature.SESSION_VISITS))) {
-            throw new IllegalArgumentException(
-                    "PLAYTIME and SESSION_VISITS require the SESSIONS feature to be enabled."
-            );
-        }
+        this.enabledFeatures = builder.enabledFeatures.isEmpty()
+                ? Collections.emptySet()
+                : Collections.unmodifiableSet(EnumSet.copyOf(builder.enabledFeatures));
+        validateFeatureDependencies(enabledFeatures);
     }
 
-    public static Builder builder() {
-        return new Builder();
-    }
+    public static Builder builder() { return new Builder(); }
+    public static DataRegistrySettings defaults() { return builder().build(); }
 
-    public static DataRegistrySettings defaults() {
-        return builder().build();
-    }
+    public DatabaseType databaseType() { return databaseType; }
+    public String playerDatabaseConnectionId() { return playerDatabaseConnectionId; }
+    public String serviceDatabaseConnectionId() { return serviceDatabaseConnectionId; }
+    public String ormSchemaMode() { return ormSchemaMode; }
+    public boolean persistIpAddress() { return persistIpAddress; }
+    public boolean persistVirtualHost() { return persistVirtualHost; }
+    public int bukkitJoinDelayTicks() { return bukkitJoinDelayTicks; }
+    public boolean bukkitRegisterServiceInstance() { return bukkitRegisterServiceInstance; }
+    public String bukkitServiceName() { return bukkitServiceName; }
+    public boolean isBukkitServiceNameAuto() { return "auto".equalsIgnoreCase(bukkitServiceName); }
+    public String velocityServiceName() { return velocityServiceName; }
+    public boolean isVelocityServiceNameAuto() { return "auto".equalsIgnoreCase(velocityServiceName); }
+    public int queryExecutorThreads() { return queryExecutorThreads; }
+    public int queryTimeoutMillis() { return queryTimeoutMillis; }
+    public boolean queryDevelopmentThreadChecks() { return queryDevelopmentThreadChecks; }
+    public int usernameMaxLength() { return usernameMaxLength; }
+    public int serverNameMaxLength() { return serverNameMaxLength; }
+    public int virtualHostMaxLength() { return virtualHostMaxLength; }
+    public int ipAddressMaxLength() { return ipAddressMaxLength; }
+    public int serviceHeartbeatIntervalSeconds() { return serviceHeartbeatIntervalSeconds; }
+    public int serviceProbeIntervalSeconds() { return serviceProbeIntervalSeconds; }
+    public int serviceProbeTimeoutMillis() { return serviceProbeTimeoutMillis; }
 
-    public DatabaseType databaseType() {
-        return databaseType;
-    }
+    /** Retention period for completed backend-probe history, or {@code -1} to retain rows indefinitely. */
+    public int serviceProbeRetentionHours() { return serviceProbeRetentionHours; }
 
-    public String playerDatabaseConnectionId() {
-        return playerDatabaseConnectionId;
-    }
+    public int serviceProbePurgeIntervalHours() { return serviceProbePurgeIntervalHours; }
 
-    public String serviceDatabaseConnectionId() {
-        return serviceDatabaseConnectionId;
-    }
+    /** Retention period for the lifecycle idempotency ledger, or {@code -1} to retain rows indefinitely. */
+    public int lifecycleOutboxRetentionDays() { return lifecycleOutboxRetentionDays; }
 
-    public String ormSchemaMode() {
-        return ormSchemaMode;
-    }
+    /** Retention period for durable population transitions, or {@code -1} to retain them indefinitely. */
+    public int populationTransitionRetentionDays() { return populationTransitionRetentionDays; }
 
-    public boolean persistIpAddress() {
-        return persistIpAddress;
-    }
+    /** Retention period for stopped service-instance history, or {@code -1} to retain rows indefinitely. */
+    public int serviceInstanceRetentionDays() { return serviceInstanceRetentionDays; }
 
-    public boolean persistVirtualHost() {
-        return persistVirtualHost;
-    }
+    /** Retention period for fully closed raw session history, or {@code -1} to retain rows indefinitely. */
+    public int closedSessionHistoryRetentionDays() { return closedSessionHistoryRetentionDays; }
 
-    public int bukkitJoinDelayTicks() {
-        return bukkitJoinDelayTicks;
-    }
-
-    public boolean bukkitRegisterServiceInstance() {
-        return bukkitRegisterServiceInstance;
-    }
-
-    public String bukkitServiceName() {
-        return bukkitServiceName;
-    }
-
-    public boolean isBukkitServiceNameAuto() {
-        return "auto".equalsIgnoreCase(bukkitServiceName);
-    }
-
-    public String velocityServiceName() {
-        return velocityServiceName;
-    }
-
-    public boolean isVelocityServiceNameAuto() {
-        return "auto".equalsIgnoreCase(velocityServiceName);
-    }
-
-    public int queryExecutorThreads() {
-        return queryExecutorThreads;
-    }
-
-    public int queryTimeoutMillis() {
-        return queryTimeoutMillis;
-    }
-
-    public boolean queryDevelopmentThreadChecks() {
-        return queryDevelopmentThreadChecks;
-    }
-
-    public int usernameMaxLength() {
-        return usernameMaxLength;
-    }
-
-    public int serverNameMaxLength() {
-        return serverNameMaxLength;
-    }
-
-    public int virtualHostMaxLength() {
-        return virtualHostMaxLength;
-    }
-
-    public int ipAddressMaxLength() {
-        return ipAddressMaxLength;
-    }
-
-    public int serviceHeartbeatIntervalSeconds() {
-        return serviceHeartbeatIntervalSeconds;
-    }
-
-    public int serviceProbeIntervalSeconds() {
-        return serviceProbeIntervalSeconds;
-    }
-
-    public int serviceProbeTimeoutMillis() {
-        return serviceProbeTimeoutMillis;
-    }
-
-    /**
-     * Retention period for completed backend-probe history, or {@code -1} to retain rows indefinitely.
-     */
-    public int serviceProbeRetentionHours() {
-        return serviceProbeRetentionHours;
-    }
-
-    public int serviceProbePurgeIntervalHours() {
-        return serviceProbePurgeIntervalHours;
-    }
-
-    /**
-     * Retention period for the lifecycle idempotency ledger, or {@code -1} to retain rows indefinitely.
-     */
-    public int lifecycleOutboxRetentionDays() {
-        return lifecycleOutboxRetentionDays;
-    }
-
-    /**
-     * Retention period for stopped service-instance history, or {@code -1} to retain rows indefinitely.
-     */
-    public int serviceInstanceRetentionDays() {
-        return serviceInstanceRetentionDays;
-    }
-
-    /**
-     * Retention period for fully closed raw session history, or {@code -1} to retain rows indefinitely.
-     */
-    public int closedSessionHistoryRetentionDays() {
-        return closedSessionHistoryRetentionDays;
-    }
-
-    /** Maximum number of rows or complete session chains deleted by one retention maintenance pass. */
-    public int retentionPurgeBatchSize() {
-        return retentionPurgeBatchSize;
-    }
-
-    /** Delay between Velocity player-history retention passes. */
-    public int playerHistoryPurgeIntervalHours() {
-        return playerHistoryPurgeIntervalHours;
-    }
-
-    /** Delay between stopped service-instance retention passes on either platform. */
-    public int serviceInstancePurgeIntervalHours() {
-        return serviceInstancePurgeIntervalHours;
-    }
-
-    /** Maximum attempts for one transient player-lifecycle database write. */
-    public int lifecycleWriteMaxAttempts() {
-        return lifecycleWriteMaxAttempts;
-    }
-
-    /** Initial retry delay for transient player-lifecycle database writes. */
-    public int lifecycleRetryBaseDelayMillis() {
-        return lifecycleRetryBaseDelayMillis;
-    }
-
-    public PlaytimeTrackingSettings playtimeTrackingSettings() {
-        return playtimeTrackingSettings;
-    }
-
-    public Set<DataRegistryFeature> enabledFeatures() {
-        return enabledFeatures;
-    }
+    public int retentionPurgeBatchSize() { return retentionPurgeBatchSize; }
+    public int playerHistoryPurgeIntervalHours() { return playerHistoryPurgeIntervalHours; }
+    public int serviceInstancePurgeIntervalHours() { return serviceInstancePurgeIntervalHours; }
+    public int lifecycleWriteMaxAttempts() { return lifecycleWriteMaxAttempts; }
+    public int lifecycleRetryBaseDelayMillis() { return lifecycleRetryBaseDelayMillis; }
+    public PlaytimeTrackingSettings playtimeTrackingSettings() { return playtimeTrackingSettings; }
+    public Set<DataRegistryFeature> enabledFeatures() { return enabledFeatures; }
 
     public boolean isFeatureEnabled(DataRegistryFeature feature) {
         return enabledFeatures.contains(Objects.requireNonNull(feature, "feature must not be null"));
+    }
+
+    private static void validateFeatureDependencies(Set<DataRegistryFeature> enabledFeatures) {
+        if (!enabledFeatures.contains(DataRegistryFeature.SESSIONS)
+                && (enabledFeatures.contains(DataRegistryFeature.PLAYTIME)
+                || enabledFeatures.contains(DataRegistryFeature.SESSION_VISITS))) {
+            throw new IllegalArgumentException("PLAYTIME and SESSION_VISITS require the SESSIONS feature to be enabled.");
+        }
+        if (enabledFeatures.contains(DataRegistryFeature.POPULATION)
+                && (!enabledFeatures.contains(DataRegistryFeature.ONLINE_STATUS)
+                || !enabledFeatures.contains(DataRegistryFeature.SESSIONS)
+                || !enabledFeatures.contains(DataRegistryFeature.SESSION_VISITS))) {
+            throw new IllegalArgumentException(
+                    "POPULATION requires ONLINE_STATUS, SESSIONS, and SESSION_VISITS to be enabled."
+            );
+        }
     }
 
     private static int validateRange(int value, String fieldName, int minInclusive, int maxInclusive) {
@@ -410,32 +277,22 @@ public final class DataRegistrySettings {
     }
 
     private static int validateDisabledOrRange(int value, String fieldName, int minInclusive, int maxInclusive) {
-        if (value == -1) {
-            return value;
-        }
+        if (value == -1) { return value; }
         return validateRange(value, fieldName, minInclusive, maxInclusive);
     }
 
     private static String normalizeConnectionId(String value, String fieldName) {
-        if (value == null) {
-            throw new IllegalArgumentException(fieldName + " must not be null");
-        }
+        if (value == null) { throw new IllegalArgumentException(fieldName + " must not be null"); }
         String normalized = value.trim();
-        if (normalized.isEmpty()) {
-            throw new IllegalArgumentException(fieldName + " must not be blank");
-        }
+        if (normalized.isEmpty()) { throw new IllegalArgumentException(fieldName + " must not be blank"); }
         if (!normalized.matches("[A-Za-z0-9._-]{1,64}")) {
-            throw new IllegalArgumentException(
-                    fieldName + " must match [A-Za-z0-9._-]{1,64}"
-            );
+            throw new IllegalArgumentException(fieldName + " must match [A-Za-z0-9._-]{1,64}");
         }
         return normalized;
     }
 
     private static String normalizeSchemaMode(String value) {
-        if (value == null) {
-            throw new IllegalArgumentException("ormSchemaMode must not be null");
-        }
+        if (value == null) { throw new IllegalArgumentException("ormSchemaMode must not be null"); }
         String normalized = value.trim().toLowerCase(Locale.ROOT);
         if (!ALLOWED_SCHEMA_MODES.contains(normalized)) {
             throw new IllegalArgumentException(
@@ -446,13 +303,9 @@ public final class DataRegistrySettings {
     }
 
     private static String normalizeServiceName(String value, String fieldName) {
-        if (value == null) {
-            throw new IllegalArgumentException(fieldName + " must not be null");
-        }
+        if (value == null) { throw new IllegalArgumentException(fieldName + " must not be null"); }
         String normalized = value.trim();
-        if (normalized.isEmpty()) {
-            throw new IllegalArgumentException(fieldName + " must not be blank");
-        }
+        if (normalized.isEmpty()) { throw new IllegalArgumentException(fieldName + " must not be blank"); }
         if (!"auto".equalsIgnoreCase(normalized) && normalized.length() > SERVICE_NAME_MAX_LENGTH) {
             throw new IllegalArgumentException(
                     fieldName + " must be 'auto' or at most " + SERVICE_NAME_MAX_LENGTH + " characters."
@@ -485,6 +338,7 @@ public final class DataRegistrySettings {
         private int serviceProbeRetentionHours = DEFAULT_SERVICE_PROBE_RETENTION_HOURS;
         private int serviceProbePurgeIntervalHours = DEFAULT_SERVICE_PROBE_PURGE_INTERVAL_HOURS;
         private int lifecycleOutboxRetentionDays = DEFAULT_LIFECYCLE_OUTBOX_RETENTION_DAYS;
+        private int populationTransitionRetentionDays = DEFAULT_POPULATION_TRANSITION_RETENTION_DAYS;
         private int serviceInstanceRetentionDays = DEFAULT_SERVICE_INSTANCE_RETENTION_DAYS;
         private int closedSessionHistoryRetentionDays = DEFAULT_CLOSED_SESSION_HISTORY_RETENTION_DAYS;
         private int retentionPurgeBatchSize = DEFAULT_RETENTION_PURGE_BATCH_SIZE;
@@ -495,168 +349,67 @@ public final class DataRegistrySettings {
         private PlaytimeTrackingSettings playtimeTrackingSettings = PlaytimeTrackingSettings.defaults();
         private EnumSet<DataRegistryFeature> enabledFeatures = EnumSet.allOf(DataRegistryFeature.class);
 
-        private Builder() {
-        }
+        private Builder() { }
 
         public Builder databaseType(DatabaseType value) {
-            this.databaseType = Objects.requireNonNull(value, "databaseType must not be null");
-            return this;
+            this.databaseType = Objects.requireNonNull(value, "databaseType must not be null"); return this;
         }
-
         public Builder playerDatabaseConnectionId(String value) {
             this.playerDatabaseConnectionId = Objects.requireNonNull(value, "playerDatabaseConnectionId must not be null");
             return this;
         }
-
         public Builder serviceDatabaseConnectionId(String value) {
-            this.serviceDatabaseConnectionId =
-                    Objects.requireNonNull(value, "serviceDatabaseConnectionId must not be null");
+            this.serviceDatabaseConnectionId = Objects.requireNonNull(value, "serviceDatabaseConnectionId must not be null");
             return this;
         }
-
         public Builder ormSchemaMode(String value) {
-            this.ormSchemaMode = Objects.requireNonNull(value, "ormSchemaMode must not be null");
-            return this;
+            this.ormSchemaMode = Objects.requireNonNull(value, "ormSchemaMode must not be null"); return this;
         }
-
-        public Builder persistIpAddress(boolean value) {
-            this.persistIpAddress = value;
-            return this;
-        }
-
-        public Builder persistVirtualHost(boolean value) {
-            this.persistVirtualHost = value;
-            return this;
-        }
-
-        public Builder bukkitJoinDelayTicks(int value) {
-            this.bukkitJoinDelayTicks = value;
-            return this;
-        }
-
-        public Builder bukkitRegisterServiceInstance(boolean value) {
-            this.bukkitRegisterServiceInstance = value;
-            return this;
-        }
-
+        public Builder persistIpAddress(boolean value) { this.persistIpAddress = value; return this; }
+        public Builder persistVirtualHost(boolean value) { this.persistVirtualHost = value; return this; }
+        public Builder bukkitJoinDelayTicks(int value) { this.bukkitJoinDelayTicks = value; return this; }
+        public Builder bukkitRegisterServiceInstance(boolean value) { this.bukkitRegisterServiceInstance = value; return this; }
         public Builder bukkitServiceName(String value) {
-            this.bukkitServiceName = Objects.requireNonNull(value, "bukkitServiceName must not be null");
-            return this;
+            this.bukkitServiceName = Objects.requireNonNull(value, "bukkitServiceName must not be null"); return this;
         }
-
         public Builder velocityServiceName(String value) {
-            this.velocityServiceName = Objects.requireNonNull(value, "velocityServiceName must not be null");
-            return this;
+            this.velocityServiceName = Objects.requireNonNull(value, "velocityServiceName must not be null"); return this;
         }
-
-        public Builder queryExecutorThreads(int value) {
-            this.queryExecutorThreads = value;
-            return this;
+        public Builder queryExecutorThreads(int value) { this.queryExecutorThreads = value; return this; }
+        public Builder queryTimeoutMillis(int value) { this.queryTimeoutMillis = value; return this; }
+        public Builder queryDevelopmentThreadChecks(boolean value) { this.queryDevelopmentThreadChecks = value; return this; }
+        public Builder usernameMaxLength(int value) { this.usernameMaxLength = value; return this; }
+        public Builder serverNameMaxLength(int value) { this.serverNameMaxLength = value; return this; }
+        public Builder virtualHostMaxLength(int value) { this.virtualHostMaxLength = value; return this; }
+        public Builder ipAddressMaxLength(int value) { this.ipAddressMaxLength = value; return this; }
+        public Builder serviceHeartbeatIntervalSeconds(int value) { this.serviceHeartbeatIntervalSeconds = value; return this; }
+        public Builder serviceProbeIntervalSeconds(int value) { this.serviceProbeIntervalSeconds = value; return this; }
+        public Builder serviceProbeTimeoutMillis(int value) { this.serviceProbeTimeoutMillis = value; return this; }
+        public Builder serviceProbeRetentionHours(int value) { this.serviceProbeRetentionHours = value; return this; }
+        public Builder serviceProbePurgeIntervalHours(int value) { this.serviceProbePurgeIntervalHours = value; return this; }
+        public Builder lifecycleOutboxRetentionDays(int value) { this.lifecycleOutboxRetentionDays = value; return this; }
+        public Builder populationTransitionRetentionDays(int value) {
+            this.populationTransitionRetentionDays = value; return this;
         }
-
-        public Builder queryTimeoutMillis(int value) {
-            this.queryTimeoutMillis = value;
-            return this;
-        }
-
-        public Builder queryDevelopmentThreadChecks(boolean value) {
-            this.queryDevelopmentThreadChecks = value;
-            return this;
-        }
-
-        public Builder usernameMaxLength(int value) {
-            this.usernameMaxLength = value;
-            return this;
-        }
-
-        public Builder serverNameMaxLength(int value) {
-            this.serverNameMaxLength = value;
-            return this;
-        }
-
-        public Builder virtualHostMaxLength(int value) {
-            this.virtualHostMaxLength = value;
-            return this;
-        }
-
-        public Builder ipAddressMaxLength(int value) {
-            this.ipAddressMaxLength = value;
-            return this;
-        }
-
-        public Builder serviceHeartbeatIntervalSeconds(int value) {
-            this.serviceHeartbeatIntervalSeconds = value;
-            return this;
-        }
-
-        public Builder serviceProbeIntervalSeconds(int value) {
-            this.serviceProbeIntervalSeconds = value;
-            return this;
-        }
-
-        public Builder serviceProbeTimeoutMillis(int value) {
-            this.serviceProbeTimeoutMillis = value;
-            return this;
-        }
-
-        public Builder serviceProbeRetentionHours(int value) {
-            this.serviceProbeRetentionHours = value;
-            return this;
-        }
-
-        public Builder serviceProbePurgeIntervalHours(int value) {
-            this.serviceProbePurgeIntervalHours = value;
-            return this;
-        }
-
-        public Builder lifecycleOutboxRetentionDays(int value) {
-            this.lifecycleOutboxRetentionDays = value;
-            return this;
-        }
-
-        public Builder serviceInstanceRetentionDays(int value) {
-            this.serviceInstanceRetentionDays = value;
-            return this;
-        }
-
+        public Builder serviceInstanceRetentionDays(int value) { this.serviceInstanceRetentionDays = value; return this; }
         public Builder closedSessionHistoryRetentionDays(int value) {
-            this.closedSessionHistoryRetentionDays = value;
-            return this;
+            this.closedSessionHistoryRetentionDays = value; return this;
         }
-
-        public Builder retentionPurgeBatchSize(int value) {
-            this.retentionPurgeBatchSize = value;
-            return this;
-        }
-
+        public Builder retentionPurgeBatchSize(int value) { this.retentionPurgeBatchSize = value; return this; }
         public Builder playerHistoryPurgeIntervalHours(int value) {
-            this.playerHistoryPurgeIntervalHours = value;
-            return this;
+            this.playerHistoryPurgeIntervalHours = value; return this;
         }
-
         public Builder serviceInstancePurgeIntervalHours(int value) {
-            this.serviceInstancePurgeIntervalHours = value;
-            return this;
+            this.serviceInstancePurgeIntervalHours = value; return this;
         }
-
-        public Builder lifecycleWriteMaxAttempts(int value) {
-            this.lifecycleWriteMaxAttempts = value;
-            return this;
-        }
-
+        public Builder lifecycleWriteMaxAttempts(int value) { this.lifecycleWriteMaxAttempts = value; return this; }
         public Builder lifecycleRetryBaseDelayMillis(int value) {
-            this.lifecycleRetryBaseDelayMillis = value;
-            return this;
+            this.lifecycleRetryBaseDelayMillis = value; return this;
         }
-
         public Builder playtimeTrackingSettings(PlaytimeTrackingSettings value) {
-            this.playtimeTrackingSettings = Objects.requireNonNull(
-                    value,
-                    "playtimeTrackingSettings must not be null"
-            );
+            this.playtimeTrackingSettings = Objects.requireNonNull(value, "playtimeTrackingSettings must not be null");
             return this;
         }
-
         public Builder enabledFeatures(Set<DataRegistryFeature> values) {
             Objects.requireNonNull(values, "enabledFeatures must not be null");
             this.enabledFeatures = values.isEmpty()
@@ -664,19 +417,12 @@ public final class DataRegistrySettings {
                     : EnumSet.copyOf(values);
             return this;
         }
-
         public Builder enableFeature(DataRegistryFeature feature) {
-            this.enabledFeatures.add(Objects.requireNonNull(feature, "feature must not be null"));
-            return this;
+            this.enabledFeatures.add(Objects.requireNonNull(feature, "feature must not be null")); return this;
         }
-
         public Builder disableFeature(DataRegistryFeature feature) {
-            this.enabledFeatures.remove(Objects.requireNonNull(feature, "feature must not be null"));
-            return this;
+            this.enabledFeatures.remove(Objects.requireNonNull(feature, "feature must not be null")); return this;
         }
-
-        public DataRegistrySettings build() {
-            return new DataRegistrySettings(this);
-        }
+        public DataRegistrySettings build() { return new DataRegistrySettings(this); }
     }
 }
