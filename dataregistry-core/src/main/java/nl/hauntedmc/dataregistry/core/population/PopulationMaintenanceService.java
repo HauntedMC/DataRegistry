@@ -36,13 +36,21 @@ public final class PopulationMaintenanceService {
         }
         return dataRegistry.getORM().runInTransaction(session -> {
             Instant now = Instant.now();
+            PopulationScope networkScope = PopulationScope.network();
+            PopulationScopeStateEntity networkState = PopulationPersistence.ensureAndLockScopeState(
+                    session,
+                    networkScope,
+                    PopulationBaselineQuality.TRACKED_ONLY,
+                    PopulationBaselineQuality.TRACKED_ONLY,
+                    now
+            );
+
             List<PlayerOnlineStatusEntity> online = session.createQuery(
                             "SELECT s FROM PlayerOnlineStatusEntity s JOIN FETCH s.player WHERE s.online = true",
                             PlayerOnlineStatusEntity.class
                     )
                     .list();
             Map<PopulationScope, List<PlayerOnlineStatusEntity>> onlineByScope = new HashMap<>();
-            PopulationScope networkScope = PopulationScope.network();
             onlineByScope.put(networkScope, new ArrayList<>(online));
             for (PlayerOnlineStatusEntity status : online) {
                 PopulationResolvedGamemode resolved = dataRegistry.resolvePopulationGamemode(status.getCurrentServer());
@@ -75,13 +83,15 @@ public final class PopulationMaintenanceService {
             int changed = 0;
             int peaks = 0;
             for (PopulationScope scope : scopes) {
-                PopulationScopeStateEntity state = PopulationPersistence.ensureAndLockScopeState(
-                        session,
-                        scope,
-                        inheritedQuality(session, true),
-                        inheritedQuality(session, false),
-                        now
-                );
+                PopulationScopeStateEntity state = scope.type() == PopulationScopeType.NETWORK
+                        ? networkState
+                        : PopulationPersistence.ensureAndLockScopeState(
+                                session,
+                                scope,
+                                networkState.getMembershipBaselineQuality(),
+                                networkState.getPeakBaselineQuality(),
+                                now
+                        );
                 List<PlayerOnlineStatusEntity> scopeOnline = onlineByScope.get(scope);
                 for (PlayerOnlineStatusEntity status : scopeOnline) {
                     ensureReconciledMembership(session, state, scope, status, now);
