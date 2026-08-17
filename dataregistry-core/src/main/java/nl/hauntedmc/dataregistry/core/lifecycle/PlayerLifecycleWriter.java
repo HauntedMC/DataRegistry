@@ -221,22 +221,26 @@ public final class PlayerLifecycleWriter {
             }
 
             Instant now = command.occurredAt();
+            String serverName = sessionService.sanitizeServerName(command.serverName());
+            if (serverName == null) {
+                throw new IllegalArgumentException("serverName must contain a persistable backend server name.");
+            }
             PlayerEntity player = playerService.getOrCreatePlayer(session, command.playerUuid(), command.username());
             flushForGeneratedId(session, player);
             activitySummaryService.recordSeen(session, player, now);
-            // Playtime must observe the session's previous backend before this transfer replaces it.
-            playtimeService.onServerSwitch(session, player, command.serverName(), now);
+            // Every lifecycle domain observes the same canonical persisted backend name.
+            playtimeService.onServerSwitch(session, player, serverName, now);
             // Open/update the new durable visit before population records firstVisitId for exact join correlation.
-            sessionService.updateServerOnSwitch(session, player, command.serverName(), now);
+            sessionService.updateServerOnSwitch(session, player, serverName, now);
             // Population intentionally runs before status replacement so it can see the previous logical gamemode.
-            populationService.onTransfer(session, player, command.serverName(), command.eventId(), now);
-            statusService.updateStatus(session, player, command.serverName());
+            populationService.onTransfer(session, player, serverName, command.eventId(), now);
+            statusService.updateStatus(session, player, serverName);
             persistOutbox(
                     session,
                     command.eventId(),
                     PlayerLifecycleOutboxEventType.TRANSFER,
                     player,
-                    sessionService.sanitizeServerName(command.serverName()),
+                    serverName,
                     now
             );
             return new TransactionOutcome(false, true, player);
