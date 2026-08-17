@@ -687,7 +687,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
                             health.totalInstanceCount(),
                             health.runningInstanceCount()
                     ))
-                    .toList());
+                    .toList();
         }, adminCommandExecutor);
     }
 
