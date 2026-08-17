@@ -44,7 +44,7 @@ features:
   sessions: true
   session-visits: true
   # Canonical network/logical-gamemode population state, memberships, ordinals, online counts, peaks and transitions.
-  # Requires online-status, sessions and session-visits; missing prerequisites are restored when population is enabled.
+  # Requires online-status, sessions and session-visits; missing prerequisites are enabled automatically at runtime.
   population: true
   playtime: true
   language: true
