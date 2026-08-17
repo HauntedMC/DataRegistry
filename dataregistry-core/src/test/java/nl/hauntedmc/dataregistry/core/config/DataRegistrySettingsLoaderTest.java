@@ -114,6 +114,7 @@ class DataRegistrySettingsLoaderTest {
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS));
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.POPULATION));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.NICKNAMES));
@@ -165,6 +166,7 @@ class DataRegistrySettingsLoaderTest {
                 ),
                 "features", Map.of(
                         "sessions", false,
+                        "population", false,
                         "playtime", false,
                         "service-registry", true
                 ),
@@ -185,6 +187,7 @@ class DataRegistrySettingsLoaderTest {
         assertTrue(settings.persistIpAddress());
         assertEquals(defaults.persistVirtualHost(), settings.persistVirtualHost());
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
+        assertFalse(settings.isFeatureEnabled(DataRegistryFeature.POPULATION));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
         assertEquals(
@@ -328,6 +331,7 @@ class DataRegistrySettingsLoaderTest {
                   schema-mode: update
                 features:
                   sessions: false
+                  population: false
                   playtime: false
                 service-registry:
                   heartbeat-interval-seconds: 40
@@ -359,6 +363,7 @@ class DataRegistrySettingsLoaderTest {
         assertEquals("services-main", settings.serviceDatabaseConnectionId());
         assertEquals("update", settings.ormSchemaMode());
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
+        assertFalse(settings.isFeatureEnabled(DataRegistryFeature.POPULATION));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME));
         assertEquals(40, settings.serviceHeartbeatIntervalSeconds());
         assertEquals(20, settings.serviceProbeIntervalSeconds());
@@ -431,6 +436,7 @@ class DataRegistrySettingsLoaderTest {
                   should-be-removed: true
                 features:
                   sessions: false
+                  population: false
                   playtime: false
                 """);
 
@@ -443,6 +449,7 @@ class DataRegistrySettingsLoaderTest {
         assertEquals("players-main", settings.playerDatabaseConnectionId());
         assertEquals(DataRegistrySettings.defaults().serviceDatabaseConnectionId(), settings.serviceDatabaseConnectionId());
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
+        assertFalse(settings.isFeatureEnabled(DataRegistryFeature.POPULATION));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME));
         assertTrue(reconciledConfig.contains("services:"));
         assertTrue(reconciledConfig.contains("connection-id: player_data_rw"));
@@ -524,6 +531,7 @@ class DataRegistrySettingsLoaderTest {
                   activity-summary: false
                   sessions: true
                   session-visits: true
+                  population: false
                   playtime: true
                   language: false
                   nicknames: false
@@ -585,6 +593,7 @@ class DataRegistrySettingsLoaderTest {
         assertTrue(secondLoad.persistIpAddress());
         assertTrue(secondLoad.persistVirtualHost());
         assertFalse(secondLoad.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS));
+        assertFalse(secondLoad.isFeatureEnabled(DataRegistryFeature.POPULATION));
         assertFalse(secondLoad.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
         assertEquals(45, secondLoad.playtimeTrackingSettings().flushIntervalSeconds());
         assertFalse(secondLoad.playtimeTrackingSettings().resolveUnknownServersAsGamemode());
