@@ -1,7 +1,6 @@
 package nl.hauntedmc.dataregistry.core.player;
 
 import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
-import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.api.player.PlayerLookup;
 import nl.hauntedmc.dataregistry.api.population.PlayerPopulationMembership;
 import nl.hauntedmc.dataregistry.api.population.PopulationData;
