@@ -203,6 +203,8 @@ public final class PopulationMaintenanceService {
         membership.setCreatedAt(now);
         session.persist(membership);
         state.setUniquePlayerCount(ordinal);
+        state.setMembershipBaselineQuality(PopulationBaselineQuality.TRACKED_ONLY);
+        state.setPeakBaselineQuality(PopulationBaselineQuality.TRACKED_ONLY);
         state.setUpdatedAt(now);
         PopulationPersistence.transition(
                 session,
