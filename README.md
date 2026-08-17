@@ -35,8 +35,11 @@ Java 26 or newer until the bundled DataProvider/Hibernate stack is qualified for
 Start the server once to generate `plugins/DataRegistry/config.yml`, then review the database, feature,
 privacy, playtime/population mapping, retention, service-registry, and platform sections.
 
-Defaults and comments live in [dataregistry-core/src/main/resources/config.yml](dataregistry-core/src/main/resources/config.yml). Missing supported
-keys are restored on load and stale keys are removed.
+Defaults and comments live in [dataregistry-core/src/main/resources/config.yml](dataregistry-core/src/main/resources/config.yml),
+which is the single documented configuration template. DataRegistry never rewrites an existing operator config on
+startup. Missing settings use the runtime defaults, invalid settings warn and fall back to their defaults, and unknown
+keys are ignored. Delete/regenerate the file after an upgrade if you want a fresh copy of the latest documented
+template.
 
 The `population` domain is enabled by default. It requires `online-status`, `sessions`, and `session-visits`, which
 provide the canonical presence and visit evidence used by Population. Population does **not** require playtime. It
