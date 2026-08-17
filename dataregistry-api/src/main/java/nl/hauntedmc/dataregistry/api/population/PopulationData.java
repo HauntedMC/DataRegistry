@@ -30,4 +30,7 @@ public interface PopulationData {
     CompletionStage<PopulationResolvedGamemode> resolveGamemode(String serverName);
 
     CompletionStage<PopulationTransitionBatch> findTransitions(PopulationTransitionQuery query);
+
+    /** Returns the durable transition journal high-water mark, or {@code 0} before the first transition. */
+    CompletionStage<Long> latestTransitionId();
 }
