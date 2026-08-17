@@ -2,9 +2,12 @@ package nl.hauntedmc.dataregistry.core.config;
 
 import org.junit.jupiter.api.Test;
 
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DataRegistryConfigSchemaTest {
@@ -73,7 +76,7 @@ class DataRegistryConfigSchemaTest {
         assertTrue(rendered.contains("population: true"));
         assertTrue(rendered.contains("language: true"));
         assertTrue(rendered.contains("nicknames: true"));
-        assertTrue(rendered.contains("Population depends on online-status, sessions and session-visits"));
+        assertTrue(rendered.contains("Requires online-status, sessions and session-visits"));
         assertTrue(rendered.contains("population-transition-days: 90"));
         assertTrue(rendered.contains("heartbeat-interval-seconds: 30"));
         assertTrue(rendered.contains("probe-interval-seconds: 15"));
@@ -92,5 +95,14 @@ class DataRegistryConfigSchemaTest {
         assertTrue(rendered.contains("max-length: 64"));
         assertTrue(rendered.contains("max-length: 255"));
         assertTrue(rendered.contains("max-length: 45"));
+    }
+
+    @Test
+    void packagedDefaultConfigMatchesCanonicalTemplateIncludingDocumentation() throws Exception {
+        try (InputStream input = DataRegistryConfigSchemaTest.class.getResourceAsStream("/config.yml")) {
+            assertNotNull(input);
+            String packaged = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+            assertEquals(DataRegistryConfigSchema.defaultTemplate(), packaged);
+        }
     }
 }
