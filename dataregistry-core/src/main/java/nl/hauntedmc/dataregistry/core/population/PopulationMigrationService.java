@@ -7,11 +7,13 @@ import nl.hauntedmc.dataregistry.api.population.PopulationScope;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerActivitySummaryEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPopulationMembershipEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PopulationScopeStateEntity;
 
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -22,6 +24,7 @@ import java.util.Objects;
 public final class PopulationMigrationService {
 
     public static final int BACKFILL_VERSION = 1;
+    private static final String PLAYTIME_TABLE = "player_playtime";
 
     private final DataRegistry dataRegistry;
 
@@ -46,26 +49,25 @@ public final class PopulationMigrationService {
                     initialQuality,
                     now
             );
-            if (networkState.getBackfillVersion() >= BACKFILL_VERSION) {
-                return new PopulationMigrationResult(
-                        0L,
-                        0L,
-                        networkState.getMembershipBaselineQuality(),
-                        false
-                );
+
+            boolean networkMigrationApplied = networkState.getBackfillVersion() < BACKFILL_VERSION;
+            long networkAdded = 0L;
+            if (networkMigrationApplied) {
+                networkAdded = backfillNetworkMemberships(session, networkState, now);
+                networkState.setBackfillVersion(BACKFILL_VERSION);
+                networkState.setUpdatedAt(now);
             }
 
-            long networkAdded = backfillNetworkMemberships(session, networkState, now);
-            long gamemodeAdded = dataRegistry.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
-                    ? backfillGamemodeMemberships(session, networkState.getMembershipBaselineQuality(), now)
-                    : 0L;
-            networkState.setBackfillVersion(BACKFILL_VERSION);
-            networkState.setUpdatedAt(now);
+            GamemodeBackfillResult gamemode = backfillGamemodeMemberships(
+                    session,
+                    networkState.getMembershipBaselineQuality(),
+                    now
+            );
             return new PopulationMigrationResult(
                     networkAdded,
-                    gamemodeAdded,
+                    gamemode.added(),
                     networkState.getMembershipBaselineQuality(),
-                    true
+                    networkMigrationApplied || gamemode.applied()
             );
         });
     }
@@ -126,22 +128,19 @@ public final class PopulationMigrationService {
         return added;
     }
 
-    private static long backfillGamemodeMemberships(
+    private static GamemodeBackfillResult backfillGamemodeMemberships(
             org.hibernate.Session session,
             PopulationBaselineQuality baselineQuality,
             Instant now
     ) {
-        List<PlayerPlaytimeEntity> aggregates = session.createQuery(
-                        "SELECT a FROM PlayerPlaytimeEntity a JOIN FETCH a.player " +
-                                "ORDER BY a.gamemodeKey ASC, a.firstTrackedAt ASC, a.player.id ASC",
-                        PlayerPlaytimeEntity.class
-                )
-                .list();
+        List<HistoricalGamemodeMember> historical = loadHistoricalGamemodeMembers(session);
         long added = 0L;
+        boolean applied = false;
         String lastScopeId = null;
         PopulationScopeStateEntity state = null;
-        for (PlayerPlaytimeEntity aggregate : aggregates) {
-            PopulationScope scope = PopulationScope.gamemode(aggregate.getGamemodeKey());
+        boolean scopeAlreadyMigrated = false;
+        for (HistoricalGamemodeMember member : historical) {
+            PopulationScope scope = PopulationScope.gamemode(member.gamemodeKey());
             if (!scope.storageKey().equals(lastScopeId)) {
                 state = PopulationPersistence.ensureAndLockScopeState(
                         session,
@@ -150,19 +149,31 @@ public final class PopulationMigrationService {
                         baselineQuality,
                         now
                 );
-                state.setBackfillVersion(BACKFILL_VERSION);
+                scopeAlreadyMigrated = state.getBackfillVersion() >= BACKFILL_VERSION;
+                if (!scopeAlreadyMigrated) {
+                    state.setBackfillVersion(BACKFILL_VERSION);
+                    state.setUpdatedAt(now);
+                    applied = true;
+                }
                 lastScopeId = scope.storageKey();
             }
-            if (PopulationPersistence.findMembership(session, aggregate.getPlayer().getId(), scope) != null) {
+            if (scopeAlreadyMigrated
+                    || PopulationPersistence.findMembership(session, member.playerId(), scope) != null) {
                 continue;
+            }
+            PlayerEntity player = session.find(PlayerEntity.class, member.playerId());
+            if (player == null) {
+                throw new IllegalStateException(
+                        "Historical playtime row references missing player id " + member.playerId() + "."
+                );
             }
             long ordinal = Math.addExact(state.getUniquePlayerCount(), 1L);
             persistBackfilledMembership(
                     session,
-                    aggregate.getPlayer(),
+                    player,
                     scope,
                     ordinal,
-                    aggregate.getFirstTrackedAt(),
+                    member.firstTrackedAt(),
                     null,
                     null,
                     now
@@ -171,7 +182,38 @@ public final class PopulationMigrationService {
             state.setUpdatedAt(now);
             added++;
         }
-        return added;
+        return new GamemodeBackfillResult(added, applied);
+    }
+
+    private static List<HistoricalGamemodeMember> loadHistoricalGamemodeMembers(org.hibernate.Session session) {
+        return session.doReturningWork(connection -> {
+            try (ResultSet tables = connection.getMetaData().getTables(
+                    connection.getCatalog(),
+                    null,
+                    PLAYTIME_TABLE,
+                    new String[]{"TABLE"}
+            )) {
+                if (!tables.next()) {
+                    return List.of();
+                }
+            }
+
+            List<HistoricalGamemodeMember> historical = new ArrayList<>();
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "SELECT player_id, gamemode_key, first_tracked_at FROM " + PLAYTIME_TABLE +
+                            " ORDER BY gamemode_key ASC, first_tracked_at ASC, player_id ASC"
+            ); ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    Timestamp firstTrackedAt = rows.getTimestamp("first_tracked_at");
+                    historical.add(new HistoricalGamemodeMember(
+                            rows.getLong("player_id"),
+                            rows.getString("gamemode_key"),
+                            firstTrackedAt == null ? null : firstTrackedAt.toInstant()
+                    ));
+                }
+            }
+            return historical;
+        });
     }
 
     private static void persistBackfilledMembership(
@@ -203,5 +245,11 @@ public final class PopulationMigrationService {
             PlayerSessionEntity firstSession,
             Instant firstSeenAt
     ) {
+    }
+
+    private record HistoricalGamemodeMember(long playerId, String gamemodeKey, Instant firstTrackedAt) {
+    }
+
+    private record GamemodeBackfillResult(long added, boolean applied) {
     }
 }
