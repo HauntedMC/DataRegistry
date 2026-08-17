@@ -2,15 +2,20 @@ package nl.hauntedmc.dataregistry.core.population;
 
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.api.population.PopulationBaselineQuality;
+import nl.hauntedmc.dataregistry.api.population.PopulationOrdinalQuality;
 import nl.hauntedmc.dataregistry.api.population.PopulationResolvedGamemode;
 import nl.hauntedmc.dataregistry.api.population.PopulationScope;
+import nl.hauntedmc.dataregistry.api.population.PopulationScopeType;
 import nl.hauntedmc.dataregistry.api.population.PopulationTransitionCause;
 import nl.hauntedmc.dataregistry.api.population.PopulationTransitionType;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerOnlineStatusEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPopulationMembershipEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PopulationScopeStateEntity;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,16 +37,20 @@ public final class PopulationMaintenanceService {
         return dataRegistry.getORM().runInTransaction(session -> {
             Instant now = Instant.now();
             List<PlayerOnlineStatusEntity> online = session.createQuery(
-                            "SELECT s FROM PlayerOnlineStatusEntity s WHERE s.online = true",
+                            "SELECT s FROM PlayerOnlineStatusEntity s JOIN FETCH s.player WHERE s.online = true",
                             PlayerOnlineStatusEntity.class
                     )
                     .list();
-            Map<PopulationScope, Long> counts = new HashMap<>();
-            counts.put(PopulationScope.network(), (long) online.size());
+            Map<PopulationScope, List<PlayerOnlineStatusEntity>> onlineByScope = new HashMap<>();
+            PopulationScope networkScope = PopulationScope.network();
+            onlineByScope.put(networkScope, new ArrayList<>(online));
             for (PlayerOnlineStatusEntity status : online) {
                 PopulationResolvedGamemode resolved = dataRegistry.resolvePopulationGamemode(status.getCurrentServer());
                 if (resolved.tracked() && resolved.gamemodeKey() != null) {
-                    counts.merge(PopulationScope.gamemode(resolved.gamemodeKey()), 1L, Long::sum);
+                    onlineByScope.computeIfAbsent(
+                            PopulationScope.gamemode(resolved.gamemodeKey()),
+                            ignored -> new ArrayList<>()
+                    ).add(status);
                 }
             }
 
@@ -50,13 +59,22 @@ public final class PopulationMaintenanceService {
                     PopulationScopeStateEntity.class
             ).list();
             for (PopulationScopeStateEntity existing : existingStates) {
-                counts.putIfAbsent(new PopulationScope(existing.getScopeType(), existing.getScopeKey()), 0L);
+                onlineByScope.putIfAbsent(
+                        new PopulationScope(existing.getScopeType(), existing.getScopeKey()),
+                        new ArrayList<>()
+                );
             }
+
+            List<PopulationScope> scopes = onlineByScope.keySet().stream()
+                    .sorted(Comparator
+                            .comparingInt((PopulationScope scope) ->
+                                    scope.type() == PopulationScopeType.NETWORK ? 0 : 1)
+                            .thenComparing(PopulationScope::storageKey))
+                    .toList();
 
             int changed = 0;
             int peaks = 0;
-            for (Map.Entry<PopulationScope, Long> entry : counts.entrySet()) {
-                PopulationScope scope = entry.getKey();
+            for (PopulationScope scope : scopes) {
                 PopulationScopeStateEntity state = PopulationPersistence.ensureAndLockScopeState(
                         session,
                         scope,
@@ -64,7 +82,12 @@ public final class PopulationMaintenanceService {
                         inheritedQuality(session, false),
                         now
                 );
-                long target = entry.getValue();
+                List<PlayerOnlineStatusEntity> scopeOnline = onlineByScope.get(scope);
+                for (PlayerOnlineStatusEntity status : scopeOnline) {
+                    ensureReconciledMembership(session, state, scope, status, now);
+                }
+
+                long target = scopeOnline.size();
                 long previous = state.getCurrentOnline();
                 if (target != previous) {
                     state.setCurrentOnline(target);
@@ -146,6 +169,43 @@ public final class PopulationMaintenanceService {
             }
             return null;
         });
+    }
+
+    private static void ensureReconciledMembership(
+            org.hibernate.Session session,
+            PopulationScopeStateEntity state,
+            PopulationScope scope,
+            PlayerOnlineStatusEntity status,
+            Instant now
+    ) {
+        if (PopulationPersistence.findMembership(session, status.getPlayer().getId(), scope) != null) {
+            return;
+        }
+        long previousCount = state.getUniquePlayerCount();
+        long ordinal = Math.addExact(previousCount, 1L);
+        PlayerPopulationMembershipEntity membership = new PlayerPopulationMembershipEntity();
+        membership.setPlayer(status.getPlayer());
+        membership.setScopeId(scope.storageKey());
+        membership.setScopeType(scope.type());
+        membership.setScopeKey(scope.key());
+        membership.setOrdinal(ordinal);
+        membership.setOrdinalQuality(PopulationOrdinalQuality.RECORDED_EXACT);
+        membership.setCreatedAt(now);
+        session.persist(membership);
+        state.setUniquePlayerCount(ordinal);
+        state.setUpdatedAt(now);
+        PopulationPersistence.transition(
+                session,
+                PopulationTransitionType.MEMBERSHIP_ADDED,
+                PopulationTransitionCause.RECONCILIATION,
+                scope,
+                status.getPlayer().getId(),
+                status.getCurrentServer(),
+                ordinal,
+                previousCount,
+                ordinal,
+                now
+        );
     }
 
     private void updateQuality(PopulationScope scope, PopulationBaselineQuality quality, boolean membership) {
