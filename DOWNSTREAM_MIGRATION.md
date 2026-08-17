@@ -36,6 +36,18 @@ migration tooling before deploying 1.14.0. Do not manually allocate historical o
 nodes; let the single Velocity lifecycle-authority migration populate them or reproduce its deterministic ordering
 exactly in a controlled migration.
 
+### Configuration upgrade
+
+`config.yml` is now the single documented configuration template and DataRegistry does not rewrite an existing
+operator config on startup. Existing pre-1.14 configs therefore remain byte-for-byte intact. Omitted settings use the
+runtime defaults; in particular, omitted `features.population` defaults to enabled and omitted
+`retention.population-transition-days` defaults to 90 days. Invalid configured values warn and fall back to their
+runtime defaults, while unknown keys are ignored.
+
+Use the current packaged `dataregistry-core/src/main/resources/config.yml` as the reference when adding or changing
+settings. Regenerate the file only when you intentionally want a fresh fully documented template; do not expect an
+upgrade to insert new keys into an existing customized file.
+
 ### Existing playtime lifecycle metadata
 
 The existing playtime lifecycle upgrade still uses the `tracked_gamemodes` catalog plus the `last_joined_at`,
