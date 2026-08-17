@@ -160,6 +160,17 @@ public final class PlayerPopulationService {
                 previousStatus.getCurrentServer()
         );
         PopulationScope previousScope = trackedScope(previousGamemode);
+        // Every lifecycle mutation that touches multiple population scopes acquires network first. Keeping one
+        // deterministic scope-lock order prevents transfer/disconnect deadlocks under concurrent lifecycle traffic.
+        changeOnline(
+                session,
+                PopulationScope.network(),
+                -1L,
+                player.getId(),
+                previousGamemode.serverName(),
+                PopulationTransitionCause.LIVE,
+                now
+        );
         if (previousScope != null) {
             changeOnline(
                     session,
@@ -171,15 +182,6 @@ public final class PlayerPopulationService {
                     now
             );
         }
-        changeOnline(
-                session,
-                PopulationScope.network(),
-                -1L,
-                player.getId(),
-                previousGamemode.serverName(),
-                PopulationTransitionCause.LIVE,
-                now
-        );
     }
 
     private PlayerPopulationMembershipEntity ensureMembership(
