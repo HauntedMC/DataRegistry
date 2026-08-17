@@ -96,4 +96,9 @@ public final class RepositoryPopulationData implements PopulationData {
         Objects.requireNonNull(query, "query must not be null");
         return queryExecutor.supply("population.findTransitions", () -> repository.findTransitions(query));
     }
+
+    @Override
+    public CompletionStage<Long> latestTransitionId() {
+        return queryExecutor.supply("population.latestTransitionId", repository::latestTransitionId);
+    }
 }
