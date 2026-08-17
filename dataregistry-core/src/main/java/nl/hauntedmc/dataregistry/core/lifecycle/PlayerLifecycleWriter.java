@@ -70,8 +70,8 @@ public final class PlayerLifecycleWriter {
                 sessionService,
                 playtimeService,
                 logger,
-                DEFAULT_MAX_ATTEMPTS,
-                BASE_RETRY_DELAY_MILLIS
+                configuredMaxAttempts(dataRegistry),
+                configuredRetryBaseDelayMillis(dataRegistry)
         );
     }
 
@@ -399,6 +399,18 @@ public final class PlayerLifecycleWriter {
         } catch (InterruptedException interruptedException) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    private static int configuredMaxAttempts(DataRegistry dataRegistry) {
+        return dataRegistry != null && dataRegistry.getSettings() != null
+                ? dataRegistry.getSettings().lifecycleWriteMaxAttempts()
+                : DEFAULT_MAX_ATTEMPTS;
+    }
+
+    private static long configuredRetryBaseDelayMillis(DataRegistry dataRegistry) {
+        return dataRegistry != null && dataRegistry.getSettings() != null
+                ? dataRegistry.getSettings().lifecycleRetryBaseDelayMillis()
+                : BASE_RETRY_DELAY_MILLIS;
     }
 
     private static String safeForLog(String value) {
