@@ -19,9 +19,10 @@ With the default `orm.schema-mode: update`, Hibernate creates the Population tab
 
 Velocity, as lifecycle authority, then performs the idempotent Population backfill before the API becomes ready.
 Existing network membership is ordered by the strongest canonical first-seen evidence available. Existing logical
--gamemode membership is reconstructed from the already-canonical `player_playtime` aggregate rows when playtime is
-enabled. Backfilled ordinals are explicitly marked `BACKFILLED_DETERMINISTIC`; new live ordinals are
-`RECORDED_EXACT`.
+gamemode membership is reconstructed from an already-existing canonical `player_playtime` table when that historical
+evidence is present. Population discovers that table during migration even when the PLAYTIME runtime feature is
+disabled; it does not register or create Playtime storage merely to perform the discovery. Backfilled ordinals are
+explicitly marked `BACKFILLED_DETERMINISTIC`; new live ordinals are `RECORDED_EXACT`.
 
 An existing database starts with `TRACKED_ONLY` historical baseline quality because DataRegistry cannot invent player
 or peak history that predates its stored evidence. A new empty database starts `VERIFIED`. This does not make current
@@ -38,11 +39,15 @@ exactly in a controlled migration.
 
 ### Configuration upgrade
 
-`config.yml` is now the single documented configuration template and DataRegistry does not rewrite an existing
-operator config on startup. Existing pre-1.14 configs therefore remain byte-for-byte intact. Omitted settings use the
-runtime defaults; in particular, omitted `features.population` defaults to enabled and omitted
-`retention.population-transition-days` defaults to 90 days. Invalid configured values warn and fall back to their
-runtime defaults, while unknown keys are ignored.
+`config.yml` is the single documented configuration template and DataRegistry does not rewrite an existing operator
+config on startup. Existing pre-1.14 configs therefore remain byte-for-byte intact. Missing settings use runtime
+defaults, invalid configured values warn and fall back, and unknown keys are ignored.
+
+A fresh 1.14 template enables `features.population`. For an older config that does not contain the new Population key,
+DataRegistry preserves an explicit opt-out of any required prerequisite (`online-status`, `sessions`, or
+`session-visits`) by leaving Population disabled. If `features.population: true` is explicitly configured, those
+required domains are enabled at runtime with a warning when necessary. Omitted
+`retention.population-transition-days` defaults to 90 days.
 
 Use the current packaged `dataregistry-core/src/main/resources/config.yml` as the reference when adding or changing
 settings. Regenerate the file only when you intentionally want a fresh fully documented template; do not expect an
@@ -111,9 +116,15 @@ For first-join behavior, do not derive a player number from `COUNT(*) + 1` or in
 Population provides durable membership ordinals and `findJoinContext(UUID, serverName)`, which correlates the current
 session/visit with the membership that originally created the ordinal.
 
-For milestone/event consumers, use the cursor-based population transition feed rather than periodically recounting
-large player tables. `PopulationTransitionBatch#hasRetentionGapAfter(cursor)` tells a consumer when its persisted
-cursor fell behind configured transition retention and it must resnapshot/reconcile before continuing.
+For milestone/event consumers, use the cursor-based Population transition feed rather than periodically recounting
+large player tables. On first enable, persist the value returned by `PopulationData#latestTransitionId()` as the
+consumer cursor so historical transitions are not replayed. Afterwards,
+`PopulationTransitionBatch#hasRetentionGapAfter(cursor)` tells a consumer when its persisted cursor fell behind
+configured transition retention and it must resnapshot/reconcile before continuing.
+
+Retention deletes only an expired contiguous prefix of transition history and deliberately keeps the newest retained
+transition as a high-water anchor. Memberships, ordinals, unique counts, current-online state, and peaks are never
+removed by transition retention.
 
 ## Obtain the API
 
