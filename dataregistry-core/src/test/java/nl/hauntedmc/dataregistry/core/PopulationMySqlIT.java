@@ -29,13 +29,18 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -78,6 +83,26 @@ class PopulationMySqlIT {
         configuration.setMinimumIdle(0);
         configuration.setPoolName("PopulationIntegration");
         dataSource = new HikariDataSource(configuration);
+    }
+
+    @BeforeEach
+    void resetDatabase() throws Exception {
+        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+            statement.execute("SET FOREIGN_KEY_CHECKS = 0");
+            try {
+                List<String> tableNames = new ArrayList<>();
+                try (ResultSet tables = statement.executeQuery("SHOW TABLES")) {
+                    while (tables.next()) {
+                        tableNames.add(tables.getString(1));
+                    }
+                }
+                for (String tableName : tableNames) {
+                    statement.execute("DROP TABLE `" + tableName.replace("`", "``") + "`");
+                }
+            } finally {
+                statement.execute("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        }
     }
 
     @AfterAll
