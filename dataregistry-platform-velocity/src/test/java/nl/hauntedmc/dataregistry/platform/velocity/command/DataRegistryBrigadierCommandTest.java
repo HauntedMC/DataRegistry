@@ -4,6 +4,7 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.velocitypowered.api.command.BrigadierCommand;
 import com.velocitypowered.api.command.CommandSource;
+import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlaytimePolicyReconciliationResult;
 import nl.hauntedmc.dataregistry.core.service.PlayerPresenceRepairResult;
 import org.junit.jupiter.api.Test;
@@ -69,7 +70,7 @@ class DataRegistryBrigadierCommandTest {
         assertEquals(1, dispatcher.execute("dataregistry playtime mappings", source));
         assertEquals(1, dispatcher.execute("dataregistry playtime flush", source));
 
-        verify(source, times(15)).sendMessage(org.mockito.ArgumentMatchers.any());
+        verify(source, times(DataRegistryFeature.values().length + 5)).sendMessage(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
