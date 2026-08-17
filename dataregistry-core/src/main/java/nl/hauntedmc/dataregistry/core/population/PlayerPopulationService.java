@@ -307,7 +307,7 @@ public final class PlayerPopulationService {
 
     private PopulationBaselineQuality inheritedPeakQuality(Session session) {
         PopulationScopeStateEntity network = session.find(
-                PopulationScopeStateStateKey.NETWORK,
+                PopulationScopeStateEntity.class,
                 PopulationScope.network().storageKey()
         );
         return network == null ? PopulationBaselineQuality.TRACKED_ONLY : network.getPeakBaselineQuality();
@@ -345,11 +345,5 @@ public final class PlayerPopulationService {
         if (player == null || player.getId() == null) {
             throw new IllegalArgumentException("player must be persisted before population lifecycle updates.");
         }
-    }
-
-    /** Keeps the class free of an entity-name string in inheritedPeakQuality. */
-    private static final class PopulationScopeStateKey {
-        private static final Class<PopulationScopeStateEntity> NETWORK = PopulationScopeStateEntity.class;
-        private PopulationScopeStateKey() { }
     }
 }
