@@ -60,6 +60,7 @@ public final class PopulationMigrationService {
             if (networkAdded > 0L) {
                 networkState.setMembershipBaselineQuality(PopulationBaselineQuality.TRACKED_ONLY);
                 networkState.setPeakBaselineQuality(PopulationBaselineQuality.TRACKED_ONLY);
+                downgradeExistingGamemodeBaselines(session, now);
             }
             if (networkVersionUpdated) {
                 networkState.setBackfillVersion(BACKFILL_VERSION);
@@ -80,6 +81,20 @@ public final class PopulationMigrationService {
                     networkVersionUpdated || networkAdded > 0L || gamemode.applied()
             );
         });
+    }
+
+    private static void downgradeExistingGamemodeBaselines(org.hibernate.Session session, Instant now) {
+        List<PopulationScopeStateEntity> gamemodeStates = session.createQuery(
+                        "SELECT s FROM PopulationScopeStateEntity s WHERE s.scopeType = :scopeType",
+                        PopulationScopeStateEntity.class
+                )
+                .setParameter("scopeType", PopulationScopeType.GAMEMODE)
+                .list();
+        for (PopulationScopeStateEntity state : gamemodeStates) {
+            state.setMembershipBaselineQuality(PopulationBaselineQuality.TRACKED_ONLY);
+            state.setPeakBaselineQuality(PopulationBaselineQuality.TRACKED_ONLY);
+            state.setUpdatedAt(now);
+        }
     }
 
     private static long backfillNetworkMemberships(
