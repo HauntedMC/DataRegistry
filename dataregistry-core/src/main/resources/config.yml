@@ -6,30 +6,45 @@ database:
   # DataProvider database type (for example MYSQL).
   type: MYSQL
   profiles:
-    # Connection profile for player-domain tables. Must match [A-Za-z0-9._-]{1,64}.
+    # Connection profile for player-domain tables.
+    # Must match [A-Za-z0-9._-]{1,64}.
     players:
       connection-id: player_data_rw
-    # Connection profile for service-registry tables. Must match [A-Za-z0-9._-]{1,64}.
+    # Connection profile for service-registry tables.
+    # Must match [A-Za-z0-9._-]{1,64}.
     services:
       connection-id: player_data_rw
 
 orm:
-  # Applies to: Both. Schema mode: validate, update, create, create-drop, or none.
+  # Applies to: Both.
+  # Schema mode controls ORM DDL behavior:
+  # validate: verify schema only
+  # update: auto-apply additive changes (default)
+  # create: drop and recreate schema at startup (ephemeral/local only)
+  # create-drop: create at startup, drop at shutdown (tests/local only)
+  # none: disable ORM schema management
   schema-mode: update
 
 privacy:
   # Applies to: Velocity lifecycle writes.
+  # Bukkit loads the same file but does not currently persist connection metadata itself.
+  # Persist player IP addresses in connection info.
   persist-ip-address: false
+  # Persist player virtual host values in connection info.
   persist-virtual-host: false
 
 features:
-  # Applies to: Both. Population depends on online-status, sessions and session-visits.
-  # Missing population prerequisites are restored automatically when population is enabled.
+  # Applies to: Both.
+  # Player lifecycle domains are written on Velocity; Bukkit still needs these toggles for schema/repository availability.
+  # Toggle built-in data domains.
+  # Disabled domains are not registered in ORM and will not receive writes.
   online-status: true
   connection-info: true
   activity-summary: true
   sessions: true
   session-visits: true
+  # Canonical network/logical-gamemode population state, memberships, ordinals, online counts, peaks and transitions.
+  # Requires online-status, sessions and session-visits; missing prerequisites are restored when population is enabled.
   population: true
   playtime: true
   language: true
@@ -38,58 +53,112 @@ features:
   service-registry: true
 
 playtime:
-  # Applies to: Velocity. Population reuses these server-to-gamemode mapping rules.
+  # Applies to: Velocity.
+  # Population reuses these server-to-gamemode mapping rules rather than maintaining a duplicate mapping configuration.
+  # Periodic flush cadence for active online playtime (seconds, 5-300).
   flush-interval-seconds: 30
+  # When true, unknown server names fall back to their normalized name only when it is a valid gamemode key.
   resolve-unknown-servers-as-gamemode: true
+  # Gamemode keys that should never accrue new tracked playtime. Existing historical records are retained.
   ignored-gamemodes: []
+  # Gamemode keys that should track individually but not count toward network totals.
   excluded-from-network-total-gamemodes: []
   # Ordered first-match server mapping rules. Supports '*' and '?' wildcards.
+  # Example:
+  # server-gamemode-rules:
+  #   - match: "lobby-*"
+  #     gamemode: lobby
   server-gamemode-rules: []
 
 service-registry:
+  # Applies to: Both.
+  # Heartbeat settings affect both platforms when service-registry is enabled.
+  # Probe settings below are Velocity-only.
+  # Heartbeat write interval for service instances (seconds, 5-300).
   heartbeat-interval-seconds: 30
+  # Velocity backend-probe interval (seconds, 5-300).
   probe-interval-seconds: 15
+  # Velocity backend-probe timeout (milliseconds, 200-10000).
   probe-timeout-millis: 1500
+  # WARNING: when enabled, permanently removes completed backend-probe history.
+  # Retention window for probe history cleanup (hours, -1 disables cleanup; 1-2160 enables it).
   probe-retention-hours: -1
+  # How often stale probe history cleanup runs (hours, 1-2160).
   probe-purge-interval-hours: 12
 
 retention:
-  # Lifecycle idempotency rows. -1 keeps them indefinitely.
+  # Applies to: Velocity. The lifecycle table is an idempotency ledger, not a message publisher.
+  # WARNING: when enabled, permanently removes lifecycle audit rows and limits duplicate-event protection to this window.
+  # Delete lifecycle idempotency rows after this many days; -1 keeps them indefinitely (default).
   lifecycle-outbox-days: -1
-  # Durable population transitions only; memberships, ordinals and aggregate state are never purged.
-  # Consumers can detect a cursor that fell behind retention through PopulationTransitionBatch.
+  # Applies to: Velocity. Population transitions are a durable consumer journal, not canonical aggregate state.
+  # Memberships, ordinals, unique counts, current online values and peaks are never removed by this retention.
+  # Consumers detect an expired cursor through PopulationTransitionBatch and must reseed from current snapshots.
+  # Delete population transition rows after this many days; -1 keeps them indefinitely.
   population-transition-days: 90
+  # Applies to: Both. Delete only STOPPED service-instance history; RUNNING rows remain for health checks.
+  # WARNING: when enabled, permanently removes stopped-instance history used for restart and availability analysis.
+  # Delete stopped service-instance rows after this many days; -1 keeps them indefinitely (default).
   service-instance-days: -1
+  # WARNING: when enabled, permanently removes fully closed sessions, visits, and playtime segments.
+  # Delete fully closed raw session history after this many days; -1 keeps it indefinitely (default).
   closed-session-history-days: -1
+  # Maximum rows or complete session chains removed by one maintenance pass (1-5000).
+  # Lower values reduce database load but clear large backlogs more slowly.
   purge-batch-size: 500
+  # Velocity only: delay between lifecycle-ledger and closed-session cleanup passes (hours, 1-168).
+  # Population-transition cleanup uses the same maintenance cadence.
   player-history-purge-interval-hours: 1
+  # Both platforms: minimum delay between stopped service-instance cleanup passes (hours, 1-168).
   service-instance-purge-interval-hours: 24
 
 lifecycle:
+  # Applies to: Velocity lifecycle writes. Retries occur only for transient database failures.
+  # Maximum attempts for one lifecycle event write (1-10).
   write-max-attempts: 3
+  # Initial retry delay; later retries increase linearly (milliseconds, 0-1000).
   retry-base-delay-millis: 25
 
 platform:
   bukkit:
+    # Applies to: Bukkit.
+    # Delay after join event before snapshotting status (ticks, 0-200).
     join-delay-ticks: 4
+    # Register Paper backend heartbeats in the service registry.
+    # Leave disabled when Velocity should own backend service identity.
     register-service-instance: false
+    # Backend logical service name (up to 96 characters); set equal to the Velocity server name for stable identity.
+    # Required when register-service-instance is true; 'auto' is only a placeholder default.
     service-name: auto
   velocity:
+    # Applies to: Velocity.
+    # Proxy logical service name (up to 96 characters); set to 'auto' to derive from host:port fallback naming.
     service-name: auto
 
 query:
+  # Applies to: Both.
+  # Maximum concurrent database operations for public asynchronous player read queries (1-32).
   executor-threads: 2
+  # Public player query deadline before the returned stage fails (milliseconds, 50-60000).
   timeout-millis: 3000
+  # Warn in development when async query stages are requested from likely server/event threads.
   development-thread-checks: false
 
 validation:
+  # Applies to: Both.
+  # These limits are shared by the schema and repository validation across both runtimes.
   username:
+    # Max persisted username length (1-32).
     max-length: 32
   server:
+    # Max persisted server name length (1-64).
     max-length: 64
   gamemode:
+    # Max persisted gamemode key length (1-64).
     max-length: 64
   virtual-host:
+    # Max persisted virtual host length (1-255).
     max-length: 255
   ip:
+    # Max persisted IP text length (7-45).
     max-length: 45
