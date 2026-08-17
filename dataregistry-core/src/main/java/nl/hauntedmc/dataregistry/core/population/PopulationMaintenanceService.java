@@ -46,7 +46,8 @@ public final class PopulationMaintenanceService {
             );
 
             List<PlayerOnlineStatusEntity> online = session.createQuery(
-                            "SELECT s FROM PlayerOnlineStatusEntity s JOIN FETCH s.player WHERE s.online = true",
+                            "SELECT s FROM PlayerOnlineStatusEntity s JOIN FETCH s.player " +
+                                    "WHERE s.online = true ORDER BY s.player.id ASC",
                             PlayerOnlineStatusEntity.class
                     )
                     .list();
@@ -199,7 +200,7 @@ public final class PopulationMaintenanceService {
         membership.setScopeType(scope.type());
         membership.setScopeKey(scope.key());
         membership.setOrdinal(ordinal);
-        membership.setOrdinalQuality(PopulationOrdinalQuality.RECORDED_EXACT);
+        membership.setOrdinalQuality(PopulationOrdinalQuality.BACKFILLED_DETERMINISTIC);
         membership.setCreatedAt(now);
         session.persist(membership);
         state.setUniquePlayerCount(ordinal);
