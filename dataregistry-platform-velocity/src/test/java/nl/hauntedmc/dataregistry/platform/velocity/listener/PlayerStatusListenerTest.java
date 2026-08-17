@@ -447,11 +447,11 @@ class PlayerStatusListenerTest {
         listener.onServerSwitch(new ServerConnectedEvent(player, server, null));
 
         InOrder inOrder = inOrder(session, sessionUpdateQuery, sessionVisitQuery, playtimeSessionQuery, playtimeSegmentQuery);
-        inOrder.verify(session).find(PlayerOnlineStatusEntity.class, persistent.getId());
         inOrder.verify(playtimeSessionQuery).uniqueResultOptional();
         inOrder.verify(playtimeSegmentQuery).uniqueResultOptional();
         inOrder.verify(sessionUpdateQuery).uniqueResultOptional();
         inOrder.verify(sessionVisitQuery).uniqueResultOptional();
+        inOrder.verify(session).find(PlayerOnlineStatusEntity.class, persistent.getId());
 
         ArgumentCaptor<Object> persistedCaptor = ArgumentCaptor.forClass(Object.class);
         verify(session, atLeastOnce()).persist(persistedCaptor.capture());
