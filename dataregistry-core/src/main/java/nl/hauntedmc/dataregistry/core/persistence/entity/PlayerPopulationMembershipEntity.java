@@ -66,7 +66,7 @@ public class PlayerPopulationMembershipEntity {
     @Column(name = "first_visit_id")
     private Long firstVisitId;
 
-    @Column(name = "first_lifecycle_event_id", length = 64)
+    @Column(name = "first_lifecycle_event_id", length = 96)
     private String firstLifecycleEventId;
 
     @Column(name = "created_at", nullable = false, updatable = false, columnDefinition = "TIMESTAMP")
