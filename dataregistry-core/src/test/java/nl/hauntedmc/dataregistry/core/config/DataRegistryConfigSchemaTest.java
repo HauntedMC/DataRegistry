@@ -35,12 +35,16 @@ class DataRegistryConfigSchemaTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> services = (Map<String, Object>) profiles.get("services");
         @SuppressWarnings("unchecked")
+        Map<String, Object> features = (Map<String, Object>) tree.get("features");
+        @SuppressWarnings("unchecked")
         Map<String, Object> retention = (Map<String, Object>) tree.get("retention");
         @SuppressWarnings("unchecked")
         Map<String, Object> lifecycle = (Map<String, Object>) tree.get("lifecycle");
         assertEquals(defaults.databaseType().name(), database.get("type"));
         assertEquals(defaults.playerDatabaseConnectionId(), players.get("connection-id"));
         assertEquals(defaults.serviceDatabaseConnectionId(), services.get("connection-id"));
+        assertEquals(true, features.get("population"));
+        assertEquals(90, retention.get("population-transition-days"));
         assertEquals(-1, retention.get("closed-session-history-days"));
         assertEquals(500, retention.get("purge-batch-size"));
         assertEquals(3, lifecycle.get("write-max-attempts"));
@@ -66,9 +70,11 @@ class DataRegistryConfigSchemaTest {
         assertTrue(rendered.contains("server-gamemode-rules: []"));
         assertTrue(rendered.contains("activity-summary: true"));
         assertTrue(rendered.contains("session-visits: true"));
+        assertTrue(rendered.contains("population: true"));
         assertTrue(rendered.contains("language: true"));
         assertTrue(rendered.contains("nicknames: true"));
-        assertTrue(rendered.contains("Player lifecycle domains are written on Velocity; Bukkit still needs these toggles"));
+        assertTrue(rendered.contains("Population depends on online-status, sessions and session-visits"));
+        assertTrue(rendered.contains("population-transition-days: 90"));
         assertTrue(rendered.contains("heartbeat-interval-seconds: 30"));
         assertTrue(rendered.contains("probe-interval-seconds: 15"));
         assertTrue(rendered.contains("probe-timeout-millis: 1500"));
