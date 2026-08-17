@@ -44,7 +44,7 @@ features:
   sessions: true
   session-visits: true
   # Canonical network/logical-gamemode population state, memberships, ordinals, online counts, peaks and transitions.
-  # Requires online-status, sessions and session-visits; missing prerequisites are enabled automatically at runtime.
+  # When explicitly enabled, requires online-status, sessions and session-visits; missing prerequisites are enabled at runtime.
   population: true
   playtime: true
   language: true
@@ -55,6 +55,7 @@ features:
 playtime:
   # Applies to: Velocity.
   # Population reuses these server-to-gamemode mapping rules rather than maintaining a duplicate mapping configuration.
+  # Keep these rules consistent across Velocity and Paper DataRegistry instances that resolve Population join context.
   # Periodic flush cadence for active online playtime (seconds, 5-300).
   flush-interval-seconds: 30
   # When true, unknown server names fall back to their normalized name only when it is a valid gamemode key.
@@ -94,6 +95,7 @@ retention:
   # Applies to: Velocity. Population transitions are a durable consumer journal, not canonical aggregate state.
   # Memberships, ordinals, unique counts, current online values and peaks are never removed by this retention.
   # Consumers detect an expired cursor through PopulationTransitionBatch and must reseed from current snapshots.
+  # Expired rows are removed as a contiguous ID prefix; the newest transition stays as the durable high-water anchor.
   # Delete population transition rows after this many days; -1 keeps them indefinitely.
   population-transition-days: 90
   # Applies to: Both. Delete only STOPPED service-instance history; RUNNING rows remain for health checks.
