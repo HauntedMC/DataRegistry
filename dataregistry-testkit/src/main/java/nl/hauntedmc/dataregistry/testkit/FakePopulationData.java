@@ -129,6 +129,11 @@ public final class FakePopulationData implements PopulationData {
         ));
     }
 
+    @Override
+    public CompletionStage<Long> latestTransitionId() {
+        return CompletableFuture.completedFuture(transitions.isEmpty() ? 0L : transitions.getLast().id());
+    }
+
     private static String normalizeServer(String serverName) {
         return serverName == null ? "" : serverName.trim().toLowerCase(Locale.ROOT);
     }
