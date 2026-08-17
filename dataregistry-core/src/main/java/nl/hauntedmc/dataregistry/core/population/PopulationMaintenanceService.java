@@ -4,7 +4,6 @@ import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.api.population.PopulationBaselineQuality;
 import nl.hauntedmc.dataregistry.api.population.PopulationResolvedGamemode;
 import nl.hauntedmc.dataregistry.api.population.PopulationScope;
-import nl.hauntedmc.dataregistry.api.population.PopulationScopeType;
 import nl.hauntedmc.dataregistry.api.population.PopulationTransitionCause;
 import nl.hauntedmc.dataregistry.api.population.PopulationTransitionType;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
