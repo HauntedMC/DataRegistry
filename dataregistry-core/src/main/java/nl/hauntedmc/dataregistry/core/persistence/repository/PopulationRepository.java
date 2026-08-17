@@ -20,6 +20,7 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.PopulationTransitionEnt
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -217,20 +218,39 @@ public final class PopulationRepository extends AbstractRepository<PopulationSco
         });
     }
 
+    public long latestTransitionId() {
+        return ormContext.runInTransaction(session -> {
+            Long latest = session.createQuery("SELECT MAX(t.id) FROM PopulationTransitionEntity t", Long.class)
+                    .getSingleResult();
+            return latest == null ? 0L : latest;
+        });
+    }
+
     public int deleteTransitionsBefore(Instant cutoff, int batchSize) {
         Objects.requireNonNull(cutoff, "cutoff must not be null");
         if (batchSize < 1) {
             throw new IllegalArgumentException("batchSize must be positive.");
         }
         return ormContext.runInTransaction(session -> {
-            List<Long> ids = session.createQuery(
-                            "SELECT t.id FROM PopulationTransitionEntity t " +
-                                    "WHERE t.occurredAt < :cutoff ORDER BY t.id ASC",
-                            Long.class
+            Long latest = session.createQuery("SELECT MAX(t.id) FROM PopulationTransitionEntity t", Long.class)
+                    .getSingleResult();
+            if (latest == null) {
+                return 0;
+            }
+
+            List<PopulationTransitionEntity> oldest = session.createQuery(
+                            "SELECT t FROM PopulationTransitionEntity t ORDER BY t.id ASC",
+                            PopulationTransitionEntity.class
                     )
-                    .setParameter("cutoff", cutoff)
                     .setMaxResults(batchSize)
                     .list();
+            List<Long> ids = new ArrayList<>(oldest.size());
+            for (PopulationTransitionEntity transition : oldest) {
+                if (transition.getId().equals(latest) || !transition.getOccurredAt().isBefore(cutoff)) {
+                    break;
+                }
+                ids.add(transition.getId());
+            }
             if (ids.isEmpty()) {
                 return 0;
             }
