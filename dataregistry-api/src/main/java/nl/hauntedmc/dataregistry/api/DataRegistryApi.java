@@ -18,8 +18,16 @@ public interface DataRegistryApi {
     /** Returns the player-facing domain facade. */
     PlayerData players();
 
-    /** Returns canonical network and logical-gamemode population state. */
-    PopulationData population();
+    /**
+     * Returns canonical network and logical-gamemode population state.
+     * <p>
+     * The default preserves source/binary compatibility for older custom {@code DataRegistryApi} implementations.
+     * Consumers must still check {@link #supports(DataRegistryFeature)} for {@link DataRegistryFeature#POPULATION}
+     * before using this domain.
+     */
+    default PopulationData population() {
+        throw new UnsupportedOperationException("This DataRegistry API implementation does not provide population data.");
+    }
 
     /** Returns the catalog of feature-owned public service interfaces. */
     FeatureServiceDirectory featureServices();
