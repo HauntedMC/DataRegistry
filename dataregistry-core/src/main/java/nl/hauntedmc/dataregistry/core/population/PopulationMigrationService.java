@@ -7,7 +7,6 @@ import nl.hauntedmc.dataregistry.api.population.PopulationScope;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPopulationMembershipEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PopulationScopeStateEntity;
 
 import java.sql.PreparedStatement;
@@ -26,6 +25,7 @@ public final class PopulationMigrationService {
 
     public static final int BACKFILL_VERSION = 1;
     private static final String ACTIVITY_TABLE = "player_activity_summary";
+    private static final String SESSIONS_TABLE = "player_sessions";
     private static final String PLAYTIME_TABLE = "player_playtime";
 
     private final DataRegistry dataRegistry;
@@ -85,22 +85,15 @@ public final class PopulationMigrationService {
                 )
                 .list();
         Map<Long, Instant> activityFirstSeen = loadActivityFirstSeen(session);
+        Map<Long, Instant> sessionFirstSeen = loadSessionFirstSeen(session);
         List<HistoricalNetworkMember> historical = new ArrayList<>(players.size());
         for (PlayerEntity player : players) {
             if (PopulationPersistence.findMembership(session, player.getId(), PopulationScope.network()) != null) {
                 continue;
             }
-            PlayerSessionEntity firstSession = session.createQuery(
-                            "SELECT s FROM PlayerSessionEntity s WHERE s.player.id = :playerId " +
-                                    "ORDER BY s.startedAt ASC, s.id ASC",
-                            PlayerSessionEntity.class
-                    )
-                    .setParameter("playerId", player.getId())
-                    .setMaxResults(1)
-                    .uniqueResult();
             Instant firstSeenAt = activityFirstSeen.get(player.getId());
-            if (firstSeenAt == null && firstSession != null) {
-                firstSeenAt = firstSession.getStartedAt();
+            if (firstSeenAt == null) {
+                firstSeenAt = sessionFirstSeen.get(player.getId());
             }
             historical.add(new HistoricalNetworkMember(player, firstSeenAt));
         }
@@ -141,6 +134,27 @@ public final class PopulationMigrationService {
                     Timestamp firstSeenAt = rows.getTimestamp("first_seen_at");
                     if (firstSeenAt != null) {
                         firstSeenByPlayer.put(rows.getLong("player_id"), firstSeenAt.toInstant());
+                    }
+                }
+            }
+            return firstSeenByPlayer;
+        });
+    }
+
+    private static Map<Long, Instant> loadSessionFirstSeen(org.hibernate.Session session) {
+        return session.doReturningWork(connection -> {
+            if (!tableExists(connection, SESSIONS_TABLE)) {
+                return Map.of();
+            }
+            Map<Long, Instant> firstSeenByPlayer = new HashMap<>();
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "SELECT player_id, MIN(started_at) AS first_started_at FROM " + SESSIONS_TABLE +
+                            " GROUP BY player_id"
+            ); ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    Timestamp firstStartedAt = rows.getTimestamp("first_started_at");
+                    if (firstStartedAt != null) {
+                        firstSeenByPlayer.put(rows.getLong("player_id"), firstStartedAt.toInstant());
                     }
                 }
             }
