@@ -4,6 +4,7 @@ import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.api.population.PopulationBaselineQuality;
 import nl.hauntedmc.dataregistry.api.population.PopulationOrdinalQuality;
 import nl.hauntedmc.dataregistry.api.population.PopulationScope;
+import nl.hauntedmc.dataregistry.api.population.PopulationScopeType;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPopulationMembershipEntity;
@@ -16,9 +17,11 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /** Idempotently reconstructs missing population membership from existing canonical DataRegistry evidence. */
 public final class PopulationMigrationService {
@@ -89,13 +92,23 @@ public final class PopulationMigrationService {
                         PlayerEntity.class
                 )
                 .list();
+        Set<Long> existingMemberships = new HashSet<>(session.createQuery(
+                        "SELECT m.player.id FROM PlayerPopulationMembershipEntity m WHERE m.scopeId = :scopeId",
+                        Long.class
+                )
+                .setParameter("scopeId", PopulationScope.network().storageKey())
+                .list());
+        List<PlayerEntity> missingPlayers = players.stream()
+                .filter(player -> !existingMemberships.contains(player.getId()))
+                .toList();
+        if (missingPlayers.isEmpty()) {
+            return 0L;
+        }
+
         Map<Long, Instant> activityFirstSeen = loadActivityFirstSeen(session);
         Map<Long, Instant> sessionFirstSeen = loadSessionFirstSeen(session);
-        List<HistoricalNetworkMember> historical = new ArrayList<>(players.size());
-        for (PlayerEntity player : players) {
-            if (PopulationPersistence.findMembership(session, player.getId(), PopulationScope.network()) != null) {
-                continue;
-            }
+        List<HistoricalNetworkMember> historical = new ArrayList<>(missingPlayers.size());
+        for (PlayerEntity player : missingPlayers) {
             Instant firstSeenAt = activityFirstSeen.get(player.getId());
             if (firstSeenAt == null) {
                 firstSeenAt = sessionFirstSeen.get(player.getId());
@@ -171,12 +184,30 @@ public final class PopulationMigrationService {
             Instant now
     ) {
         List<HistoricalGamemodeMember> historical = loadHistoricalGamemodeMembers(session);
+        if (historical.isEmpty()) {
+            return new GamemodeBackfillResult(0L, false);
+        }
+        Set<MembershipKey> existingMemberships = new HashSet<>();
+        for (Object[] row : session.createQuery(
+                        "SELECT m.player.id, m.scopeId FROM PlayerPopulationMembershipEntity m " +
+                                "WHERE m.scopeType = :scopeType",
+                        Object[].class
+                )
+                .setParameter("scopeType", PopulationScopeType.GAMEMODE)
+                .list()) {
+            existingMemberships.add(new MembershipKey((Long) row[0], (String) row[1]));
+        }
+
         long added = 0L;
         boolean applied = false;
         String lastScopeId = null;
         PopulationScopeStateEntity state = null;
         for (HistoricalGamemodeMember member : historical) {
             PopulationScope scope = PopulationScope.gamemode(member.gamemodeKey());
+            MembershipKey membershipKey = new MembershipKey(member.playerId(), scope.storageKey());
+            if (existingMemberships.contains(membershipKey)) {
+                continue;
+            }
             if (!scope.storageKey().equals(lastScopeId)) {
                 state = PopulationPersistence.ensureAndLockScopeState(
                         session,
@@ -191,9 +222,6 @@ public final class PopulationMigrationService {
                     applied = true;
                 }
                 lastScopeId = scope.storageKey();
-            }
-            if (PopulationPersistence.findMembership(session, member.playerId(), scope) != null) {
-                continue;
             }
             PlayerEntity player = session.find(PlayerEntity.class, member.playerId());
             if (player == null) {
@@ -210,6 +238,7 @@ public final class PopulationMigrationService {
                     member.firstTrackedAt(),
                     now
             );
+            existingMemberships.add(membershipKey);
             state.setUniquePlayerCount(ordinal);
             state.setMembershipBaselineQuality(PopulationBaselineQuality.TRACKED_ONLY);
             state.setPeakBaselineQuality(PopulationBaselineQuality.TRACKED_ONLY);
@@ -278,6 +307,9 @@ public final class PopulationMigrationService {
     }
 
     private record HistoricalGamemodeMember(long playerId, String gamemodeKey, Instant firstTrackedAt) {
+    }
+
+    private record MembershipKey(long playerId, String scopeId) {
     }
 
     private record GamemodeBackfillResult(long added, boolean applied) {
