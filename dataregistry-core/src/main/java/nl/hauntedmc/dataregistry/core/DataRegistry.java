@@ -355,12 +355,14 @@ public class DataRegistry implements DataRegistryApi {
     }
 
     /**
-     * Applies Velocity's authoritative ignored/excluded gamemode policy to playtime aggregation and population
-     * resolution. The resolver changes only after repository reconciliation succeeds.
+     * Applies Velocity's authoritative gamemode policy to playtime aggregation and Population resolution.
+     * The resolver changes only after repository reconciliation succeeds. Population's derived online state is then
+     * reconciled under the new mapping; a transient reconciliation failure is logged and later recovery can repair it.
      */
     public PlaytimePolicyReconciliationResult reconcilePlaytimePolicy(PlaytimeTrackingSettings playtimeSettings) {
         Objects.requireNonNull(playtimeSettings, "playtimeSettings must not be null");
         PlayerPlaytimeRepository repository;
+        boolean reconcilePopulation;
         synchronized (this) {
             if (!lifecycleAuthority) {
                 throw new IllegalStateException("Only the Velocity lifecycle authority may reconcile playtime policy.");
@@ -369,12 +371,31 @@ public class DataRegistry implements DataRegistryApi {
                 throw new IllegalStateException("The playtime feature is not initialized.");
             }
             repository = playerPlaytimeRepository;
+            reconcilePopulation = populationRepository != null;
         }
         PlaytimePolicyReconciliationResult result = repository.reconcilePlaytimePolicy(
                 playtimeSettings.excludedFromNetworkTotalGamemodes(),
                 playtimeSettings.ignoredGamemodes()
         );
         populationGamemodeResolver = new PlaytimeGamemodeResolver(playtimeSettings);
+        if (reconcilePopulation) {
+            try {
+                PopulationReconciliationResult populationResult = reconcilePopulationPresence();
+                if (populationResult.reconciledScopes() > 0 || populationResult.peakChanges() > 0) {
+                    logger.info(
+                            "Reconciled Population after gamemode policy change: onlineScopesChanged=" +
+                                    populationResult.reconciledScopes() +
+                                    ", peaksChanged=" + populationResult.peakChanges() + "."
+                    );
+                }
+            } catch (RuntimeException exception) {
+                logger.error(
+                        "Failed to reconcile Population after the gamemode policy changed; " +
+                                "the next presence recovery will retry derived-state reconciliation.",
+                        exception
+                );
+            }
+        }
         return result;
     }
 
