@@ -7,7 +7,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-/** Defines the expected config tree shape and canonical output rendering. */
+/**
+ * Defines the expected config tree shape and canonical output rendering.
+ */
 final class DataRegistryConfigSchema {
 
     private DataRegistryConfigSchema() {
@@ -15,6 +17,7 @@ final class DataRegistryConfigSchema {
 
     static Map<String, Object> defaultsTree(DataRegistrySettings defaults) {
         Objects.requireNonNull(defaults, "defaults must not be null");
+
         Map<String, Object> root = new LinkedHashMap<>();
 
         Map<String, Object> database = new LinkedHashMap<>();
@@ -55,15 +58,19 @@ final class DataRegistryConfigSchema {
         PlaytimeTrackingSettings playtimeSettings = defaults.playtimeTrackingSettings();
         Map<String, Object> playtime = new LinkedHashMap<>();
         playtime.put("flush-interval-seconds", playtimeSettings.flushIntervalSeconds());
-        playtime.put("resolve-unknown-servers-as-gamemode", playtimeSettings.resolveUnknownServersAsGamemode());
+        playtime.put(
+                "resolve-unknown-servers-as-gamemode",
+                playtimeSettings.resolveUnknownServersAsGamemode()
+        );
         playtime.put("ignored-gamemodes", List.copyOf(playtimeSettings.ignoredGamemodes()));
         playtime.put(
                 "excluded-from-network-total-gamemodes",
                 List.copyOf(playtimeSettings.excludedFromNetworkTotalGamemodes())
         );
-        playtime.put("server-gamemode-rules", playtimeSettings.serverGamemodeRules().stream()
+        List<Map<String, String>> serverGamemodeRules = playtimeSettings.serverGamemodeRules().stream()
                 .map(rule -> Map.of("match", rule.match(), "gamemode", rule.gamemodeKey()))
-                .toList());
+                .toList();
+        playtime.put("server-gamemode-rules", serverGamemodeRules);
         root.put("playtime", playtime);
 
         Map<String, Object> serviceRegistry = new LinkedHashMap<>();
@@ -107,12 +114,23 @@ final class DataRegistryConfigSchema {
         root.put("query", query);
 
         Map<String, Object> validation = new LinkedHashMap<>();
-        validation.put("username", Map.of("max-length", defaults.usernameMaxLength()));
-        validation.put("server", Map.of("max-length", defaults.serverNameMaxLength()));
-        validation.put("gamemode", Map.of("max-length", playtimeSettings.gamemodeKeyMaxLength()));
-        validation.put("virtual-host", Map.of("max-length", defaults.virtualHostMaxLength()));
-        validation.put("ip", Map.of("max-length", defaults.ipAddressMaxLength()));
+        Map<String, Object> username = new LinkedHashMap<>();
+        username.put("max-length", defaults.usernameMaxLength());
+        Map<String, Object> server = new LinkedHashMap<>();
+        server.put("max-length", defaults.serverNameMaxLength());
+        Map<String, Object> gamemode = new LinkedHashMap<>();
+        gamemode.put("max-length", playtimeSettings.gamemodeKeyMaxLength());
+        Map<String, Object> virtualHost = new LinkedHashMap<>();
+        virtualHost.put("max-length", defaults.virtualHostMaxLength());
+        Map<String, Object> ip = new LinkedHashMap<>();
+        ip.put("max-length", defaults.ipAddressMaxLength());
+        validation.put("username", username);
+        validation.put("server", server);
+        validation.put("gamemode", gamemode);
+        validation.put("virtual-host", virtualHost);
+        validation.put("ip", ip);
         root.put("validation", validation);
+
         return root;
     }
 
@@ -130,25 +148,39 @@ final class DataRegistryConfigSchema {
         builder.append("  # DataProvider database type (for example MYSQL).\n");
         builder.append("  type: ").append(settings.databaseType().name()).append('\n');
         builder.append("  profiles:\n");
-        builder.append("    # Connection profile for player-domain tables. Must match [A-Za-z0-9._-]{1,64}.\n");
+        builder.append("    # Connection profile for player-domain tables.\n");
+        builder.append("    # Must match [A-Za-z0-9._-]{1,64}.\n");
         builder.append("    players:\n");
         builder.append("      connection-id: ").append(settings.playerDatabaseConnectionId()).append('\n');
-        builder.append("    # Connection profile for service-registry tables. Must match [A-Za-z0-9._-]{1,64}.\n");
+        builder.append("    # Connection profile for service-registry tables.\n");
+        builder.append("    # Must match [A-Za-z0-9._-]{1,64}.\n");
         builder.append("    services:\n");
         builder.append("      connection-id: ").append(settings.serviceDatabaseConnectionId()).append('\n');
         builder.append('\n');
         builder.append("orm:\n");
-        builder.append("  # Applies to: Both. Schema mode: validate, update, create, create-drop, or none.\n");
+        builder.append("  # Applies to: Both.\n");
+        builder.append("  # Schema mode controls ORM DDL behavior:\n");
+        builder.append("  # validate: verify schema only\n");
+        builder.append("  # update: auto-apply additive changes (default)\n");
+        builder.append("  # create: drop and recreate schema at startup (ephemeral/local only)\n");
+        builder.append("  # create-drop: create at startup, drop at shutdown (tests/local only)\n");
+        builder.append("  # none: disable ORM schema management\n");
         builder.append("  schema-mode: ").append(settings.ormSchemaMode()).append('\n');
         builder.append('\n');
         builder.append("privacy:\n");
         builder.append("  # Applies to: Velocity lifecycle writes.\n");
+        builder.append("  # Bukkit loads the same file but does not currently persist connection metadata itself.\n");
+        builder.append("  # Persist player IP addresses in connection info.\n");
         builder.append("  persist-ip-address: ").append(settings.persistIpAddress()).append('\n');
+        builder.append("  # Persist player virtual host values in connection info.\n");
         builder.append("  persist-virtual-host: ").append(settings.persistVirtualHost()).append('\n');
         builder.append('\n');
         builder.append("features:\n");
-        builder.append("  # Applies to: Both. Population depends on online-status, sessions and session-visits.\n");
-        builder.append("  # Missing population prerequisites are restored automatically when population is enabled.\n");
+        builder.append("  # Applies to: Both.\n");
+        builder.append("  # Player lifecycle domains are written on Velocity; Bukkit still needs these toggles for schema/repository availability.\n");
+        builder.append("  # Population depends on online-status, sessions and session-visits; prerequisites are restored when enabled.\n");
+        builder.append("  # Toggle built-in data domains.\n");
+        builder.append("  # Disabled domains are not registered in ORM and will not receive writes.\n");
         builder.append("  online-status: ").append(settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)).append('\n');
         builder.append("  connection-info: ").append(settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO)).append('\n');
         builder.append("  activity-summary: ").append(settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)).append('\n');
@@ -161,69 +193,123 @@ final class DataRegistryConfigSchema {
         builder.append("  name-history: ").append(settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY)).append('\n');
         builder.append("  service-registry: ").append(settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY)).append('\n');
         builder.append('\n');
-
         PlaytimeTrackingSettings playtimeSettings = settings.playtimeTrackingSettings();
         builder.append("playtime:\n");
-        builder.append("  # Applies to: Velocity. Population reuses these server-to-gamemode mapping rules.\n");
+        builder.append("  # Applies to: Velocity. Population reuses the same server-to-gamemode mapping policy.\n");
+        builder.append("  # Periodic flush cadence for active online playtime (seconds, 5-300).\n");
         builder.append("  flush-interval-seconds: ").append(playtimeSettings.flushIntervalSeconds()).append('\n');
+        builder.append("  # When true, unknown server names fall back to their normalized name only when it is a valid gamemode key.\n");
         builder.append("  resolve-unknown-servers-as-gamemode: ")
-                .append(playtimeSettings.resolveUnknownServersAsGamemode()).append('\n');
+                .append(playtimeSettings.resolveUnknownServersAsGamemode())
+                .append('\n');
+        builder.append("  # Gamemode keys that should never accrue new tracked playtime. Existing historical records are retained.\n");
         builder.append("  ignored-gamemodes: ");
         appendInlineGamemodeKeys(builder, playtimeSettings.ignoredGamemodes());
         builder.append('\n');
+        builder.append("  # Gamemode keys that should track individually but not count toward network totals.\n");
         builder.append("  excluded-from-network-total-gamemodes: ");
         appendInlineGamemodeKeys(builder, playtimeSettings.excludedFromNetworkTotalGamemodes());
         builder.append('\n');
         builder.append("  # Ordered first-match server mapping rules. Supports '*' and '?' wildcards.\n");
+        builder.append("  # Example:\n");
+        builder.append("  # server-gamemode-rules:\n");
+        builder.append("  #   - match: \"lobby-*\"\n");
+        builder.append("  #     gamemode: lobby\n");
         appendServerGamemodeRules(builder, playtimeSettings.serverGamemodeRules());
         builder.append('\n');
-
         builder.append("service-registry:\n");
+        builder.append("  # Applies to: Both.\n");
+        builder.append("  # Heartbeat settings affect both platforms when service-registry is enabled.\n");
+        builder.append("  # Probe settings below are Velocity-only.\n");
+        builder.append("  # Heartbeat write interval for service instances (seconds, 5-300).\n");
         builder.append("  heartbeat-interval-seconds: ").append(settings.serviceHeartbeatIntervalSeconds()).append('\n');
+        builder.append("  # Velocity backend-probe interval (seconds, 5-300).\n");
         builder.append("  probe-interval-seconds: ").append(settings.serviceProbeIntervalSeconds()).append('\n');
+        builder.append("  # Velocity backend-probe timeout (milliseconds, 200-10000).\n");
         builder.append("  probe-timeout-millis: ").append(settings.serviceProbeTimeoutMillis()).append('\n');
+        builder.append("  # WARNING: when enabled, permanently removes completed backend-probe history.\n");
+        builder.append("  # Retention window for probe history cleanup (hours, -1 disables cleanup; 1-2160 enables it).\n");
         builder.append("  probe-retention-hours: ").append(settings.serviceProbeRetentionHours()).append('\n');
+        builder.append("  # How often stale probe history cleanup runs (hours, 1-2160).\n");
         builder.append("  probe-purge-interval-hours: ").append(settings.serviceProbePurgeIntervalHours()).append('\n');
         builder.append('\n');
-
         builder.append("retention:\n");
-        builder.append("  # Lifecycle idempotency rows. -1 keeps them indefinitely.\n");
+        builder.append("  # Applies to: Velocity. The lifecycle table is an idempotency ledger, not a message publisher.\n");
+        builder.append("  # WARNING: when enabled, permanently removes lifecycle audit rows and limits duplicate-event protection to this window.\n");
+        builder.append("  # Delete lifecycle idempotency rows after this many days; -1 keeps them indefinitely (default).\n");
         builder.append("  lifecycle-outbox-days: ").append(settings.lifecycleOutboxRetentionDays()).append('\n');
-        builder.append("  # Durable population transitions only; memberships, ordinals and aggregate state are never purged.\n");
-        builder.append("  # Consumers can detect a cursor that fell behind retention through PopulationTransitionBatch.\n");
+        builder.append("  # Applies to: Velocity. Population transitions are a durable consumer journal, not canonical aggregate state.\n");
+        builder.append("  # Memberships, ordinals, unique counts, current online values and peaks are never removed by this retention.\n");
+        builder.append("  # Consumers detect an expired cursor through PopulationTransitionBatch and must reseed from current snapshots.\n");
+        builder.append("  # Delete population transition rows after this many days; -1 keeps them indefinitely.\n");
         builder.append("  population-transition-days: ").append(settings.populationTransitionRetentionDays()).append('\n');
+        builder.append("  # Applies to: Both. Delete only STOPPED service-instance history; RUNNING rows remain for health checks.\n");
+        builder.append("  # WARNING: when enabled, permanently removes stopped-instance history used for restart and availability analysis.\n");
+        builder.append("  # Delete stopped service-instance rows after this many days; -1 keeps them indefinitely (default).\n");
         builder.append("  service-instance-days: ").append(settings.serviceInstanceRetentionDays()).append('\n');
+        builder.append("  # WARNING: when enabled, permanently removes fully closed sessions, visits, and playtime segments.\n");
+        builder.append("  # Delete fully closed raw session history after this many days; -1 keeps it indefinitely (default).\n");
         builder.append("  closed-session-history-days: ").append(settings.closedSessionHistoryRetentionDays()).append('\n');
+        builder.append("  # Maximum rows or complete session chains removed by one maintenance pass (1-5000).\n");
+        builder.append("  # Lower values reduce database load but clear large backlogs more slowly.\n");
         builder.append("  purge-batch-size: ").append(settings.retentionPurgeBatchSize()).append('\n');
+        builder.append("  # Velocity only: delay between lifecycle-ledger, population-transition and closed-session cleanup passes (hours, 1-168).\n");
         builder.append("  player-history-purge-interval-hours: ")
                 .append(settings.playerHistoryPurgeIntervalHours()).append('\n');
+        builder.append("  # Both platforms: minimum delay between stopped service-instance cleanup passes (hours, 1-168).\n");
         builder.append("  service-instance-purge-interval-hours: ")
                 .append(settings.serviceInstancePurgeIntervalHours()).append('\n');
         builder.append('\n');
-
         builder.append("lifecycle:\n");
+        builder.append("  # Applies to: Velocity lifecycle writes. Retries occur only for transient database failures.\n");
+        builder.append("  # Maximum attempts for one lifecycle event write (1-10).\n");
         builder.append("  write-max-attempts: ").append(settings.lifecycleWriteMaxAttempts()).append('\n');
+        builder.append("  # Initial retry delay; later retries increase linearly (milliseconds, 0-1000).\n");
         builder.append("  retry-base-delay-millis: ").append(settings.lifecycleRetryBaseDelayMillis()).append('\n');
         builder.append('\n');
         builder.append("platform:\n");
         builder.append("  bukkit:\n");
+        builder.append("    # Applies to: Bukkit.\n");
+        builder.append("    # Delay after join event before snapshotting status (ticks, 0-200).\n");
         builder.append("    join-delay-ticks: ").append(settings.bukkitJoinDelayTicks()).append('\n');
+        builder.append("    # Register Paper backend heartbeats in the service registry.\n");
+        builder.append("    # Leave disabled when Velocity should own backend service identity.\n");
         builder.append("    register-service-instance: ").append(settings.bukkitRegisterServiceInstance()).append('\n');
+        builder.append("    # Backend logical service name (up to 96 characters); set equal to the Velocity server name for stable identity.\n");
+        builder.append("    # Required when register-service-instance is true; 'auto' is only a placeholder default.\n");
         builder.append("    service-name: ").append(settings.bukkitServiceName()).append('\n');
         builder.append("  velocity:\n");
+        builder.append("    # Applies to: Velocity.\n");
+        builder.append("    # Proxy logical service name (up to 96 characters); set to 'auto' to derive from host:port fallback naming.\n");
         builder.append("    service-name: ").append(settings.velocityServiceName()).append('\n');
         builder.append('\n');
         builder.append("query:\n");
+        builder.append("  # Applies to: Both.\n");
+        builder.append("  # Maximum concurrent database operations for public asynchronous player read queries (1-32).\n");
         builder.append("  executor-threads: ").append(settings.queryExecutorThreads()).append('\n');
+        builder.append("  # Public player query deadline before the returned stage fails (milliseconds, 50-60000).\n");
         builder.append("  timeout-millis: ").append(settings.queryTimeoutMillis()).append('\n');
+        builder.append("  # Warn in development when async query stages are requested from likely server/event threads.\n");
         builder.append("  development-thread-checks: ").append(settings.queryDevelopmentThreadChecks()).append('\n');
         builder.append('\n');
         builder.append("validation:\n");
-        builder.append("  username:\n    max-length: ").append(settings.usernameMaxLength()).append('\n');
-        builder.append("  server:\n    max-length: ").append(settings.serverNameMaxLength()).append('\n');
-        builder.append("  gamemode:\n    max-length: ").append(playtimeSettings.gamemodeKeyMaxLength()).append('\n');
-        builder.append("  virtual-host:\n    max-length: ").append(settings.virtualHostMaxLength()).append('\n');
-        builder.append("  ip:\n    max-length: ").append(settings.ipAddressMaxLength()).append('\n');
+        builder.append("  # Applies to: Both.\n");
+        builder.append("  # These limits are shared by the schema and repository validation across both runtimes.\n");
+        builder.append("  username:\n");
+        builder.append("    # Max persisted username length (1-32).\n");
+        builder.append("    max-length: ").append(settings.usernameMaxLength()).append('\n');
+        builder.append("  server:\n");
+        builder.append("    # Max persisted server name length (1-64).\n");
+        builder.append("    max-length: ").append(settings.serverNameMaxLength()).append('\n');
+        builder.append("  gamemode:\n");
+        builder.append("    # Max persisted gamemode key length (1-64).\n");
+        builder.append("    max-length: ").append(playtimeSettings.gamemodeKeyMaxLength()).append('\n');
+        builder.append("  virtual-host:\n");
+        builder.append("    # Max persisted virtual host length (1-255).\n");
+        builder.append("    max-length: ").append(settings.virtualHostMaxLength()).append('\n');
+        builder.append("  ip:\n");
+        builder.append("    # Max persisted IP text length (7-45).\n");
+        builder.append("    max-length: ").append(settings.ipAddressMaxLength()).append('\n');
         return builder.toString();
     }
 
@@ -231,7 +317,9 @@ final class DataRegistryConfigSchema {
         builder.append('[');
         boolean first = true;
         for (String gamemodeKey : gamemodeKeys) {
-            if (!first) { builder.append(", "); }
+            if (!first) {
+                builder.append(", ");
+            }
             builder.append(gamemodeKey);
             first = false;
         }
@@ -246,6 +334,7 @@ final class DataRegistryConfigSchema {
             builder.append("  server-gamemode-rules: []\n");
             return;
         }
+
         builder.append("  server-gamemode-rules:\n");
         for (PlaytimeTrackingSettings.ServerGamemodeRule rule : rules) {
             builder.append("    - match: \"").append(rule.match()).append("\"\n");
