@@ -102,7 +102,7 @@ public final class PopulationMigrationService {
             if (firstSeenAt == null && firstSession != null) {
                 firstSeenAt = firstSession.getStartedAt();
             }
-            historical.add(new HistoricalNetworkMember(player, firstSession, firstSeenAt));
+            historical.add(new HistoricalNetworkMember(player, firstSeenAt));
         }
 
         historical.sort(Comparator
@@ -118,7 +118,7 @@ public final class PopulationMigrationService {
                     PopulationScope.network(),
                     ordinal,
                     member.firstSeenAt(),
-                    member.firstSession() == null ? null : member.firstSession().getId(),
+                    null,
                     null,
                     now
             );
@@ -263,11 +263,7 @@ public final class PopulationMigrationService {
         session.persist(membership);
     }
 
-    private record HistoricalNetworkMember(
-            PlayerEntity player,
-            PlayerSessionEntity firstSession,
-            Instant firstSeenAt
-    ) {
+    private record HistoricalNetworkMember(PlayerEntity player, Instant firstSeenAt) {
     }
 
     private record HistoricalGamemodeMember(long playerId, String gamemodeKey, Instant firstTrackedAt) {
