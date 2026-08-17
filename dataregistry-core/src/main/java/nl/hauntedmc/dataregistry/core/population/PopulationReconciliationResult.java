@@ -1,8 +1,8 @@
 package nl.hauntedmc.dataregistry.core.population;
 
-/** Summary of an online-count reconciliation pass. */
-public record PopulationReconciliationResult(int scopesChanged, int peaksRaised) {
+/** Summary of a population presence reconciliation pass. */
+public record PopulationReconciliationResult(int reconciledScopes, int peakChanges) {
     public boolean changedAnything() {
-        return scopesChanged > 0 || peaksRaised > 0;
+        return reconciledScopes > 0 || peakChanges > 0;
     }
 }
