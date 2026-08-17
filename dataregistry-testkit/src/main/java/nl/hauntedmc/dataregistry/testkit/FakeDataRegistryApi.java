@@ -18,16 +18,6 @@ public final class FakeDataRegistryApi implements DataRegistryApi {
     private final Set<DataRegistryFeature> enabledFeatures;
     private final boolean ready;
 
-    /** Backward-compatible constructor for existing downstream tests. */
-    public FakeDataRegistryApi(
-            PlayerData players,
-            FeatureServiceDirectory featureServices,
-            Set<DataRegistryFeature> enabledFeatures,
-            boolean ready
-    ) {
-        this(players, new FakePopulationData(), featureServices, enabledFeatures, ready);
-    }
-
     public FakeDataRegistryApi(
             PlayerData players,
             PopulationData population,
