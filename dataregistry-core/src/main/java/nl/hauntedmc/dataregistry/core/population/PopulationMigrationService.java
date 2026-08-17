@@ -5,6 +5,7 @@ import nl.hauntedmc.dataregistry.api.population.PopulationBaselineQuality;
 import nl.hauntedmc.dataregistry.api.population.PopulationOrdinalQuality;
 import nl.hauntedmc.dataregistry.api.population.PopulationScope;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerActivitySummaryEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPopulationMembershipEntity;
@@ -12,6 +13,8 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PopulationScopeStateEntity;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
@@ -67,7 +70,7 @@ public final class PopulationMigrationService {
         });
     }
 
-    private static long backfillNetworkMemberships(
+    private long backfillNetworkMemberships(
             org.hibernate.Session session,
             PopulationScopeStateEntity state,
             Instant now
@@ -77,7 +80,7 @@ public final class PopulationMigrationService {
                         PlayerEntity.class
                 )
                 .list();
-        long added = 0L;
+        List<HistoricalNetworkMember> historical = new ArrayList<>(players.size());
         for (PlayerEntity player : players) {
             if (PopulationPersistence.findMembership(session, player.getId(), PopulationScope.network()) != null) {
                 continue;
@@ -90,14 +93,30 @@ public final class PopulationMigrationService {
                     .setParameter("playerId", player.getId())
                     .setMaxResults(1)
                     .uniqueResult();
+            Instant firstSeenAt = firstSession == null ? null : firstSession.getStartedAt();
+            if (dataRegistry.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)) {
+                PlayerActivitySummaryEntity activity = session.find(PlayerActivitySummaryEntity.class, player.getId());
+                if (activity != null && activity.getFirstSeenAt() != null) {
+                    firstSeenAt = activity.getFirstSeenAt();
+                }
+            }
+            historical.add(new HistoricalNetworkMember(player, firstSession, firstSeenAt));
+        }
+
+        historical.sort(Comparator
+                .comparing(HistoricalNetworkMember::firstSeenAt, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(member -> member.player().getId()));
+
+        long added = 0L;
+        for (HistoricalNetworkMember member : historical) {
             long ordinal = Math.addExact(state.getUniquePlayerCount(), 1L);
             persistBackfilledMembership(
                     session,
-                    player,
+                    member.player(),
                     PopulationScope.network(),
                     ordinal,
-                    firstSession == null ? null : firstSession.getStartedAt(),
-                    firstSession == null ? null : firstSession.getId(),
+                    member.firstSeenAt(),
+                    member.firstSession() == null ? null : member.firstSession().getId(),
                     null,
                     now
             );
@@ -177,5 +196,12 @@ public final class PopulationMigrationService {
         membership.setFirstVisitId(firstVisitId);
         membership.setCreatedAt(createdAt);
         session.persist(membership);
+    }
+
+    private record HistoricalNetworkMember(
+            PlayerEntity player,
+            PlayerSessionEntity firstSession,
+            Instant firstSeenAt
+    ) {
     }
 }
