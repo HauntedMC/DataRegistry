@@ -15,6 +15,9 @@ public record PopulationTransitionBatch(
         if (earliestAvailableId < 0L || latestAvailableId < 0L) {
             throw new IllegalArgumentException("Transition bounds must not be negative.");
         }
+        if ((earliestAvailableId == 0L) != (latestAvailableId == 0L)) {
+            throw new IllegalArgumentException("Transition bounds must both be zero or both be positive.");
+        }
         if (earliestAvailableId > 0L && latestAvailableId < earliestAvailableId) {
             throw new IllegalArgumentException("latestAvailableId must not precede earliestAvailableId.");
         }
@@ -23,6 +26,9 @@ public record PopulationTransitionBatch(
     }
 
     public boolean hasRetentionGapAfter(long consumerCursor) {
-        return earliestAvailableId > 0L && consumerCursor + 1L < earliestAvailableId;
+        if (consumerCursor < 0L) {
+            throw new IllegalArgumentException("consumerCursor must not be negative.");
+        }
+        return earliestAvailableId > 0L && consumerCursor < earliestAvailableId - 1L;
     }
 }
