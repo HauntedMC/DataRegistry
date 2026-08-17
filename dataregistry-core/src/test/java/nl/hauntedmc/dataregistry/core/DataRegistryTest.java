@@ -467,7 +467,7 @@ class DataRegistryTest {
                 ORMContext ormContext,
                 PlayerRepository repository
         ) {
-            super(logger, pluginName, dataProviderAPI);
+            super(logger, pluginName, dataProviderAPI, DataRegistrySettings.defaults(), false);
             this.playerOrmContext = ormContext;
             this.playerRepository = repository;
             this.playerActivitySummaryRepository = mock(PlayerActivitySummaryRepository.class);
@@ -491,7 +491,7 @@ class DataRegistryTest {
                 PlayerRepository repository,
                 DataRegistrySettings settings
         ) {
-            super(logger, pluginName, dataProviderAPI, settings);
+            super(logger, pluginName, dataProviderAPI, settings, false);
             this.playerOrmContext = ormContext;
             this.playerRepository = repository;
             this.playerActivitySummaryRepository = mock(PlayerActivitySummaryRepository.class);
