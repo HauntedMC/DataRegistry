@@ -85,7 +85,7 @@ class PlayerLifecycleWriterTest {
         PlayerService playerService = new PlayerService(playerRepository, new PlayerIdentityInitializationTracker(), logger);
         PlayerNameHistoryService nameHistoryService = new PlayerNameHistoryService(dataRegistry, logger, 32, false);
         PlayerActivitySummaryService activitySummaryService = new PlayerActivitySummaryService(dataRegistry, logger, false);
-        PlayerStatusService statusService = new PlayerStatusService(dataRegistry, logger, 64);
+        PlayerStatusService statusService = new PlayerStatusService(dataRegistry, logger, 64, false);
         PlayerConnectionInfoService connectionService = new PlayerConnectionInfoService(
                 dataRegistry,
                 logger,
@@ -109,7 +109,8 @@ class PlayerLifecycleWriterTest {
                 dataRegistry,
                 logger,
                 new PlaytimeGamemodeResolver(PlaytimeTrackingSettings.defaults()),
-                64
+                64,
+                false
         );
 
         PlayerLifecycleWriter writer = new PlayerLifecycleWriter(
