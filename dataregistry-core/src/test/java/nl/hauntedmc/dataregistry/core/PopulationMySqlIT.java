@@ -16,6 +16,7 @@ import nl.hauntedmc.dataregistry.api.population.PopulationOrdinalQuality;
 import nl.hauntedmc.dataregistry.api.population.PopulationScope;
 import nl.hauntedmc.dataregistry.api.population.PopulationTransitionCause;
 import nl.hauntedmc.dataregistry.api.population.PopulationTransitionQuery;
+import nl.hauntedmc.dataregistry.api.population.PopulationTransitionType;
 import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
 import nl.hauntedmc.dataregistry.core.lifecycle.DisconnectCommand;
@@ -26,6 +27,7 @@ import nl.hauntedmc.dataregistry.core.lifecycle.TransferCommand;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerActivitySummaryEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PopulationTransitionEntity;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -39,6 +41,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -225,7 +228,7 @@ class PopulationMySqlIT {
     }
 
     @Test
-    void existingCanonicalRowsBackfillDeterministicallyWithoutPretendingHistoricalExactness() throws Exception {
+    void existingCanonicalRowsBackfillDeterministicallyEvenWhenPlaytimeRuntimeIsDisabled() throws Exception {
         DataRegistrySettings prePopulationSettings = DataRegistrySettings.builder()
                 .ormSchemaMode("update")
                 .disableFeature(DataRegistryFeature.POPULATION)
@@ -253,7 +256,11 @@ class PopulationMySqlIT {
             prePopulationRegistry.shutdown();
         }
 
-        DataRegistry migrated = newRegistry(DataRegistrySettings.builder().ormSchemaMode("update").build());
+        DataRegistrySettings migratedSettings = DataRegistrySettings.builder()
+                .ormSchemaMode("update")
+                .disableFeature(DataRegistryFeature.PLAYTIME)
+                .build();
+        DataRegistry migrated = newRegistry(migratedSettings);
         try {
             assertTrue(migrated.initialize());
             var network = migrated.population().findNetworkSnapshot().toCompletableFuture()
@@ -281,8 +288,95 @@ class PopulationMySqlIT {
 
             assertTrue(migrated.population().findTransitions(PopulationTransitionQuery.after(0L, 100))
                     .toCompletableFuture().get(10, TimeUnit.SECONDS).transitions().isEmpty());
+            assertEquals(0L, migrated.population().latestTransitionId().toCompletableFuture()
+                    .get(10, TimeUnit.SECONDS));
         } finally {
             migrated.shutdown();
+        }
+    }
+
+    @Test
+    void policyReconciliationMovesOnlinePopulationAndCreatesMissingMembership() throws Exception {
+        PlaytimeTrackingSettings initialPolicy = PlaytimeTrackingSettings.builder()
+                .resolveUnknownServersAsGamemode(false)
+                .build();
+        DataRegistry registry = newRegistry(DataRegistrySettings.builder()
+                .ormSchemaMode("update")
+                .playtimeTrackingSettings(initialPolicy)
+                .build());
+        UUID uuid = UUID.fromString("50000000-0000-0000-0000-000000000001");
+        Instant base = Instant.parse("2026-08-17T18:00:00Z");
+        try {
+            assertTrue(registry.initialize());
+            PlayerLifecycleWriter writer = registry.newPlayerLifecycleWriter(mock(ILoggerAdapter.class));
+            writeJoin(writer, uuid, "PolicyPlayer", "5", "lobby-1", base);
+            assertTrue(registry.population().findSnapshot(PopulationScope.gamemode("survival"))
+                    .toCompletableFuture().get(10, TimeUnit.SECONDS).isEmpty());
+
+            PlaytimeTrackingSettings replacement = PlaytimeTrackingSettings.builder()
+                    .resolveUnknownServersAsGamemode(false)
+                    .serverGamemodeRules(List.of(
+                            new PlaytimeTrackingSettings.ServerGamemodeRule("lobby-*", "survival")
+                    ))
+                    .build();
+            registry.reconcilePlaytimePolicy(replacement);
+
+            var survival = registry.population().findSnapshot(PopulationScope.gamemode("survival"))
+                    .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow();
+            assertEquals(1L, survival.uniquePlayerCount());
+            assertEquals(1L, survival.currentOnline());
+            PlayerPopulationMembership membership = registry.population()
+                    .findMembership(PlayerLookup.uuid(uuid), PopulationScope.gamemode("survival"))
+                    .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow();
+            assertEquals(PopulationOrdinalQuality.RECORDED_EXACT, membership.ordinalQuality());
+
+            var reconciliationTransitions = registry.population().findTransitions(
+                            PopulationTransitionQuery.after(0L, 1000)
+                                    .withCauses(Set.of(PopulationTransitionCause.RECONCILIATION))
+                    )
+                    .toCompletableFuture().get(10, TimeUnit.SECONDS).transitions();
+            assertTrue(reconciliationTransitions.stream().anyMatch(transition ->
+                    transition.type() == PopulationTransitionType.MEMBERSHIP_ADDED
+                            && transition.scope().equals(PopulationScope.gamemode("survival"))));
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
+    void transitionRetentionKeepsContiguousSuffixAndNewestHighWaterAnchor() throws Exception {
+        DataRegistry registry = newRegistry(DataRegistrySettings.builder().ormSchemaMode("update").build());
+        try {
+            assertTrue(registry.initialize());
+            Instant now = Instant.now();
+            registry.getORM().runInTransaction(session -> {
+                persistTransition(session, now.minus(Duration.ofDays(200)));
+                persistTransition(session, now.minus(Duration.ofDays(1)));
+                persistTransition(session, now.minus(Duration.ofDays(200)));
+                return null;
+            });
+
+            long highWater = registry.population().latestTransitionId().toCompletableFuture()
+                    .get(10, TimeUnit.SECONDS);
+            assertTrue(highWater > 0L);
+            assertEquals(1, registry.purgePopulationTransitionsOlderThan(Duration.ofDays(90), 100));
+
+            var afterFirstPurge = registry.population().findTransitions(PopulationTransitionQuery.after(0L, 100))
+                    .toCompletableFuture().get(10, TimeUnit.SECONDS);
+            assertEquals(2, afterFirstPurge.transitions().size());
+            assertEquals(highWater, afterFirstPurge.latestAvailableId());
+            assertEquals(highWater, registry.population().latestTransitionId().toCompletableFuture()
+                    .get(10, TimeUnit.SECONDS));
+
+            assertEquals(1, registry.purgePopulationTransitionsOlderThan(Duration.ZERO, 100));
+            var anchored = registry.population().findTransitions(PopulationTransitionQuery.after(0L, 100))
+                    .toCompletableFuture().get(10, TimeUnit.SECONDS);
+            assertEquals(1, anchored.transitions().size());
+            assertEquals(highWater, anchored.earliestAvailableId());
+            assertEquals(highWater, anchored.latestAvailableId());
+            assertEquals(0, registry.purgePopulationTransitionsOlderThan(Duration.ZERO, 100));
+        } finally {
+            registry.shutdown();
         }
     }
 
@@ -367,5 +461,20 @@ class PopulationMySqlIT {
         playtime.setLastTrackedAt(firstTrackedAt);
         playtime.setLifecycleHistoryComplete(false);
         session.persist(playtime);
+    }
+
+    private static void persistTransition(org.hibernate.Session session, Instant occurredAt) {
+        PopulationScope scope = PopulationScope.network();
+        PopulationTransitionEntity transition = new PopulationTransitionEntity();
+        transition.setTransitionType(PopulationTransitionType.ONLINE_CHANGED);
+        transition.setTransitionCause(PopulationTransitionCause.LIVE);
+        transition.setScopeId(scope.storageKey());
+        transition.setScopeType(scope.type());
+        transition.setScopeKey(scope.key());
+        transition.setPreviousValue(0L);
+        transition.setCurrentValue(1L);
+        transition.setOccurredAt(occurredAt);
+        transition.setCreatedAt(Instant.now());
+        session.persist(transition);
     }
 }
