@@ -22,6 +22,9 @@ public record PopulationSnapshot(
         if (uniquePlayerCount < 0L || currentOnline < 0L || onlinePeak < 0L) {
             throw new IllegalArgumentException("Population counts must not be negative.");
         }
+        if (currentOnline > uniquePlayerCount) {
+            throw new IllegalArgumentException("currentOnline must not exceed uniquePlayerCount.");
+        }
         if (onlinePeak < currentOnline) {
             throw new IllegalArgumentException("onlinePeak must be at least currentOnline.");
         }
