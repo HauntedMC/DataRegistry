@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-/** One-time, idempotent bootstrap of population membership from existing canonical DataRegistry data. */
+/** Idempotently reconstructs missing population membership from existing canonical DataRegistry evidence. */
 public final class PopulationMigrationService {
 
     public static final int BACKFILL_VERSION = 1;
@@ -52,11 +52,16 @@ public final class PopulationMigrationService {
                     now
             );
 
-            boolean networkMigrationApplied = networkState.getBackfillVersion() < BACKFILL_VERSION;
-            long networkAdded = 0L;
-            if (networkMigrationApplied) {
-                networkAdded = backfillNetworkMemberships(session, networkState, now);
+            boolean networkVersionUpdated = networkState.getBackfillVersion() < BACKFILL_VERSION;
+            long networkAdded = backfillNetworkMemberships(session, networkState, now);
+            if (networkAdded > 0L) {
+                networkState.setMembershipBaselineQuality(PopulationBaselineQuality.TRACKED_ONLY);
+                networkState.setPeakBaselineQuality(PopulationBaselineQuality.TRACKED_ONLY);
+            }
+            if (networkVersionUpdated) {
                 networkState.setBackfillVersion(BACKFILL_VERSION);
+            }
+            if (networkVersionUpdated || networkAdded > 0L) {
                 networkState.setUpdatedAt(now);
             }
 
@@ -69,7 +74,7 @@ public final class PopulationMigrationService {
                     networkAdded,
                     gamemode.added(),
                     networkState.getMembershipBaselineQuality(),
-                    networkMigrationApplied || gamemode.applied()
+                    networkVersionUpdated || networkAdded > 0L || gamemode.applied()
             );
         });
     }
@@ -111,8 +116,6 @@ public final class PopulationMigrationService {
                     PopulationScope.network(),
                     ordinal,
                     member.firstSeenAt(),
-                    null,
-                    null,
                     now
             );
             state.setUniquePlayerCount(ordinal);
@@ -172,7 +175,6 @@ public final class PopulationMigrationService {
         boolean applied = false;
         String lastScopeId = null;
         PopulationScopeStateEntity state = null;
-        boolean scopeAlreadyMigrated = false;
         for (HistoricalGamemodeMember member : historical) {
             PopulationScope scope = PopulationScope.gamemode(member.gamemodeKey());
             if (!scope.storageKey().equals(lastScopeId)) {
@@ -183,16 +185,14 @@ public final class PopulationMigrationService {
                         baselineQuality,
                         now
                 );
-                scopeAlreadyMigrated = state.getBackfillVersion() >= BACKFILL_VERSION;
-                if (!scopeAlreadyMigrated) {
+                if (state.getBackfillVersion() < BACKFILL_VERSION) {
                     state.setBackfillVersion(BACKFILL_VERSION);
                     state.setUpdatedAt(now);
                     applied = true;
                 }
                 lastScopeId = scope.storageKey();
             }
-            if (scopeAlreadyMigrated
-                    || PopulationPersistence.findMembership(session, member.playerId(), scope) != null) {
+            if (PopulationPersistence.findMembership(session, member.playerId(), scope) != null) {
                 continue;
             }
             PlayerEntity player = session.find(PlayerEntity.class, member.playerId());
@@ -208,13 +208,14 @@ public final class PopulationMigrationService {
                     scope,
                     ordinal,
                     member.firstTrackedAt(),
-                    null,
-                    null,
                     now
             );
             state.setUniquePlayerCount(ordinal);
+            state.setMembershipBaselineQuality(PopulationBaselineQuality.TRACKED_ONLY);
+            state.setPeakBaselineQuality(PopulationBaselineQuality.TRACKED_ONLY);
             state.setUpdatedAt(now);
             added++;
+            applied = true;
         }
         return new GamemodeBackfillResult(added, applied);
     }
@@ -259,8 +260,6 @@ public final class PopulationMigrationService {
             PopulationScope scope,
             long ordinal,
             Instant firstJoinedAt,
-            Long firstSessionId,
-            Long firstVisitId,
             Instant createdAt
     ) {
         PlayerPopulationMembershipEntity membership = new PlayerPopulationMembershipEntity();
@@ -271,8 +270,6 @@ public final class PopulationMigrationService {
         membership.setOrdinal(ordinal);
         membership.setOrdinalQuality(PopulationOrdinalQuality.BACKFILLED_DETERMINISTIC);
         membership.setFirstJoinedAt(firstJoinedAt);
-        membership.setFirstSessionId(firstSessionId);
-        membership.setFirstVisitId(firstVisitId);
         membership.setCreatedAt(createdAt);
         session.persist(membership);
     }
