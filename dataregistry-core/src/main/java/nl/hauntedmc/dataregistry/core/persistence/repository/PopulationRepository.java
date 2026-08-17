@@ -20,7 +20,6 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.PopulationTransitionEnt
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
