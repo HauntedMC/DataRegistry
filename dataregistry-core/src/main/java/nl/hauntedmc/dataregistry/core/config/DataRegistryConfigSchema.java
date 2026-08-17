@@ -178,7 +178,6 @@ final class DataRegistryConfigSchema {
         builder.append("features:\n");
         builder.append("  # Applies to: Both.\n");
         builder.append("  # Player lifecycle domains are written on Velocity; Bukkit still needs these toggles for schema/repository availability.\n");
-        builder.append("  # Population depends on online-status, sessions and session-visits; prerequisites are restored when enabled.\n");
         builder.append("  # Toggle built-in data domains.\n");
         builder.append("  # Disabled domains are not registered in ORM and will not receive writes.\n");
         builder.append("  online-status: ").append(settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)).append('\n');
@@ -186,6 +185,8 @@ final class DataRegistryConfigSchema {
         builder.append("  activity-summary: ").append(settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)).append('\n');
         builder.append("  sessions: ").append(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS)).append('\n');
         builder.append("  session-visits: ").append(settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS)).append('\n');
+        builder.append("  # Canonical network/logical-gamemode population state, memberships, ordinals, online counts, peaks and transitions.\n");
+        builder.append("  # Requires online-status, sessions and session-visits; missing prerequisites are restored when population is enabled.\n");
         builder.append("  population: ").append(settings.isFeatureEnabled(DataRegistryFeature.POPULATION)).append('\n');
         builder.append("  playtime: ").append(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)).append('\n');
         builder.append("  language: ").append(settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE)).append('\n');
@@ -195,7 +196,8 @@ final class DataRegistryConfigSchema {
         builder.append('\n');
         PlaytimeTrackingSettings playtimeSettings = settings.playtimeTrackingSettings();
         builder.append("playtime:\n");
-        builder.append("  # Applies to: Velocity. Population reuses the same server-to-gamemode mapping policy.\n");
+        builder.append("  # Applies to: Velocity.\n");
+        builder.append("  # Population reuses these server-to-gamemode mapping rules rather than maintaining a duplicate mapping configuration.\n");
         builder.append("  # Periodic flush cadence for active online playtime (seconds, 5-300).\n");
         builder.append("  flush-interval-seconds: ").append(playtimeSettings.flushIntervalSeconds()).append('\n');
         builder.append("  # When true, unknown server names fall back to their normalized name only when it is a valid gamemode key.\n");
@@ -253,7 +255,8 @@ final class DataRegistryConfigSchema {
         builder.append("  # Maximum rows or complete session chains removed by one maintenance pass (1-5000).\n");
         builder.append("  # Lower values reduce database load but clear large backlogs more slowly.\n");
         builder.append("  purge-batch-size: ").append(settings.retentionPurgeBatchSize()).append('\n');
-        builder.append("  # Velocity only: delay between lifecycle-ledger, population-transition and closed-session cleanup passes (hours, 1-168).\n");
+        builder.append("  # Velocity only: delay between lifecycle-ledger and closed-session cleanup passes (hours, 1-168).\n");
+        builder.append("  # Population-transition cleanup uses the same maintenance cadence.\n");
         builder.append("  player-history-purge-interval-hours: ")
                 .append(settings.playerHistoryPurgeIntervalHours()).append('\n');
         builder.append("  # Both platforms: minimum delay between stopped service-instance cleanup passes (hours, 1-168).\n");
