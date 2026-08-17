@@ -3,51 +3,64 @@ package nl.hauntedmc.dataregistry.core;
 import nl.hauntedmc.dataprovider.api.DataProviderAPI;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import nl.hauntedmc.dataprovider.database.relational.RelationalDatabaseProvider;
+import nl.hauntedmc.dataprovider.logging.LogLevel;
 import nl.hauntedmc.dataregistry.api.DataRegistryApi;
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerActivitySummaryEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerConnectionInfoEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerNicknameEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerNameHistoryEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerOnlineStatusEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.TrackedGamemodeEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionVisitEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLanguageEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.NetworkServiceEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceInstanceEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceProbeEntity;
 import nl.hauntedmc.dataregistry.api.player.PlayerData;
 import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
-import nl.hauntedmc.dataregistry.core.persistence.repository.NetworkServiceRepository;
-import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerActivitySummaryRepository;
-import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerConnectionInfoRepository;
-import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerLanguageRepository;
-import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerLifecycleOutboxRepository;
-import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerOnlineStatusRepository;
-import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerNicknameRepository;
-import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerPlaytimeRepository;
-import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerPlaytimeSegmentRepository;
-import nl.hauntedmc.dataregistry.core.persistence.repository.PlaytimePolicyReconciliationResult;
-import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerRepository;
-import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerNameHistoryRepository;
-import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerSessionRepository;
-import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerSessionVisitRepository;
-import nl.hauntedmc.dataregistry.core.persistence.repository.ServiceInstanceRepository;
-import nl.hauntedmc.dataregistry.core.persistence.repository.ServiceProbeRepository;
+import nl.hauntedmc.dataregistry.api.population.PopulationData;
+import nl.hauntedmc.dataregistry.api.population.PopulationResolvedGamemode;
 import nl.hauntedmc.dataregistry.api.service.FeatureServiceDirectory;
 import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerIdentityInitializationTracker;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerLifecycleWriter;
+import nl.hauntedmc.dataregistry.core.persistence.entity.NetworkServiceEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerActivitySummaryEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerConnectionInfoEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLanguageEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerNameHistoryEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerNicknameEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerOnlineStatusEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPopulationMembershipEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionVisitEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PopulationScopeStateEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PopulationTransitionEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceInstanceEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceProbeEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.TrackedGamemodeEntity;
+import nl.hauntedmc.dataregistry.core.persistence.repository.NetworkServiceRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerActivitySummaryRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerConnectionInfoRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerLanguageRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerLifecycleOutboxRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerNameHistoryRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerNicknameRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerOnlineStatusRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerPlaytimeRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerPlaytimeSegmentRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerSessionRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerSessionVisitRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlaytimePolicyReconciliationResult;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PopulationRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.ServiceInstanceRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.ServiceProbeRepository;
 import nl.hauntedmc.dataregistry.core.player.DataRegistryQueryExecutor;
 import nl.hauntedmc.dataregistry.core.player.DeadlineAwareOrmContext;
 import nl.hauntedmc.dataregistry.core.player.RepositoryPlayerData;
 import nl.hauntedmc.dataregistry.core.player.RepositoryPlayerDirectory;
+import nl.hauntedmc.dataregistry.core.player.RepositoryPopulationData;
+import nl.hauntedmc.dataregistry.core.playtime.PlaytimeGamemodeResolver;
+import nl.hauntedmc.dataregistry.core.population.PopulationMaintenanceService;
+import nl.hauntedmc.dataregistry.core.population.PopulationMigrationResult;
+import nl.hauntedmc.dataregistry.core.population.PopulationMigrationService;
+import nl.hauntedmc.dataregistry.core.population.PopulationReconciliationResult;
 import nl.hauntedmc.dataregistry.core.service.DefaultFeatureServiceDirectory;
 import nl.hauntedmc.dataregistry.core.service.PlayerActivitySummaryService;
 import nl.hauntedmc.dataregistry.core.service.PlayerConnectionInfoService;
@@ -57,7 +70,6 @@ import nl.hauntedmc.dataregistry.core.service.PlayerService;
 import nl.hauntedmc.dataregistry.core.service.PlayerSessionService;
 import nl.hauntedmc.dataregistry.core.service.PlayerStatusService;
 import nl.hauntedmc.dataregistry.core.service.ServiceRegistryService;
-import nl.hauntedmc.dataprovider.logging.LogLevel;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 
 import javax.sql.DataSource;
@@ -70,17 +82,18 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Core backend runtime that wires DataProvider, ORM, and repositories.
+ * Core backend runtime that wires DataProvider, ORM, repositories and public domain facades.
  */
 public class DataRegistry implements DataRegistryApi {
 
     private final ILoggerAdapter logger;
     private final DataProviderAPI dataProviderAPI;
     private final DataRegistrySettings settings;
-    private final boolean playtimeCatalogAuthority;
+    private final boolean lifecycleAuthority;
     private final nl.hauntedmc.dataprovider.logging.LoggerAdapter ormLogger;
     private final FeatureServiceDirectory featureServiceDirectory = new DefaultFeatureServiceDirectory();
 
+    private volatile PlaytimeGamemodeResolver populationGamemodeResolver;
     private PlayerRepository playerRepository;
     private PlayerLifecycleOutboxRepository playerLifecycleOutboxRepository;
     private PlayerActivitySummaryRepository playerActivitySummaryRepository;
@@ -93,6 +106,7 @@ public class DataRegistry implements DataRegistryApi {
     private PlayerSessionVisitRepository playerSessionVisitRepository;
     private PlayerPlaytimeRepository playerPlaytimeRepository;
     private PlayerPlaytimeSegmentRepository playerPlaytimeSegmentRepository;
+    private PopulationRepository populationRepository;
     private NetworkServiceRepository networkServiceRepository;
     private ServiceInstanceRepository serviceInstanceRepository;
     private ServiceProbeRepository serviceProbeRepository;
@@ -100,6 +114,7 @@ public class DataRegistry implements DataRegistryApi {
     private DataRegistryQueryExecutor queryExecutor;
     private PlayerDirectory playerDirectory;
     private PlayerData playerData;
+    private PopulationData populationData;
     private ORMContext ormContext;
     private ORMContext serviceOrmContext;
 
@@ -119,27 +134,28 @@ public class DataRegistry implements DataRegistryApi {
     /**
      * Creates a registry runtime.
      *
-     * @param playtimeCatalogAuthority whether this runtime may reconcile the central playtime catalog. Only the
-     *                                 Velocity lifecycle owner should pass {@code true}; Paper bridge instances are
-     *                                 read-only consumers of that catalog.
+     * @param lifecycleAuthority whether this runtime owns authoritative player lifecycle writes and may perform
+     *                           lifecycle-derived migrations/catalog reconciliation. Velocity passes {@code true};
+     *                           Paper bridge instances pass {@code false}.
      */
     public DataRegistry(
             ILoggerAdapter logger,
             String pluginName,
             DataProviderAPI dataProviderAPI,
             DataRegistrySettings settings,
-            boolean playtimeCatalogAuthority
+            boolean lifecycleAuthority
     ) {
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
         validatePluginName(pluginName);
         this.dataProviderAPI = Objects.requireNonNull(dataProviderAPI, "dataProviderAPI must not be null");
         this.settings = Objects.requireNonNull(settings, "settings must not be null");
-        this.playtimeCatalogAuthority = playtimeCatalogAuthority;
+        this.lifecycleAuthority = lifecycleAuthority;
+        this.populationGamemodeResolver = new PlaytimeGamemodeResolver(settings.playtimeTrackingSettings());
         this.ormLogger = new DataProviderLoggerAdapter(this.logger);
     }
 
     /**
-     * Initializes database registration, ORM context, and repositories.
+     * Initializes database registration, ORM context, repositories and public facades.
      *
      * @return {@code true} when initialization completed successfully.
      */
@@ -198,7 +214,7 @@ public class DataRegistry implements DataRegistryApi {
                     ? newPlayerPlaytimeRepository(queryOrmContext)
                     : null;
             if (playerPlaytimeRepository != null) {
-                if (playtimeCatalogAuthority) {
+                if (lifecycleAuthority) {
                     playerPlaytimeRepository.initializeMetadata();
                 } else {
                     playerPlaytimeRepository.initializeReadOnlyMetadata();
@@ -206,6 +222,9 @@ public class DataRegistry implements DataRegistryApi {
             }
             this.playerPlaytimeSegmentRepository = settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
                     ? newPlayerPlaytimeSegmentRepository(queryOrmContext)
+                    : null;
+            this.populationRepository = settings.isFeatureEnabled(DataRegistryFeature.POPULATION)
+                    ? newPopulationRepository(queryOrmContext)
                     : null;
             this.playerData = new RepositoryPlayerData(
                     playerDirectory,
@@ -221,10 +240,30 @@ public class DataRegistry implements DataRegistryApi {
                     playerPlaytimeRepository,
                     settings.playtimeTrackingSettings().excludedFromNetworkTotalGamemodes()
             );
+            this.populationData = populationRepository == null
+                    ? null
+                    : new RepositoryPopulationData(
+                            playerDirectory,
+                            populationRepository,
+                            queryExecutor,
+                            this::resolvePopulationGamemode
+                    );
+
+            if (populationRepository != null && lifecycleAuthority) {
+                PopulationMigrationResult migration = new PopulationMigrationService(this).migrate();
+                if (migration.migrationApplied()) {
+                    logger.info(
+                            "Population migration completed: networkMembershipsAdded=" +
+                                    migration.networkMembershipsAdded() +
+                                    ", gamemodeMembershipsAdded=" + migration.gamemodeMembershipsAdded() +
+                                    ", baseline=" + migration.baselineQuality() + "."
+                    );
+                }
+            }
+
             this.networkServiceRepository = null;
             this.serviceInstanceRepository = null;
             this.serviceProbeRepository = null;
-
             if (settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY)) {
                 DataSource serviceDataSource = resolveDataSource(dataSources, settings.serviceDatabaseConnectionId());
                 serviceOrmContext = newServiceOrmContext(serviceDataSource, resolveServiceOrmEntityClasses());
@@ -238,9 +277,7 @@ public class DataRegistry implements DataRegistryApi {
         }
     }
 
-    /**
-     * Shuts down ORM resources and unregisters plugin-scoped database registrations.
-     */
+    /** Shuts down ORM resources and unregisters plugin-scoped database registrations. */
     public synchronized void shutdown() {
         ORMContext currentOrmContext = ormContext;
         ORMContext currentServiceOrmContext = serviceOrmContext;
@@ -256,6 +293,7 @@ public class DataRegistry implements DataRegistryApi {
         playerIdentityInitializationTracker = null;
         playerDirectory = null;
         playerData = null;
+        populationData = null;
         playerActivitySummaryRepository = null;
         playerOnlineStatusRepository = null;
         playerConnectionInfoRepository = null;
@@ -266,6 +304,7 @@ public class DataRegistry implements DataRegistryApi {
         playerSessionVisitRepository = null;
         playerPlaytimeRepository = null;
         playerPlaytimeSegmentRepository = null;
+        populationRepository = null;
         networkServiceRepository = null;
         serviceInstanceRepository = null;
         serviceProbeRepository = null;
@@ -307,11 +346,7 @@ public class DataRegistry implements DataRegistryApi {
         return false;
     }
 
-    /**
-     * Returns the active ORM context.
-     *
-     * @throws IllegalStateException when DataRegistry has not been initialized.
-     */
+    /** Returns the active player-domain ORM context. */
     public synchronized ORMContext getORM() {
         if (ormContext == null) {
             throw new IllegalStateException("DataRegistry is not initialized.");
@@ -320,35 +355,41 @@ public class DataRegistry implements DataRegistryApi {
     }
 
     /**
-     * Applies Velocity's authoritative ignored/excluded gamemode policy to playtime aggregation.
-     *
-     * @throws IllegalStateException when playtime is unavailable or this runtime is not the catalog authority.
+     * Applies Velocity's authoritative ignored/excluded gamemode policy to playtime aggregation and population
+     * resolution. The resolver changes only after repository reconciliation succeeds.
      */
     public PlaytimePolicyReconciliationResult reconcilePlaytimePolicy(PlaytimeTrackingSettings playtimeSettings) {
         Objects.requireNonNull(playtimeSettings, "playtimeSettings must not be null");
         PlayerPlaytimeRepository repository;
         synchronized (this) {
-            if (!playtimeCatalogAuthority) {
-                throw new IllegalStateException("Only the Velocity catalog authority may reconcile playtime policy.");
+            if (!lifecycleAuthority) {
+                throw new IllegalStateException("Only the Velocity lifecycle authority may reconcile playtime policy.");
             }
             if (playerPlaytimeRepository == null) {
                 throw new IllegalStateException("The playtime feature is not initialized.");
             }
             repository = playerPlaytimeRepository;
         }
-        return repository.reconcilePlaytimePolicy(
+        PlaytimePolicyReconciliationResult result = repository.reconcilePlaytimePolicy(
                 playtimeSettings.excludedFromNetworkTotalGamemodes(),
                 playtimeSettings.ignoredGamemodes()
         );
+        populationGamemodeResolver = new PlaytimeGamemodeResolver(playtimeSettings);
+        return result;
     }
 
-    /**
-     * Returns the player-centric API for downstream plugins.
-     * <p>
-     * Prefer this facade over low-level repositories when reading DataRegistry-owned player data.
-     *
-     * @throws IllegalStateException when DataRegistry has not been initialized.
-     */
+    /** Maps a backend server through the same canonical resolver used by playtime. */
+    public PopulationResolvedGamemode resolvePopulationGamemode(String serverName) {
+        PlaytimeGamemodeResolver.ResolvedGamemode resolved = populationGamemodeResolver.resolve(serverName);
+        return new PopulationResolvedGamemode(
+                resolved.serverName(),
+                resolved.gamemodeKey(),
+                resolved.tracked(),
+                resolved.countedTowardsNetworkTotal()
+        );
+    }
+
+    /** Returns the player-centric API for downstream plugins. */
     @Override
     public synchronized PlayerData players() {
         if (playerData == null) {
@@ -357,13 +398,16 @@ public class DataRegistry implements DataRegistryApi {
         return playerData;
     }
 
-    /**
-     * Creates the lifecycle service that owns player row creation, username updates, and active cache changes.
-     *
-     * @param serviceLogger logger used by the lifecycle service.
-     * @return a lifecycle service backed by the initialized player repository.
-     * @throws IllegalStateException when DataRegistry has not been initialized.
-     */
+    /** Returns canonical network and logical-gamemode population data. */
+    @Override
+    public synchronized PopulationData population() {
+        if (populationData == null) {
+            throw new IllegalStateException("The population feature is not initialized.");
+        }
+        return populationData;
+    }
+
+    /** Creates the lifecycle service that owns player row creation, username updates, and active cache changes. */
     public synchronized PlayerService newPlayerService(ILoggerAdapter serviceLogger) {
         if (playerRepository == null) {
             throw new IllegalStateException("DataRegistry is not initialized.");
@@ -371,9 +415,7 @@ public class DataRegistry implements DataRegistryApi {
         return new PlayerService(playerRepository, playerIdentityInitializationTracker, serviceLogger);
     }
 
-    /**
-     * Returns the internal lifecycle idempotency-ledger repository.
-     */
+    /** Returns the internal lifecycle idempotency-ledger repository. */
     public synchronized PlayerLifecycleOutboxRepository getPlayerLifecycleOutboxRepository() {
         if (playerLifecycleOutboxRepository == null) {
             throw new IllegalStateException("DataRegistry is not initialized.");
@@ -381,10 +423,15 @@ public class DataRegistry implements DataRegistryApi {
         return playerLifecycleOutboxRepository;
     }
 
-    /**
-     * Purges one bounded batch of raw history for sessions whose session, visit, and playtime-segment rows are all
-     * closed.
-     */
+    /** Returns the internal population repository for maintenance tasks. */
+    public synchronized PopulationRepository getPopulationRepository() {
+        if (populationRepository == null) {
+            throw new IllegalStateException("The population feature is not initialized.");
+        }
+        return populationRepository;
+    }
+
+    /** Purges one bounded batch of fully closed raw session history. */
     public synchronized int purgeClosedSessionHistoryOlderThan(Duration retentionWindow, int batchSize) {
         Objects.requireNonNull(retentionWindow, "retentionWindow must not be null");
         if (retentionWindow.isNegative()) {
@@ -403,13 +450,32 @@ public class DataRegistry implements DataRegistryApi {
         return playerSessionRepository.deleteClosedHistoryBefore(Instant.now().minus(retentionWindow), batchSize);
     }
 
-    /**
-     * Creates the transactional command writer for platform-owned player lifecycle persistence.
-     *
-     * @param serviceLogger logger used by the writer and internal helper services.
-     * @return lifecycle writer backed by the initialized player ORM context.
-     * @throws IllegalStateException when DataRegistry has not been initialized.
-     */
+    /** Purges one bounded batch of old population transitions. Memberships and aggregate state are never removed. */
+    public synchronized int purgePopulationTransitionsOlderThan(Duration retentionWindow, int batchSize) {
+        Objects.requireNonNull(retentionWindow, "retentionWindow must not be null");
+        if (retentionWindow.isNegative()) {
+            throw new IllegalArgumentException("retentionWindow must not be negative");
+        }
+        return getPopulationRepository().deleteTransitionsBefore(Instant.now().minus(retentionWindow), batchSize);
+    }
+
+    /** Rebuilds derived current-online population counters from canonical online-status rows. */
+    public PopulationReconciliationResult reconcilePopulationPresence() {
+        if (!settings.isFeatureEnabled(DataRegistryFeature.POPULATION)) {
+            return new PopulationReconciliationResult(0, 0);
+        }
+        return new PopulationMaintenanceService(this).reconcileOnlineState();
+    }
+
+    /** Returns administrative population maintenance operations owned by DataRegistry. */
+    public PopulationMaintenanceService newPopulationMaintenanceService() {
+        if (!settings.isFeatureEnabled(DataRegistryFeature.POPULATION)) {
+            throw new IllegalStateException("The population feature is disabled.");
+        }
+        return new PopulationMaintenanceService(this);
+    }
+
+    /** Creates the transactional command writer for platform-owned player lifecycle persistence. */
     public synchronized PlayerLifecycleWriter newPlayerLifecycleWriter(ILoggerAdapter serviceLogger) {
         PlayerService playerService = newPlayerService(serviceLogger);
         return new PlayerLifecycleWriter(
@@ -455,9 +521,7 @@ public class DataRegistry implements DataRegistryApi {
                 new PlayerPlaytimeService(
                         this,
                         serviceLogger,
-                        new nl.hauntedmc.dataregistry.core.playtime.PlaytimeGamemodeResolver(
-                                settings.playtimeTrackingSettings()
-                        ),
+                        new PlaytimeGamemodeResolver(settings.playtimeTrackingSettings()),
                         settings.serverNameMaxLength(),
                         settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME),
                         settings.playtimeTrackingSettings().excludedFromNetworkTotalGamemodes()
@@ -496,34 +560,23 @@ public class DataRegistry implements DataRegistryApi {
         return serviceProbeRepository;
     }
 
-    /**
-     * Creates a helper facade for service-registry writes and read-side discovery helpers.
-     */
+    /** Creates a helper facade for service-registry writes and read-side discovery helpers. */
     public ServiceRegistryService newServiceRegistryService() {
         return new ServiceRegistryService(this, logger, settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY));
     }
 
-    /**
-     * Returns the typed process-local catalog of APIs exported by enabled feature plugins.
-     * <p>
-     * DataRegistry only owns discovery and cleanup. The registered service implementations and their feature-owned
-     * tables remain owned by the exporting feature plugin.
-     */
+    /** Returns the typed process-local catalog of APIs exported by enabled feature plugins. */
     @Override
     public FeatureServiceDirectory featureServices() {
         return featureServiceDirectory;
     }
 
-    /**
-     * Returns immutable runtime settings currently used by this instance.
-     */
+    /** Returns immutable runtime settings currently used by this instance. */
     public DataRegistrySettings getSettings() {
         return settings;
     }
 
-    /**
-     * Returns the enabled built-in features for this runtime instance.
-     */
+    /** Returns the enabled built-in features for this runtime instance. */
     public Set<DataRegistryFeature> getEnabledFeatures() {
         return settings.enabledFeatures();
     }
@@ -533,9 +586,7 @@ public class DataRegistry implements DataRegistryApi {
         return getEnabledFeatures();
     }
 
-    /**
-     * Returns whether a built-in feature is enabled for this runtime instance.
-     */
+    /** Returns whether a built-in feature is enabled for this runtime instance. */
     public boolean isFeatureEnabled(DataRegistryFeature feature) {
         return settings.isFeatureEnabled(feature);
     }
@@ -545,9 +596,7 @@ public class DataRegistry implements DataRegistryApi {
         return isFeatureEnabled(feature);
     }
 
-    /**
-     * Returns whether both ORM context and repository are initialized.
-     */
+    /** Returns whether all configured runtime domains are initialized. */
     public synchronized boolean isInitialized() {
         return isRuntimeFullyInitialized();
     }
@@ -558,12 +607,7 @@ public class DataRegistry implements DataRegistryApi {
     }
 
     ORMContext newOrmContext(DataSource dataSource, Class<?>... entityClasses) {
-        return dataProviderAPI.createOrmContext(
-                dataSource,
-                ormLogger,
-                settings.ormSchemaMode(),
-                entityClasses
-        );
+        return dataProviderAPI.createOrmContext(dataSource, ormLogger, settings.ormSchemaMode(), entityClasses);
     }
 
     PlayerRepository newPlayerRepository(ORMContext context) {
@@ -626,6 +670,10 @@ public class DataRegistry implements DataRegistryApi {
         return new PlayerPlaytimeSegmentRepository(context);
     }
 
+    PopulationRepository newPopulationRepository(ORMContext context) {
+        return new PopulationRepository(context);
+    }
+
     NetworkServiceRepository newNetworkServiceRepository(ORMContext context) {
         return new NetworkServiceRepository(context);
     }
@@ -639,12 +687,7 @@ public class DataRegistry implements DataRegistryApi {
     }
 
     ORMContext newServiceOrmContext(DataSource dataSource, Class<?>... entityClasses) {
-        return dataProviderAPI.createOrmContext(
-                dataSource,
-                ormLogger,
-                settings.ormSchemaMode(),
-                entityClasses
-        );
+        return dataProviderAPI.createOrmContext(dataSource, ormLogger, settings.ormSchemaMode(), entityClasses);
     }
 
     private Class<?>[] resolvePlayerOrmEntityClasses() {
@@ -666,6 +709,11 @@ public class DataRegistry implements DataRegistryApi {
         if (settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS)) {
             entityClasses.add(PlayerSessionVisitEntity.class);
         }
+        if (settings.isFeatureEnabled(DataRegistryFeature.POPULATION)) {
+            entityClasses.add(PopulationScopeStateEntity.class);
+            entityClasses.add(PlayerPopulationMembershipEntity.class);
+            entityClasses.add(PopulationTransitionEntity.class);
+        }
         if (settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)) {
             entityClasses.add(PlayerPlaytimeEntity.class);
             entityClasses.add(PlayerPlaytimeSegmentEntity.class);
@@ -684,17 +732,12 @@ public class DataRegistry implements DataRegistryApi {
     }
 
     private Class<?>[] resolveServiceOrmEntityClasses() {
-        return new Class<?>[]{
-                NetworkServiceEntity.class,
-                ServiceInstanceEntity.class,
-                ServiceProbeEntity.class
-        };
+        return new Class<?>[]{NetworkServiceEntity.class, ServiceInstanceEntity.class, ServiceProbeEntity.class};
     }
 
     private void validatePlayerLifecycleOutbox() {
         ormContext.runInTransaction(session ->
-                session.createQuery("SELECT COUNT(o) FROM PlayerLifecycleOutboxEntity o", Long.class)
-                        .getSingleResult()
+                session.createQuery("SELECT COUNT(o) FROM PlayerLifecycleOutboxEntity o", Long.class).getSingleResult()
         );
     }
 
@@ -710,11 +753,9 @@ public class DataRegistry implements DataRegistryApi {
                     "Registered database provider '" + connectionId + "' is not relational."
             );
         }
-
         if (!provider.isConnected()) {
             throw new IllegalStateException("Database provider '" + connectionId + "' is not connected.");
         }
-
         DataSource dataSource = provider.getDataSource();
         if (dataSource == null) {
             throw new IllegalStateException(
@@ -733,6 +774,7 @@ public class DataRegistry implements DataRegistryApi {
                 || playerIdentityInitializationTracker != null
                 || playerDirectory != null
                 || playerData != null
+                || populationData != null
                 || playerActivitySummaryRepository != null
                 || playerOnlineStatusRepository != null
                 || playerConnectionInfoRepository != null
@@ -743,6 +785,7 @@ public class DataRegistry implements DataRegistryApi {
                 || playerSessionVisitRepository != null
                 || playerPlaytimeRepository != null
                 || playerPlaytimeSegmentRepository != null
+                || populationRepository != null
                 || networkServiceRepository != null
                 || serviceInstanceRepository != null
                 || serviceProbeRepository != null;
@@ -780,6 +823,10 @@ public class DataRegistry implements DataRegistryApi {
             return false;
         }
         if (settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS) && playerSessionVisitRepository == null) {
+            return false;
+        }
+        if (settings.isFeatureEnabled(DataRegistryFeature.POPULATION)
+                && (populationRepository == null || populationData == null)) {
             return false;
         }
         if (settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
