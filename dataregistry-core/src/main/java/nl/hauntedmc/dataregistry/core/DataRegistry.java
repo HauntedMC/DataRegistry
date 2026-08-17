@@ -399,9 +399,13 @@ public class DataRegistry implements DataRegistryApi {
         return result;
     }
 
-    /** Maps a backend server through the same canonical resolver used by playtime. */
+    /** Maps a backend server through the same canonical resolver used by lifecycle persistence and playtime. */
     public PopulationResolvedGamemode resolvePopulationGamemode(String serverName) {
-        PlaytimeGamemodeResolver.ResolvedGamemode resolved = populationGamemodeResolver.resolve(serverName);
+        String normalizedServerName = PlaytimeGamemodeResolver.normalizeServerNameOrNull(serverName);
+        if (normalizedServerName != null && normalizedServerName.length() > settings.serverNameMaxLength()) {
+            normalizedServerName = normalizedServerName.substring(0, settings.serverNameMaxLength());
+        }
+        PlaytimeGamemodeResolver.ResolvedGamemode resolved = populationGamemodeResolver.resolve(normalizedServerName);
         return new PopulationResolvedGamemode(
                 resolved.serverName(),
                 resolved.gamemodeKey(),
