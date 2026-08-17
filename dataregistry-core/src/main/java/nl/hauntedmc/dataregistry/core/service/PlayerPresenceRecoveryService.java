@@ -1,23 +1,23 @@
 package nl.hauntedmc.dataregistry.core.service;
 
-import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
+import nl.hauntedmc.dataregistry.core.DataRegistry;
+import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerActivitySummaryEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerOnlineStatusEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentCloseReason;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionVisitEntity;
-import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
 import org.hibernate.Session;
 
 import java.time.Instant;
-import java.util.LinkedHashMap;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -30,41 +30,27 @@ import java.util.UUID;
  * <p>
  * The service intentionally ends stale rows at the latest durable activity timestamp already stored before the crash.
  * It never uses startup time as a synthetic disconnect time, so recovered sessions cannot accrue offline duration.
+ * Population aggregate counters are reconciled only after canonical online-status changes commit.
  */
 public final class PlayerPresenceRecoveryService {
-    /**
-     * Fallback for corrupt legacy rows that are open but have no usable start or activity timestamp.
-     * Healthy rows never use this path; it avoids inventing uptime between a crash and the next startup.
-     */
+
     private static final Instant UNKNOWN_RECOVERY_TIME = Instant.EPOCH;
 
     private final DataRegistry dataRegistry;
     private final DataRegistrySettings settings;
 
-    public PlayerPresenceRecoveryService(
-            DataRegistry dataRegistry,
-            DataRegistrySettings settings
-    ) {
+    public PlayerPresenceRecoveryService(DataRegistry dataRegistry, DataRegistrySettings settings) {
         this.dataRegistry = Objects.requireNonNull(dataRegistry, "dataRegistry must not be null");
         this.settings = Objects.requireNonNull(settings, "settings must not be null");
     }
 
-    /**
-     * Closes stale open presence rows left by an unclean previous shutdown.
-     *
-     * @return counts for each recovered state category.
-     */
+    /** Closes stale open presence rows left by an unclean previous shutdown. */
     public PlayerPresenceRecoveryResult recoverAfterUncleanShutdown() {
         return recover(Set.of(), Set.of(), "Failed to recover stale player presence state during startup.");
     }
 
     /**
-     * Reconciles only the supplied players' stale presence after a database outage. Backend recovery can occur while
-     * the proxy is live and alongside other proxy instances, so it must never sweep unrelated players.
-     *
-     * @param affectedPlayerUuids UUIDs with retained failed disconnects that may require reconciliation.
-     * @param activePlayerUuids UUIDs with a currently live platform connection.
-     * @return counts for each recovered state category.
+     * Reconciles only supplied players after a database outage; active players are protected from stale-row cleanup.
      */
     public PlayerPresenceRecoveryResult recoverAfterBackendRecovery(
             Set<String> affectedPlayerUuids,
@@ -85,9 +71,7 @@ public final class PlayerPresenceRecoveryService {
     /**
      * Refreshes durable online-status rows from supplied live proxy connections.
      * <p>
-     * This deliberately does not close rows for absent players: a shared DataRegistry database can be used by
-     * multiple proxies, and this proxy cannot authoritatively determine their connections. Startup recovery remains
-     * responsible for stale lifecycle rows after an unclean shutdown.
+     * Absent players are deliberately not closed because another proxy can own them in a shared database.
      */
     public PlayerPresenceRepairResult repairPresence(Map<String, String> livePlayerServers) {
         Objects.requireNonNull(livePlayerServers, "livePlayerServers must not be null");
@@ -97,7 +81,7 @@ public final class PlayerPresenceRecoveryService {
         }
 
         try {
-            return dataRegistry.getORM().runInTransaction(session -> {
+            PlayerPresenceRepairResult result = dataRegistry.getORM().runInTransaction(session -> {
                 Map<String, PlayerEntity> playersByUuid = new HashMap<>();
                 for (PlayerEntity player : session.createQuery(
                                 "SELECT p FROM PlayerEntity p WHERE p.uuid IN :uuids",
@@ -113,9 +97,7 @@ public final class PlayerPresenceRecoveryService {
                                     "SELECT s FROM PlayerOnlineStatusEntity s WHERE s.player.id IN :playerIds",
                                     PlayerOnlineStatusEntity.class
                             )
-                            .setParameter("playerIds", playersByUuid.values().stream()
-                                    .map(PlayerEntity::getId)
-                                    .toList())
+                            .setParameter("playerIds", playersByUuid.values().stream().map(PlayerEntity::getId).toList())
                             .list()) {
                         statusesByPlayerId.put(status.getPlayer().getId(), status);
                     }
@@ -144,6 +126,8 @@ public final class PlayerPresenceRecoveryService {
                 }
                 return new PlayerPresenceRepairResult(refreshed, missing);
             });
+            reconcilePopulationAfterPresenceMutation();
+            return result;
         } catch (RuntimeException exception) {
             throw new IllegalStateException("Failed to refresh durable online statuses during presence repair.", exception);
         }
@@ -155,15 +139,23 @@ public final class PlayerPresenceRecoveryService {
             String failureMessage
     ) {
         if (!hasRecoverableFeatureEnabled()) {
+            reconcilePopulationAfterPresenceMutation();
             return PlayerPresenceRecoveryResult.empty();
         }
-
         try {
-            return dataRegistry.getORM().runInTransaction(
+            PlayerPresenceRecoveryResult result = dataRegistry.getORM().runInTransaction(
                     session -> recoverInTransaction(session, affectedPlayerUuids, activePlayerUuids)
             );
+            reconcilePopulationAfterPresenceMutation();
+            return result;
         } catch (RuntimeException exception) {
             throw new IllegalStateException(failureMessage, exception);
+        }
+    }
+
+    private void reconcilePopulationAfterPresenceMutation() {
+        if (settings.isFeatureEnabled(DataRegistryFeature.POPULATION)) {
+            dataRegistry.reconcilePopulationPresence();
         }
     }
 
@@ -173,14 +165,12 @@ public final class PlayerPresenceRecoveryService {
             Set<String> activePlayerUuids
     ) {
         RecoveryState state = new RecoveryState();
-
         int segmentsClosed = recoverPlaytimeSegments(session, state, affectedPlayerUuids, activePlayerUuids);
         int sessionsClosed = recoverSessions(session, state, affectedPlayerUuids, activePlayerUuids);
         int visitsClosed = recoverSessionVisits(session, state, affectedPlayerUuids, activePlayerUuids);
         int statusesCleared = recoverOnlineStatuses(session, state, affectedPlayerUuids, activePlayerUuids);
         int summariesUpdated = recoverActivitySummaries(session, state);
         int connectionInfosUpdated = recoverConnectionInfos(session, state);
-
         return new PlayerPresenceRecoveryResult(
                 segmentsClosed,
                 sessionsClosed,
@@ -200,7 +190,6 @@ public final class PlayerPresenceRecoveryService {
         if (!settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)) {
             return 0;
         }
-
         List<PlayerPlaytimeSegmentEntity> openSegments = session.createQuery(
                         "SELECT s FROM PlayerPlaytimeSegmentEntity s WHERE s.endedAt IS NULL",
                         PlayerPlaytimeSegmentEntity.class
@@ -240,7 +229,6 @@ public final class PlayerPresenceRecoveryService {
         if (!settings.isFeatureEnabled(DataRegistryFeature.SESSIONS)) {
             return 0;
         }
-
         List<PlayerSessionEntity> openSessions = session.createQuery(
                         "SELECT s FROM PlayerSessionEntity s WHERE s.endedAt IS NULL",
                         PlayerSessionEntity.class
@@ -275,7 +263,6 @@ public final class PlayerPresenceRecoveryService {
         if (!settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS)) {
             return 0;
         }
-
         List<PlayerSessionVisitEntity> openVisits = session.createQuery(
                         "SELECT v FROM PlayerSessionVisitEntity v WHERE v.leftAt IS NULL",
                         PlayerSessionVisitEntity.class
@@ -293,7 +280,6 @@ public final class PlayerPresenceRecoveryService {
             }
             recoveryEndTime = maxInstant(recoveryEndTime, openVisit.getEnteredAt());
             recoveryEndTime = fallbackRecoveryTime(recoveryEndTime);
-
             openVisit.setLeftAt(recoveryEndTime);
             state.rememberSessionActivity(sessionEntity, recoveryEndTime);
             state.rememberPlayerActivity(openVisit.getPlayer(), recoveryEndTime);
@@ -311,7 +297,6 @@ public final class PlayerPresenceRecoveryService {
         if (!settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)) {
             return 0;
         }
-
         List<PlayerOnlineStatusEntity> onlineStatuses = session.createQuery(
                         "SELECT s FROM PlayerOnlineStatusEntity s WHERE s.online = true",
                         PlayerOnlineStatusEntity.class
@@ -328,7 +313,6 @@ public final class PlayerPresenceRecoveryService {
                 state.rememberPlayer(player);
             }
             state.rememberPlayerActivity(playerId, latestKnownPresenceTime(session, playerId, player, state));
-
             onlineStatus.setOnline(false);
             onlineStatus.setPreviousServer(onlineStatus.getCurrentServer());
             onlineStatus.setCurrentServer("");
@@ -345,7 +329,6 @@ public final class PlayerPresenceRecoveryService {
         if (player == null || player.getUuid() == null || activePlayerUuids.contains(player.getUuid())) {
             return false;
         }
-        // Startup passes an empty scope and intentionally recovers every stale row. Live backend recovery is scoped.
         return affectedPlayerUuids.isEmpty() || affectedPlayerUuids.contains(player.getUuid());
     }
 
@@ -379,7 +362,6 @@ public final class PlayerPresenceRecoveryService {
         if (!settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)) {
             return 0;
         }
-
         int updated = 0;
         for (Long playerId : state.recoveredPlayerIds()) {
             Instant recoveredAt = state.playerActivity(playerId);
@@ -401,7 +383,6 @@ public final class PlayerPresenceRecoveryService {
                 updated++;
                 continue;
             }
-
             boolean changed = false;
             if (summary.getFirstSeenAt() == null) {
                 summary.setFirstSeenAt(recoveredAt);
@@ -426,7 +407,6 @@ public final class PlayerPresenceRecoveryService {
         if (!settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO)) {
             return 0;
         }
-
         int updated = 0;
         for (Long playerId : state.recoveredPlayerIds()) {
             Instant recoveredAt = state.playerActivity(playerId);
@@ -447,7 +427,6 @@ public final class PlayerPresenceRecoveryService {
                 updated++;
                 continue;
             }
-
             boolean changed = false;
             if (info.getFirstConnectionAt() == null) {
                 info.setFirstConnectionAt(firstConnectionTime(session, playerId, recoveredAt));
@@ -490,10 +469,12 @@ public final class PlayerPresenceRecoveryService {
         Instant recoveredAt = state.sessionActivity(playerSession);
         recoveredAt = maxInstant(recoveredAt, playerSession.getStartedAt());
         if (includePlayerLevelActivity) {
-            recoveredAt = maxInstant(
-                    recoveredAt,
-                    latestKnownPresenceTime(session, playerId, playerSession.getPlayer(), state)
-            );
+            recoveredAt = maxInstant(recoveredAt, latestKnownPresenceTime(
+                    session,
+                    playerId,
+                    playerSession.getPlayer(),
+                    state
+            ));
         }
         return fallbackRecoveryTime(recoveredAt);
     }
@@ -507,7 +488,6 @@ public final class PlayerPresenceRecoveryService {
         if (playerId == null) {
             return null;
         }
-
         state.rememberPlayer(player);
         Instant latest = state.playerActivity(playerId);
         if (settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)) {
@@ -568,12 +548,8 @@ public final class PlayerPresenceRecoveryService {
     }
 
     private static Instant maxInstant(Instant left, Instant right) {
-        if (left == null) {
-            return right;
-        }
-        if (right == null) {
-            return left;
-        }
+        if (left == null) { return right; }
+        if (right == null) { return left; }
         return left.isAfter(right) ? left : right;
     }
 
@@ -592,39 +568,22 @@ public final class PlayerPresenceRecoveryService {
                 playersById.putIfAbsent(playerId, player);
             }
         }
-
-        private PlayerEntity player(Long playerId) {
-            return playersById.get(playerId);
-        }
-
-        private Set<Long> recoveredPlayerIds() {
-            return new HashSet<>(playerActivityById.keySet());
-        }
-
+        private PlayerEntity player(Long playerId) { return playersById.get(playerId); }
+        private Set<Long> recoveredPlayerIds() { return new HashSet<>(playerActivityById.keySet()); }
         private void rememberPlayerActivity(PlayerEntity player, Instant activityAt) {
             rememberPlayer(player);
             rememberPlayerActivity(playerId(player), activityAt);
         }
-
         private void rememberPlayerActivity(Long playerId, Instant activityAt) {
-            if (playerId == null || activityAt == null) {
-                return;
-            }
+            if (playerId == null || activityAt == null) { return; }
             playerActivityById.merge(playerId, activityAt, PlayerPresenceRecoveryService::maxInstant);
         }
-
-        private Instant playerActivity(Long playerId) {
-            return playerActivityById.get(playerId);
-        }
-
+        private Instant playerActivity(Long playerId) { return playerActivityById.get(playerId); }
         private void rememberSessionActivity(PlayerSessionEntity session, Instant activityAt) {
             Long sessionId = sessionId(session);
-            if (sessionId == null || activityAt == null) {
-                return;
-            }
+            if (sessionId == null || activityAt == null) { return; }
             sessionActivityById.merge(sessionId, activityAt, PlayerPresenceRecoveryService::maxInstant);
         }
-
         private Instant sessionActivity(PlayerSessionEntity session) {
             return sessionActivityById.get(sessionId(session));
         }
