@@ -65,6 +65,37 @@ public final class PlayerStatusService {
     }
 
     /**
+     * Marks a freshly authenticated proxy connection online before it reaches a backend.
+     * <p>
+     * Existing online rows keep their current backend. This matters during reconnect/recovery races because the
+     * subsequent transfer still needs the previous backend to move logical-gamemode population correctly.
+     */
+    public void updateStatusOnLogin(Session session, PlayerEntity playerEntity) {
+        if (!featureEnabled) {
+            return;
+        }
+        Objects.requireNonNull(session, "session must not be null");
+        if (!isPersistedPlayer(playerEntity)) {
+            throw new IllegalArgumentException("playerEntity must be a persisted player.");
+        }
+        PlayerEntity managed = session.merge(playerEntity);
+        PlayerOnlineStatusEntity status = session.find(PlayerOnlineStatusEntity.class, managed.getId());
+        if (status == null) {
+            status = new PlayerOnlineStatusEntity();
+            status.setPlayer(managed);
+            status.setOnline(true);
+            status.setCurrentServer("");
+            session.persist(status);
+            return;
+        }
+        if (!status.isOnline()) {
+            status.setPreviousServer(status.getCurrentServer());
+            status.setCurrentServer("");
+        }
+        status.setOnline(true);
+    }
+
+    /**
      * Marks a player as offline.
      */
     public void updateStatusOnQuit(PlayerEntity playerEntity) {
