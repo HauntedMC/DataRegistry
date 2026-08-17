@@ -20,6 +20,7 @@ import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
 import nl.hauntedmc.dataregistry.core.lifecycle.DisconnectCommand;
 import nl.hauntedmc.dataregistry.core.lifecycle.LoginCommand;
+import nl.hauntedmc.dataregistry.core.lifecycle.PlayerLifecycleWriteStatus;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerLifecycleWriter;
 import nl.hauntedmc.dataregistry.core.lifecycle.TransferCommand;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerActivitySummaryEntity;
@@ -167,9 +168,16 @@ class PopulationMySqlIT {
 
             long beforeDuplicate = registry.population().findSnapshot(PopulationScope.gamemode("creative"))
                     .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow().uniquePlayerCount();
-            assertTrue(writer.transfer(new TransferCommand(
-                    "transfer:population:1c", firstUuid.toString(), "PopulationOne", "creative-1", base.plusSeconds(20)
-            )).duplicate());
+            assertEquals(
+                    PlayerLifecycleWriteStatus.DUPLICATE,
+                    writer.transfer(new TransferCommand(
+                            "transfer:population:1c",
+                            firstUuid.toString(),
+                            "PopulationOne",
+                            "creative-1",
+                            base.plusSeconds(20)
+                    )).status()
+            );
             assertEquals(beforeDuplicate, registry.population().findSnapshot(PopulationScope.gamemode("creative"))
                     .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow().uniquePlayerCount());
 
@@ -193,18 +201,18 @@ class PopulationMySqlIT {
 
     @Test
     void existingCanonicalRowsBackfillDeterministicallyWithoutPretendingHistoricalExactness() throws Exception {
-        DataRegistrySettings legacySettings = DataRegistrySettings.builder()
+        DataRegistrySettings prePopulationSettings = DataRegistrySettings.builder()
                 .ormSchemaMode("update")
                 .disableFeature(DataRegistryFeature.POPULATION)
                 .build();
-        DataRegistry legacy = newRegistry(legacySettings);
+        DataRegistry prePopulationRegistry = newRegistry(prePopulationSettings);
         Instant older = Instant.parse("2024-01-01T00:00:00Z");
         Instant newer = Instant.parse("2025-01-01T00:00:00Z");
         UUID olderUuid = UUID.fromString("40000000-0000-0000-0000-000000000001");
         UUID newerUuid = UUID.fromString("40000000-0000-0000-0000-000000000002");
         try {
-            assertTrue(legacy.initialize());
-            legacy.getORM().runInTransaction(session -> {
+            assertTrue(prePopulationRegistry.initialize());
+            prePopulationRegistry.getORM().runInTransaction(session -> {
                 PlayerEntity newerPlayer = player(newerUuid, "HistoricalNewer");
                 PlayerEntity olderPlayer = player(olderUuid, "HistoricalOlder");
                 session.persist(newerPlayer);
@@ -217,7 +225,7 @@ class PopulationMySqlIT {
                 return null;
             });
         } finally {
-            legacy.shutdown();
+            prePopulationRegistry.shutdown();
         }
 
         DataRegistry migrated = newRegistry(DataRegistrySettings.builder().ormSchemaMode("update").build());
