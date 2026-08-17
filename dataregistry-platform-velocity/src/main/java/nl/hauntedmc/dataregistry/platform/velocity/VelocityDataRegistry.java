@@ -76,7 +76,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @Plugin(
         id = "dataregistry",
         name = "DataRegistry",
-        version = "1.13.10",
+        version = "1.14.0",
         description = "DataRegistry for cross-platform data handling.",
         authors = {"HauntedMC"},
         dependencies = @Dependency(id = "dataprovider")
@@ -687,7 +687,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
                             health.totalInstanceCount(),
                             health.runningInstanceCount()
                     ))
-                    .toList();
+                    .toList());
         }, adminCommandExecutor);
     }
 
@@ -765,9 +765,17 @@ public class VelocityDataRegistry implements PlatformPlugin {
 
     private void startPlayerHistoryRetention() {
         int outboxRetentionDays = settings.lifecycleOutboxRetentionDays();
+        int populationTransitionRetentionDays = settings.populationTransitionRetentionDays();
         int closedSessionRetentionDays = settings.closedSessionHistoryRetentionDays();
-        if (outboxRetentionDays < 0 && closedSessionRetentionDays < 0) {
+        if (outboxRetentionDays < 0 && populationTransitionRetentionDays < 0 && closedSessionRetentionDays < 0) {
             return;
+        }
+        if (populationTransitionRetentionDays >= 0 && !settings.isFeatureEnabled(DataRegistryFeature.POPULATION)) {
+            logger.warn(
+                    "retention.population-transition-days is enabled but the population feature is disabled. " +
+                            "Population transition retention will be skipped."
+            );
+            populationTransitionRetentionDays = -1;
         }
         if (closedSessionRetentionDays >= 0 && !supportsClosedSessionHistoryRetention()) {
             logger.warn(
@@ -776,9 +784,10 @@ public class VelocityDataRegistry implements PlatformPlugin {
             );
             closedSessionRetentionDays = -1;
         }
-        if (outboxRetentionDays < 0 && closedSessionRetentionDays < 0) {
+        if (outboxRetentionDays < 0 && populationTransitionRetentionDays < 0 && closedSessionRetentionDays < 0) {
             return;
         }
+        final int eligiblePopulationTransitionRetentionDays = populationTransitionRetentionDays;
         final int eligibleClosedSessionRetentionDays = closedSessionRetentionDays;
         DataRegistry registry = runtimeDataRegistry();
         ensureLifecycleOutboxRetentionExecutor();
@@ -787,6 +796,17 @@ public class VelocityDataRegistry implements PlatformPlugin {
         if (outboxRetentionDays >= 0) {
             schedulePlayerHistoryRetentionTask(
                     () -> purgeLifecycleOutbox(registry, outboxRetentionDays, batchSize),
+                    purgeIntervalHours
+            );
+        }
+        if (eligiblePopulationTransitionRetentionDays >= 0) {
+            logger.warn(
+                    "Population-transition retention is enabled. Durable population transitions older than " +
+                            eligiblePopulationTransitionRetentionDays + " days will be permanently deleted; " +
+                            "memberships, ordinals and aggregate population state are retained."
+            );
+            schedulePlayerHistoryRetentionTask(
+                    () -> purgePopulationTransitions(registry, eligiblePopulationTransitionRetentionDays, batchSize),
                     purgeIntervalHours
             );
         }
@@ -831,6 +851,17 @@ public class VelocityDataRegistry implements PlatformPlugin {
             }
         } catch (RuntimeException exception) {
             logger.error("Failed to purge lifecycle idempotency rows.", exception);
+        }
+    }
+
+    private void purgePopulationTransitions(DataRegistry registry, int retentionDays, int batchSize) {
+        try {
+            int deleted = registry.purgePopulationTransitionsOlderThan(Duration.ofDays(retentionDays), batchSize);
+            if (deleted > 0) {
+                logger.info("Purged {} population transition rows older than {} days.", deleted, retentionDays);
+            }
+        } catch (RuntimeException exception) {
+            logger.error("Failed to purge population transition history.", exception);
         }
     }
 
