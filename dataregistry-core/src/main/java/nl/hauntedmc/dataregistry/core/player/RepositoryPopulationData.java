@@ -82,7 +82,7 @@ public final class RepositoryPopulationData implements PopulationData {
         PopulationResolvedGamemode resolved = gamemodeResolver.apply(serverName);
         return queryExecutor.supply(
                 "population.findJoinContext",
-                () -> repository.findJoinContext(playerUuid, serverName, resolved)
+                () -> repository.findJoinContext(playerUuid, resolved.serverName(), resolved)
         );
     }
 
