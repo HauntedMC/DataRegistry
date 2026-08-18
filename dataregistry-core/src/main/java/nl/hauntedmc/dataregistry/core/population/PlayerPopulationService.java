@@ -25,6 +25,7 @@ public final class PlayerPopulationService {
 
     private final DataRegistry dataRegistry;
     private final boolean featureEnabled;
+    private volatile Boolean persistedScopeStateTableExists;
 
     public PlayerPopulationService(DataRegistry dataRegistry, boolean featureEnabled) {
         this.dataRegistry = Objects.requireNonNull(dataRegistry, "dataRegistry must not be null");
@@ -318,18 +319,11 @@ public final class PlayerPopulationService {
         return network == null ? PopulationBaselineQuality.TRACKED_ONLY : network.getPeakBaselineQuality();
     }
 
-    private static void markPersistedBaselinesUnverified(Session session) {
+    private void markPersistedBaselinesUnverified(Session session) {
+        if (!persistedScopeStateTableExists(session)) {
+            return;
+        }
         session.doWork(connection -> {
-            try (var tables = connection.getMetaData().getTables(
-                    connection.getCatalog(),
-                    null,
-                    SCOPE_STATE_TABLE,
-                    new String[]{"TABLE"}
-            )) {
-                if (!tables.next()) {
-                    return;
-                }
-            }
             try (var statement = connection.prepareStatement(
                     "UPDATE " + SCOPE_STATE_TABLE + " SET membership_baseline_quality = ?, peak_baseline_quality = ? " +
                             "WHERE membership_baseline_quality <> ? OR peak_baseline_quality <> ?"
@@ -342,6 +336,25 @@ public final class PlayerPopulationService {
                 statement.executeUpdate();
             }
         });
+    }
+
+    private boolean persistedScopeStateTableExists(Session session) {
+        Boolean cached = persistedScopeStateTableExists;
+        if (cached != null) {
+            return cached;
+        }
+        boolean exists = session.doReturningWork(connection -> {
+            try (var tables = connection.getMetaData().getTables(
+                    connection.getCatalog(),
+                    null,
+                    SCOPE_STATE_TABLE,
+                    new String[]{"TABLE"}
+            )) {
+                return tables.next();
+            }
+        });
+        persistedScopeStateTableExists = exists;
+        return exists;
     }
 
     private static PopulationScope trackedScope(PopulationResolvedGamemode gamemode) {
