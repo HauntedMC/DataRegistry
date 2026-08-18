@@ -186,10 +186,10 @@ public final class DataRegistryBrigadierCommand {
         source.sendMessage(command("/dr status", "runtime and live-proxy overview"));
         source.sendMessage(command("/dr features", "all built-in feature switches and capabilities"));
         source.sendMessage(command("/dr diagnostics", "durable row counts, open state, and lifecycle health"));
-        source.sendMessage(command(
-                "/dr players <online|recent|inspect <player>|delete <player> confirm>",
-                "durable playerbase, activity, and debugging controls"
-        ));
+        String playersCommand = source.hasPermission(PLAYER_DELETE_PERMISSION)
+                ? "/dr players <online|recent|inspect <player>|delete <player> confirm>"
+                : "/dr players <online|recent|inspect <player>>";
+        source.sendMessage(command(playersCommand, "durable playerbase, activity, and debugging controls"));
         source.sendMessage(command("/dr services [health]", "service registry instances and probe health"));
         source.sendMessage(command("/dr presence repair", "force-refresh durable online status from this proxy"));
         source.sendMessage(command("/dr playtime <status|mappings|flush|reconcile>", "playtime policy controls"));
@@ -485,12 +485,19 @@ public final class DataRegistryBrigadierCommand {
 
     private static String describeFailure(Throwable failure) {
         Throwable current = failure;
-        while (current.getCause() != null && (current instanceof java.util.concurrent.CompletionException
-                || current instanceof java.util.concurrent.ExecutionException)) {
+        while (current.getCause() != null && shouldUnwrapFailure(current)) {
             current = current.getCause();
         }
         String message = current.getMessage();
         return message == null || message.isBlank() ? current.getClass().getSimpleName() : message;
+    }
+
+    private static boolean shouldUnwrapFailure(Throwable failure) {
+        if (failure instanceof java.util.concurrent.CompletionException
+                || failure instanceof java.util.concurrent.ExecutionException) {
+            return true;
+        }
+        return failure.getClass() == RuntimeException.class && "Transaction failed".equals(failure.getMessage());
     }
 
     public interface Handler {
