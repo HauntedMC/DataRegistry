@@ -31,6 +31,7 @@ import java.util.Objects;
 final class DataRegistryConfigIO {
 
     static final String FILE_NAME = "config.yml";
+    static final String BACKUP_FILE_NAME = "config.yml.bak";
 
     private DataRegistryConfigIO() {
     }
@@ -68,7 +69,9 @@ final class DataRegistryConfigIO {
             Node defaultRoot = yaml.compose(new StringReader(packagedConfig));
 
             if (existingRoot == null) {
+                Path backupPath = backupConfig(configPath);
                 writeAtomically(configPath, packagedConfig);
+                logger.info("Backed up previous DataRegistry config to " + backupPath);
                 logger.info("Updated DataRegistry config with missing default settings.");
                 return;
             }
@@ -93,7 +96,9 @@ final class DataRegistryConfigIO {
 
             StringWriter writer = new StringWriter();
             yaml.serialize(existingRoot, writer);
+            Path backupPath = backupConfig(configPath);
             writeAtomically(configPath, writer.toString());
+            logger.info("Backed up previous DataRegistry config to " + backupPath);
             String settingLabel = addedPaths.size() == 1 ? "setting" : "settings";
             logger.info("Updated DataRegistry config with " + addedPaths.size() + " missing default " + settingLabel
                     + ": " + String.join(", ", addedPaths));
@@ -234,6 +239,12 @@ final class DataRegistryConfigIO {
             return scalar.getValue();
         }
         throw new IllegalStateException("Bundled DataRegistry config contains a non-scalar key");
+    }
+
+    private static Path backupConfig(Path configPath) throws IOException {
+        Path backupPath = configPath.resolveSibling(BACKUP_FILE_NAME);
+        Files.copy(configPath, backupPath, StandardCopyOption.REPLACE_EXISTING);
+        return backupPath;
     }
 
     private static void writeAtomically(Path configPath, String content) throws IOException {
