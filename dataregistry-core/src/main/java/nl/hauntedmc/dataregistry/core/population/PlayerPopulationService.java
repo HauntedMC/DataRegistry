@@ -21,6 +21,8 @@ import java.util.Objects;
 /** Applies canonical population mutations inside the authoritative player lifecycle transaction. */
 public final class PlayerPopulationService {
 
+    private static final String SCOPE_STATE_TABLE = "population_scope_state";
+
     private final DataRegistry dataRegistry;
     private final boolean featureEnabled;
 
@@ -31,6 +33,7 @@ public final class PlayerPopulationService {
 
     public void onLogin(Session session, PlayerEntity player, String lifecycleEventId, Instant now) {
         if (!featureEnabled) {
+            markPersistedBaselinesUnverified(session);
             return;
         }
         requirePersisted(player);
@@ -313,6 +316,28 @@ public final class PlayerPopulationService {
                 PopulationScope.network().storageKey()
         );
         return network == null ? PopulationBaselineQuality.TRACKED_ONLY : network.getPeakBaselineQuality();
+    }
+
+    private static void markPersistedBaselinesUnverified(Session session) {
+        session.doWork(connection -> {
+            try (var tables = connection.getMetaData().getTables(
+                    connection.getCatalog(),
+                    null,
+                    SCOPE_STATE_TABLE,
+                    new String[]{"TABLE"}
+            )) {
+                if (!tables.next()) {
+                    return;
+                }
+            }
+            try (var statement = connection.prepareStatement(
+                    "UPDATE " + SCOPE_STATE_TABLE + " SET membership_baseline_quality = ?, peak_baseline_quality = ?"
+            )) {
+                statement.setString(1, PopulationBaselineQuality.TRACKED_ONLY.name());
+                statement.setString(2, PopulationBaselineQuality.TRACKED_ONLY.name());
+                statement.executeUpdate();
+            }
+        });
     }
 
     private static PopulationScope trackedScope(PopulationResolvedGamemode gamemode) {
