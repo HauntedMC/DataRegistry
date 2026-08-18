@@ -343,7 +343,7 @@ public final class PlayerPopulationService {
         if (cached != null) {
             return cached;
         }
-        boolean exists = session.doReturningWork(connection -> {
+        Boolean discovered = session.doReturningWork(connection -> {
             try (var tables = connection.getMetaData().getTables(
                     connection.getCatalog(),
                     null,
@@ -353,6 +353,7 @@ public final class PlayerPopulationService {
                 return tables.next();
             }
         });
+        boolean exists = Boolean.TRUE.equals(discovered);
         persistedScopeStateTableExists = exists;
         return exists;
     }
