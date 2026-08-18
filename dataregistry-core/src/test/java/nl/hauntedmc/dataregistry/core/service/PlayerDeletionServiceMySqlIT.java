@@ -115,6 +115,9 @@ class PlayerDeletionServiceMySqlIT {
             );
             assertThrows(IllegalStateException.class, () -> deletionService.delete(originalIdentity));
 
+            registry.newPlayerService(platformLogger).onPlayerQuit(PLAYER_NAME, PLAYER_UUID.toString());
+            assertThrows(IllegalStateException.class, () -> deletionService.delete(originalIdentity));
+
             assertTrue(writer.transfer(new TransferCommand(
                     "transfer:deletion:1",
                     PLAYER_UUID.toString(),
@@ -134,18 +137,25 @@ class PlayerDeletionServiceMySqlIT {
             )).succeeded());
             registry.newPlayerService(platformLogger).onPlayerQuit(PLAYER_NAME, PLAYER_UUID.toString());
 
-            createExternalPlayerReference(originalIdentity.playerId());
+            createExternalPlayerReferences(originalIdentity.playerId());
             assertEquals(1L, externalReferenceCount(originalIdentity.playerId()));
+            assertEquals(1L, tableRowCount("debug_external_setting_detail"));
+            assertEquals(1L, tableRowCount("debug_external_nullable_settings"));
 
             PlayerDeletionResult result = deletionService.delete(originalIdentity);
 
             assertEquals(originalIdentity, result.deletedIdentity());
             assertTrue(result.deletedDependentRows() > 0);
             assertEquals(1, result.deletedRowsByTable().get("debug_external_player_settings"));
+            assertEquals(1, result.deletedRowsByTable().get("debug_external_setting_detail"));
+            assertEquals(1, result.deletedRowsByTable().get("debug_external_nullable_settings"));
             assertFalse(registry.players().findIdentity(PLAYER_UUID)
                     .toCompletableFuture().get(10, TimeUnit.SECONDS).isPresent());
             assertEquals(0L, externalReferenceCount(originalIdentity.playerId()));
+            assertEquals(0L, tableRowCount("debug_external_setting_detail"));
+            assertEquals(0L, tableRowCount("debug_external_nullable_settings"));
             assertEquals(0L, tablePlayerReferenceCount("player_lifecycle_outbox", originalIdentity.playerId()));
+            assertEquals(0L, tablePlayerReferenceCount("population_transition", originalIdentity.playerId()));
             assertEquals(0L, tablePlayerReferenceCount("player_sessions", originalIdentity.playerId()));
             assertEquals(0L, tablePlayerReferenceCount("player_session_visits", originalIdentity.playerId()));
 
@@ -174,24 +184,57 @@ class PlayerDeletionServiceMySqlIT {
         }
     }
 
-    private void createExternalPlayerReference(long playerId) throws Exception {
+    private void createExternalPlayerReferences(long playerId) throws Exception {
         try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+            statement.executeUpdate("DROP TABLE IF EXISTS debug_external_setting_detail");
+            statement.executeUpdate("DROP TABLE IF EXISTS debug_external_nullable_settings");
             statement.executeUpdate("DROP TABLE IF EXISTS debug_external_player_settings");
             statement.executeUpdate("""
                     CREATE TABLE debug_external_player_settings (
-                        player_id BIGINT NOT NULL PRIMARY KEY,
+                        id BIGINT NOT NULL PRIMARY KEY,
+                        player_id BIGINT NOT NULL,
                         enabled BOOLEAN NOT NULL,
                         CONSTRAINT fk_debug_external_player
                             FOREIGN KEY (player_id) REFERENCES player_entity(id)
                     )
                     """);
+            statement.executeUpdate("""
+                    CREATE TABLE debug_external_setting_detail (
+                        id BIGINT NOT NULL PRIMARY KEY,
+                        setting_id BIGINT NOT NULL,
+                        value_text VARCHAR(32) NOT NULL,
+                        CONSTRAINT fk_debug_external_setting_detail
+                            FOREIGN KEY (setting_id) REFERENCES debug_external_player_settings(id)
+                    )
+                    """);
+            statement.executeUpdate("""
+                    CREATE TABLE debug_external_nullable_settings (
+                        id BIGINT NOT NULL PRIMARY KEY,
+                        player_id BIGINT NULL,
+                        enabled BOOLEAN NOT NULL,
+                        CONSTRAINT fk_debug_external_nullable_player
+                            FOREIGN KEY (player_id) REFERENCES player_entity(id) ON DELETE SET NULL
+                    )
+                    """);
         }
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "INSERT INTO debug_external_player_settings (player_id, enabled) VALUES (?, true)"
-             )) {
-            statement.setLong(1, playerId);
-            assertEquals(1, statement.executeUpdate());
+        try (Connection connection = dataSource.getConnection()) {
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "INSERT INTO debug_external_player_settings (id, player_id, enabled) VALUES (1, ?, true)"
+            )) {
+                statement.setLong(1, playerId);
+                assertEquals(1, statement.executeUpdate());
+            }
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "INSERT INTO debug_external_setting_detail (id, setting_id, value_text) VALUES (1, 1, 'detail')"
+            )) {
+                assertEquals(1, statement.executeUpdate());
+            }
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "INSERT INTO debug_external_nullable_settings (id, player_id, enabled) VALUES (1, ?, true)"
+            )) {
+                statement.setLong(1, playerId);
+                assertEquals(1, statement.executeUpdate());
+            }
         }
     }
 
@@ -200,9 +243,7 @@ class PlayerDeletionServiceMySqlIT {
     }
 
     private long tablePlayerReferenceCount(String table, long playerId) throws Exception {
-        if (!table.matches("[a-z0-9_]+")) {
-            throw new IllegalArgumentException("Unexpected test table name.");
-        }
+        requireTestTableName(table);
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
                      "SELECT COUNT(*) FROM " + table + " WHERE player_id = ?"
@@ -212,6 +253,22 @@ class PlayerDeletionServiceMySqlIT {
                 assertTrue(resultSet.next());
                 return resultSet.getLong(1);
             }
+        }
+    }
+
+    private long tableRowCount(String table) throws Exception {
+        requireTestTableName(table);
+        try (Connection connection = dataSource.getConnection();
+             Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery("SELECT COUNT(*) FROM " + table)) {
+            assertTrue(resultSet.next());
+            return resultSet.getLong(1);
+        }
+    }
+
+    private static void requireTestTableName(String table) {
+        if (!table.matches("[a-z0-9_]+")) {
+            throw new IllegalArgumentException("Unexpected test table name.");
         }
     }
 
