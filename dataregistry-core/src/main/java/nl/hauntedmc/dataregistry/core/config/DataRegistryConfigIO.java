@@ -75,7 +75,7 @@ final class DataRegistryConfigIO {
             if (!(defaultRoot instanceof MappingNode defaultMap)) {
                 throw new IOException("Bundled DataRegistry config root must be a map");
             }
-            if (!mergeMissingDefaults(existingMap, defaultMap)) {
+            if (!mergeMissingDefaults(existingMap, defaultMap, "")) {
                 return;
             }
 
@@ -106,22 +106,58 @@ final class DataRegistryConfigIO {
         }
     }
 
-    private static boolean mergeMissingDefaults(MappingNode existing, MappingNode defaults) {
+    private static boolean mergeMissingDefaults(MappingNode existing, MappingNode defaults, String path) {
         boolean changed = false;
         for (NodeTuple defaultEntry : defaults.getValue()) {
             String key = scalarKey(defaultEntry.getKeyNode());
             NodeTuple existingEntry = findEntry(existing, key);
             if (existingEntry == null) {
-                existing.getValue().add(defaultEntry);
+                existing.getValue().add(compatibleDefaultEntry(existing, defaultEntry, path, key));
                 changed = true;
                 continue;
             }
             if (existingEntry.getValueNode() instanceof MappingNode existingMap
                     && defaultEntry.getValueNode() instanceof MappingNode defaultMap) {
-                changed |= mergeMissingDefaults(existingMap, defaultMap);
+                String childPath = path.isEmpty() ? key : path + "." + key;
+                changed |= mergeMissingDefaults(existingMap, defaultMap, childPath);
             }
         }
         return changed;
+    }
+
+    private static NodeTuple compatibleDefaultEntry(
+            MappingNode existing,
+            NodeTuple defaultEntry,
+            String path,
+            String key
+    ) {
+        if (!"features".equals(path)) {
+            return defaultEntry;
+        }
+
+        Node disabledPrerequisite = switch (key) {
+            case "session-visits", "playtime" -> explicitlyFalseValue(existing, "sessions");
+            case "population" -> explicitlyFalseValue(existing, "online-status", "sessions", "session-visits");
+            default -> null;
+        };
+        if (disabledPrerequisite == null) {
+            return defaultEntry;
+        }
+        return new NodeTuple(defaultEntry.getKeyNode(), disabledPrerequisite);
+    }
+
+    private static Node explicitlyFalseValue(MappingNode mapping, String... keys) {
+        for (String key : keys) {
+            NodeTuple entry = findEntry(mapping, key);
+            if (entry != null && isExplicitlyFalse(entry.getValueNode())) {
+                return entry.getValueNode();
+            }
+        }
+        return null;
+    }
+
+    private static boolean isExplicitlyFalse(Node node) {
+        return node instanceof ScalarNode scalar && "false".equalsIgnoreCase(scalar.getValue().trim());
     }
 
     private static NodeTuple findEntry(MappingNode mapping, String key) {
