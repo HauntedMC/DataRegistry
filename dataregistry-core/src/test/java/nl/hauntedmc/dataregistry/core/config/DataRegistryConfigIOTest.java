@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -64,15 +65,16 @@ class DataRegistryConfigIOTest {
     }
 
     @Test
-    void addMissingDefaultsPreservesOperatorChoicesAndReportsAddedSettings() throws Exception {
+    void addMissingDefaultsPreservesOperatorChoicesReportsAddedSettingsAndCreatesBackup() throws Exception {
         Path configPath = temporaryDirectory.resolve(DataRegistryConfigIO.FILE_NAME);
-        Files.writeString(configPath, """
+        String original = """
                 # keep my comment
                 features:
                   online-status: false
                 playtime:
                   flush-interval-seconds: 45
-                """);
+                """;
+        Files.writeString(configPath, original);
         String template = """
                 features:
                   online-status: true
@@ -90,6 +92,7 @@ class DataRegistryConfigIOTest {
 
         String updated = Files.readString(configPath);
         assertTrue(updated.contains("# keep my comment"));
+        assertEquals(original, Files.readString(temporaryDirectory.resolve(DataRegistryConfigIO.BACKUP_FILE_NAME)));
         Map<?, ?> config = DataRegistryConfigIO.readConfig(configPath, logger);
         Map<?, ?> features = (Map<?, ?>) config.get("features");
         Map<?, ?> playtime = (Map<?, ?>) config.get("playtime");
@@ -99,20 +102,23 @@ class DataRegistryConfigIOTest {
         assertEquals(45, playtime.get("flush-interval-seconds"));
         assertEquals(true, playtime.get("resolve-unknown-servers-as-gamemode"));
         assertEquals(3000, query.get("timeout-millis"));
+        verify(logger).info("Backed up previous DataRegistry config to "
+                + temporaryDirectory.resolve(DataRegistryConfigIO.BACKUP_FILE_NAME));
         verify(logger).info("Updated DataRegistry config with 3 missing default settings: "
                 + "features.population, playtime.resolve-unknown-servers-as-gamemode, query.timeout-millis");
     }
 
     @Test
-    void addMissingDefaultsReportsUnknownSettingsWithoutRemovingThem() throws Exception {
+    void addMissingDefaultsReportsUnknownSettingsWithoutRemovingThemOrRewritingConfig() throws Exception {
         Path configPath = temporaryDirectory.resolve(DataRegistryConfigIO.FILE_NAME);
-        Files.writeString(configPath, """
+        String original = """
                 features:
                   online-status: true
                   online-stauts: false
                 custom-section:
                   custom-value: true
-                """);
+                """;
+        Files.writeString(configPath, original);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
 
         DataRegistryConfigIO.addMissingDefaults(
@@ -123,6 +129,8 @@ class DataRegistryConfigIOTest {
 
         Map<?, ?> config = DataRegistryConfigIO.readConfig(configPath, logger);
         assertTrue(config.containsKey("custom-section"));
+        assertEquals(original, Files.readString(configPath));
+        assertFalse(Files.exists(temporaryDirectory.resolve(DataRegistryConfigIO.BACKUP_FILE_NAME)));
         verify(logger).warn("Unknown DataRegistry config settings are ignored: custom-section, features.online-stauts");
     }
 
@@ -141,6 +149,7 @@ class DataRegistryConfigIOTest {
         );
 
         assertTrue(failure.getMessage().contains(configPath.toString()));
+        assertFalse(Files.exists(temporaryDirectory.resolve(DataRegistryConfigIO.BACKUP_FILE_NAME)));
     }
 
     private static ClassLoader resourceLoader(String template) {
