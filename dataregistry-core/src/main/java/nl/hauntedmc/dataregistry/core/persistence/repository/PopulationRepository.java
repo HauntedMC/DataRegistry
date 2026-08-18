@@ -126,7 +126,10 @@ public final class PopulationRepository extends AbstractRepository<PopulationSco
                     .setParameter("playerId", player.getId())
                     .setMaxResults(1)
                     .uniqueResult();
-            if (activeVisit == null || !normalizedServer.equals(normalizeServer(activeVisit.getServerName()))) {
+            if (activeVisit == null
+                    || activeVisit.getSession() == null
+                    || !Objects.equals(activeVisit.getSession().getId(), activeSession.getId())
+                    || !normalizedServer.equals(normalizeServer(activeVisit.getServerName()))) {
                 return Optional.empty();
             }
 
@@ -135,6 +138,19 @@ public final class PopulationRepository extends AbstractRepository<PopulationSco
             PopulationScopeStateEntity networkState = session.find(PopulationScopeStateEntity.class, networkScope.storageKey());
             if (networkMembership == null || networkState == null) {
                 return Optional.empty();
+            }
+
+            boolean networkFirstJoin = false;
+            if (Objects.equals(networkMembership.getFirstSessionId(), activeSession.getId())) {
+                PlayerSessionVisitEntity firstVisit = session.createQuery(
+                                "SELECT v FROM PlayerSessionVisitEntity v WHERE v.session.id = :sessionId " +
+                                        "ORDER BY v.enteredAt ASC, v.id ASC",
+                                PlayerSessionVisitEntity.class
+                        )
+                        .setParameter("sessionId", activeSession.getId())
+                        .setMaxResults(1)
+                        .uniqueResult();
+                networkFirstJoin = firstVisit != null && Objects.equals(firstVisit.getId(), activeVisit.getId());
             }
 
             Optional<String> gamemodeKey = resolvedGamemode.tracked() && resolvedGamemode.gamemodeKey() != null
@@ -161,7 +177,7 @@ public final class PopulationRepository extends AbstractRepository<PopulationSco
                     identity,
                     normalizedServer,
                     gamemodeKey,
-                    Objects.equals(networkMembership.getFirstSessionId(), activeSession.getId()),
+                    networkFirstJoin,
                     gamemodeFirstJoin,
                     toMembership(networkMembership),
                     gamemodeMembership,
