@@ -38,8 +38,8 @@ privacy, playtime/population mapping, retention, service-registry, and platform 
 Defaults and comments live in [dataregistry-core/src/main/resources/config.yml](dataregistry-core/src/main/resources/config.yml),
 which is the single documented configuration template. On startup, DataRegistry adds settings that are missing from
 an existing config while preserving operator-provided values and comments. Invalid settings warn and fall back to
-their defaults, and unknown keys are ignored. The startup log lists the default paths added during an upgrade, so
-operators can immediately review newly introduced settings.
+their defaults. Unknown settings are preserved, reported by path, and ignored so configuration typos are visible.
+The startup log also lists the default paths added during an upgrade so operators can review newly introduced settings.
 
 The `population` domain is enabled by default. It requires `online-status`, `sessions`, and `session-visits`, which
 provide the canonical presence and visit evidence used by Population. Population does **not** require playtime. It
@@ -53,9 +53,13 @@ The Velocity command `/dataregistry` (alias `/dr`) requires `dataregistry.admin`
 - `/dataregistry status` shows runtime, player-count, and playtime-policy status.
 - `/dataregistry features` lists enabled built-in data domains. Feature changes require a Velocity restart.
 - `/dataregistry diagnostics` compares live and durable presence, reports playerbase/lifecycle state, and shows
-  service-registry totals.
+  service-registry totals. Disabled domains are reported as disabled rather than as misleading zero counts.
 - `/dataregistry players online`, `players recent`, and `players inspect <name-or-uuid>` provide durable playerbase,
-  activity, and profile views.
+  activity, and profile views. Player lists include usernames and internal IDs and clearly indicate when more than
+  the displayed rows exist.
+- `/dataregistry players delete <name-or-uuid> confirm` permanently removes a fully offline canonical player identity
+  and its DataRegistry-owned dependent rows. It requires the additional `dataregistry.admin.players.delete`
+  permission and explicit `confirm`; the player's next join creates a new DataRegistry player ID.
 - `/dataregistry services health` reports effective service/probe health.
 - `/dataregistry presence repair` force-refreshes durable online status from the players connected to this proxy. It
   never marks absent players offline, which keeps it safe for a shared multi-proxy database. Population online
@@ -70,7 +74,8 @@ The Velocity command `/dataregistry` (alias `/dr`) requires `dataregistry.admin`
   while retaining historic playtime and population membership records.
 
 The command deliberately does not live-reload feature flags, database settings, or other non-playtime configuration;
-restart Velocity for those changes.
+restart Velocity for those changes. Commands for disabled domains fail fast instead of running an unavailable backend
+operation.
 
 The Velocity administration command uses the shared `hauntedmc-theme-palette` artifact, which is included in the bundled
 plugin jar and does not add a runtime plugin dependency.
