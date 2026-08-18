@@ -1,5 +1,6 @@
 package nl.hauntedmc.dataregistry.core.service;
 
+import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
@@ -11,7 +12,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,10 +22,10 @@ import java.util.Set;
 /**
  * Permanently removes one offline canonical player identity for administrative/debugging use.
  *
- * <p>The service discovers every direct foreign key exported by {@code player_entity.id} at runtime. This includes
- * feature-owned tables outside DataRegistry, so adding a new player reference does not require maintaining a hardcoded
- * delete list. Restrict/no-action dependencies are removed explicitly in dependency order, while cascade/set-null
- * relationships retain their declared database semantics.</p>
+ * <p>The service discovers the foreign-key graph rooted at {@code player_entity} at runtime. It explicitly removes
+ * every reachable dependent row before deleting the canonical identity, regardless of whether a dependency is declared
+ * as restrict, cascade, or set-null. This keeps feature-owned tables outside DataRegistry reset-safe without maintaining
+ * a hardcoded list of foreign-key dependencies.</p>
  */
 public final class PlayerDeletionService {
 
@@ -33,6 +33,8 @@ public final class PlayerDeletionService {
     private static final String PLAYER_ID_COLUMN = "id";
     private static final String PLAYER_UUID_COLUMN = "uuid";
     private static final String ONLINE_STATUS_TABLE = "player_online_status";
+    private static final int MAX_DEPENDENCY_DEPTH = 32;
+    private static final int MAX_DEPENDENCY_PATHS = 2048;
     private static final List<LogicalPlayerTable> LOGICAL_PLAYER_TABLES = List.of(
             new LogicalPlayerTable("player_lifecycle_outbox", "player_id"),
             new LogicalPlayerTable("population_transition", "player_id")
@@ -49,14 +51,20 @@ public final class PlayerDeletionService {
     }
 
     /**
-     * Deletes an offline player and all rows that directly depend on its canonical player id.
+     * Deletes an offline player and all reachable rows that depend on its canonical identity.
      *
      * @param identity identity resolved immediately before this administrative operation.
      * @return deletion details for staff feedback and diagnostics.
-     * @throws IllegalStateException when the player is active, durably online, stale, or cannot be safely deleted.
+     * @throws IllegalStateException when the player is active, cannot be proven offline, is stale, or cannot be safely
+     *                               deleted.
      */
     public PlayerDeletionResult delete(PlayerIdentity identity) {
         Objects.requireNonNull(identity, "identity must not be null");
+        if (!dataRegistry.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)) {
+            throw new IllegalStateException(
+                    "Online-status tracking must be enabled to safely prove a player is offline before deletion."
+            );
+        }
         String uuid = identity.uuid().toString();
         requireInactive(uuid);
 
@@ -87,38 +95,32 @@ public final class PlayerDeletionService {
         requireInactive(identity.uuid().toString());
         requireDurablyOffline(connection, metadata, playerTable, identity.playerId());
 
-        List<ForeignKeyReference> playerReferences = exportedKeys(metadata, playerTable).stream()
-                .filter(reference -> PLAYER_ID_COLUMN.equalsIgnoreCase(reference.parentColumn()))
-                .toList();
-        validateDependencyNamespace(playerTable, playerReferences);
-
-        List<ForeignKeyReference> explicitReferences = playerReferences.stream()
-                .filter(reference -> requiresExplicitDelete(reference.deleteRule()))
-                .toList();
-        List<TableRef> deletionOrder = orderDependentTables(metadata, explicitReferences);
-        Map<TableRef, List<ForeignKeyReference>> referencesByTable = groupByTable(explicitReferences);
-
         LinkedHashMap<String, Integer> deletedRows = new LinkedHashMap<>();
-        for (TableRef table : deletionOrder) {
-            List<ForeignKeyReference> references = referencesByTable.getOrDefault(table, List.of());
-            for (ForeignKeyReference reference : references) {
-                int deleted = deleteByPlayerId(
-                        connection,
-                        metadata,
-                        reference.table(),
-                        reference.foreignKeyColumn(),
-                        identity.playerId()
-                );
-                mergeDeletedRows(deletedRows, reference.table().name(), deleted);
-            }
-        }
+        deleteDependents(
+                connection,
+                metadata,
+                playerTable,
+                playerTable,
+                PLAYER_ID_COLUMN,
+                identity.playerId(),
+                deletedRows
+        );
 
         for (LogicalPlayerTable logicalTable : LOGICAL_PLAYER_TABLES) {
             TableRef table = resolveTable(metadata, connection, logicalTable.tableName());
             if (table == null || !sameNamespace(playerTable, table)) {
                 continue;
             }
-            int deleted = deleteByPlayerId(
+            deleteDependents(
+                    connection,
+                    metadata,
+                    playerTable,
+                    table,
+                    logicalTable.playerIdColumn(),
+                    identity.playerId(),
+                    deletedRows
+            );
+            int deleted = deleteByColumn(
                     connection,
                     metadata,
                     table,
@@ -176,11 +178,14 @@ public final class PlayerDeletionService {
     ) throws SQLException {
         TableRef onlineStatusTable = resolveTable(metadata, connection, ONLINE_STATUS_TABLE);
         if (onlineStatusTable == null || !sameNamespace(playerTable, onlineStatusTable)) {
-            return;
+            throw new IllegalStateException(
+                    "Durable online-status state is unavailable; refusing to delete a player whose offline state " +
+                            "cannot be proven."
+            );
         }
         String sql = "SELECT " + quoteIdentifier(metadata, "online") +
                 " FROM " + quoteTable(metadata, onlineStatusTable) +
-                " WHERE " + quoteIdentifier(metadata, "player_id") + " = ?";
+                " WHERE " + quoteIdentifier(metadata, "player_id") + " = ? FOR UPDATE";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, playerId);
             try (ResultSet resultSet = statement.executeQuery()) {
@@ -190,6 +195,167 @@ public final class PlayerDeletionService {
                     );
                 }
             }
+        }
+    }
+
+    private static void deleteDependents(
+            Connection connection,
+            DatabaseMetaData metadata,
+            TableRef namespaceRoot,
+            TableRef anchorTable,
+            String anchorColumn,
+            long anchorValue,
+            Map<String, Integer> deletedRows
+    ) throws SQLException {
+        List<DependencyPath> paths = discoverDependencyPaths(metadata, namespaceRoot, anchorTable);
+        for (DependencyPath path : paths) {
+            int deleted = deleteByDependencyPath(
+                    connection,
+                    metadata,
+                    path,
+                    anchorColumn,
+                    anchorValue
+            );
+            mergeDeletedRows(deletedRows, path.target().name(), deleted);
+        }
+    }
+
+    private static List<DependencyPath> discoverDependencyPaths(
+            DatabaseMetaData metadata,
+            TableRef namespaceRoot,
+            TableRef anchorTable
+    ) throws SQLException {
+        List<DependencyPath> paths = new ArrayList<>();
+        Set<TableRef> ancestors = new HashSet<>();
+        ancestors.add(anchorTable);
+        appendDependencyPaths(metadata, namespaceRoot, anchorTable, List.of(), ancestors, paths);
+        paths.sort(Comparator
+                .comparingInt(DependencyPath::depth)
+                .reversed()
+                .thenComparing(DependencyPath::sortKey));
+        return paths;
+    }
+
+    private static void appendDependencyPaths(
+            DatabaseMetaData metadata,
+            TableRef namespaceRoot,
+            TableRef parent,
+            List<ForeignKeyReference> currentPath,
+            Set<TableRef> ancestors,
+            List<DependencyPath> paths
+    ) throws SQLException {
+        if (currentPath.size() >= MAX_DEPENDENCY_DEPTH) {
+            if (!exportedKeys(metadata, parent).isEmpty()) {
+                throw new IllegalStateException(
+                        "Player deletion dependency graph exceeds the supported depth of " + MAX_DEPENDENCY_DEPTH + "."
+                );
+            }
+            return;
+        }
+
+        for (ForeignKeyReference reference : exportedKeys(metadata, parent)) {
+            validateDependencyNamespace(namespaceRoot, reference);
+            if (ancestors.contains(reference.table())) {
+                throw new IllegalStateException(
+                        "Cyclic foreign-key dependency detected while planning player deletion around table '" +
+                                reference.table().name() + "' (constraint " +
+                                Objects.toString(reference.foreignKeyName(), "unknown") + ")."
+                );
+            }
+
+            List<ForeignKeyReference> nextPath = new ArrayList<>(currentPath);
+            nextPath.add(reference);
+            paths.add(new DependencyPath(List.copyOf(nextPath)));
+            if (paths.size() > MAX_DEPENDENCY_PATHS) {
+                throw new IllegalStateException(
+                        "Player deletion dependency graph exceeds the supported path count of " + MAX_DEPENDENCY_PATHS +
+                                "."
+                );
+            }
+
+            Set<TableRef> nextAncestors = new HashSet<>(ancestors);
+            nextAncestors.add(reference.table());
+            appendDependencyPaths(
+                    metadata,
+                    namespaceRoot,
+                    reference.table(),
+                    nextPath,
+                    nextAncestors,
+                    paths
+            );
+        }
+    }
+
+    private static int deleteByDependencyPath(
+            Connection connection,
+            DatabaseMetaData metadata,
+            DependencyPath path,
+            String anchorColumn,
+            long anchorValue
+    ) throws SQLException {
+        TableRef target = path.target();
+        String targetQualifier = quoteIdentifier(metadata, target.name());
+        String sql = "DELETE FROM " + quoteTable(metadata, target) +
+                " WHERE " + buildParentExists(
+                        metadata,
+                        path.references(),
+                        path.references().size() - 1,
+                        targetQualifier,
+                        anchorColumn
+                );
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, anchorValue);
+            return statement.executeUpdate();
+        }
+    }
+
+    private static String buildParentExists(
+            DatabaseMetaData metadata,
+            List<ForeignKeyReference> path,
+            int edgeIndex,
+            String childQualifier,
+            String anchorColumn
+    ) throws SQLException {
+        ForeignKeyReference reference = path.get(edgeIndex);
+        String parentAlias = "dr_parent_" + edgeIndex;
+        StringBuilder sql = new StringBuilder("EXISTS (SELECT 1 FROM ")
+                .append(quoteTable(metadata, reference.parentTable()))
+                .append(' ')
+                .append(parentAlias)
+                .append(" WHERE ");
+        appendJoinPredicate(sql, metadata, reference, childQualifier, parentAlias);
+        if (edgeIndex == 0) {
+            sql.append(" AND ")
+                    .append(parentAlias)
+                    .append('.')
+                    .append(quoteIdentifier(metadata, anchorColumn))
+                    .append(" = ?");
+        } else {
+            sql.append(" AND ")
+                    .append(buildParentExists(metadata, path, edgeIndex - 1, parentAlias, anchorColumn));
+        }
+        return sql.append(')').toString();
+    }
+
+    private static void appendJoinPredicate(
+            StringBuilder sql,
+            DatabaseMetaData metadata,
+            ForeignKeyReference reference,
+            String childQualifier,
+            String parentQualifier
+    ) throws SQLException {
+        for (int index = 0; index < reference.columns().size(); index++) {
+            if (index > 0) {
+                sql.append(" AND ");
+            }
+            ColumnMapping column = reference.columns().get(index);
+            sql.append(childQualifier)
+                    .append('.')
+                    .append(quoteIdentifier(metadata, column.foreignKeyColumn()))
+                    .append(" = ")
+                    .append(parentQualifier)
+                    .append('.')
+                    .append(quoteIdentifier(metadata, column.parentColumn()));
         }
     }
 
@@ -209,101 +375,80 @@ public final class PlayerDeletionService {
         }
     }
 
-    private static int deleteByPlayerId(
+    private static int deleteByColumn(
             Connection connection,
             DatabaseMetaData metadata,
             TableRef table,
-            String playerIdColumn,
-            long playerId
+            String column,
+            long value
     ) throws SQLException {
         String sql = "DELETE FROM " + quoteTable(metadata, table) +
-                " WHERE " + quoteIdentifier(metadata, playerIdColumn) + " = ?";
+                " WHERE " + quoteIdentifier(metadata, column) + " = ?";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setLong(1, playerId);
+            statement.setLong(1, value);
             return statement.executeUpdate();
         }
     }
 
-    private static List<TableRef> orderDependentTables(
-            DatabaseMetaData metadata,
-            List<ForeignKeyReference> references
-    ) throws SQLException {
-        Set<TableRef> tables = new HashSet<>();
-        references.forEach(reference -> tables.add(reference.table()));
-        List<TableRef> sortedRoots = tables.stream()
-                .sorted(Comparator.comparing(TableRef::sortKey))
-                .toList();
-        List<TableRef> ordered = new ArrayList<>();
-        Set<TableRef> visiting = new HashSet<>();
-        Set<TableRef> visited = new HashSet<>();
-        for (TableRef table : sortedRoots) {
-            appendDependentTable(metadata, table, tables, visiting, visited, ordered);
-        }
-        return ordered;
-    }
-
-    private static void appendDependentTable(
-            DatabaseMetaData metadata,
-            TableRef table,
-            Set<TableRef> directPlayerTables,
-            Set<TableRef> visiting,
-            Set<TableRef> visited,
-            List<TableRef> ordered
-    ) throws SQLException {
-        if (visited.contains(table)) {
-            return;
-        }
-        if (!visiting.add(table)) {
-            throw new IllegalStateException(
-                    "Cyclic foreign-key dependency detected while planning player deletion around table '" +
-                            table.name() + "'."
-            );
-        }
-        List<TableRef> dependents = exportedKeys(metadata, table).stream()
-                .map(ForeignKeyReference::table)
-                .filter(directPlayerTables::contains)
-                .distinct()
-                .sorted(Comparator.comparing(TableRef::sortKey))
-                .toList();
-        for (TableRef dependent : dependents) {
-            appendDependentTable(metadata, dependent, directPlayerTables, visiting, visited, ordered);
-        }
-        visiting.remove(table);
-        visited.add(table);
-        ordered.add(table);
-    }
-
-    private static Map<TableRef, List<ForeignKeyReference>> groupByTable(List<ForeignKeyReference> references) {
-        Map<TableRef, List<ForeignKeyReference>> grouped = new HashMap<>();
-        for (ForeignKeyReference reference : references) {
-            grouped.computeIfAbsent(reference.table(), ignored -> new ArrayList<>()).add(reference);
-        }
-        return grouped;
-    }
-
     private static List<ForeignKeyReference> exportedKeys(DatabaseMetaData metadata, TableRef parent) throws SQLException {
-        List<ForeignKeyReference> references = new ArrayList<>();
+        Map<ForeignKeyKey, List<ColumnMapping>> namedReferences = new LinkedHashMap<>();
+        List<ForeignKeyReference> unnamedReferences = new ArrayList<>();
         try (ResultSet resultSet = metadata.getExportedKeys(parent.catalog(), parent.schema(), parent.name())) {
             while (resultSet.next()) {
                 String tableName = resultSet.getString("FKTABLE_NAME");
-                String columnName = resultSet.getString("FKCOLUMN_NAME");
+                String foreignKeyColumn = resultSet.getString("FKCOLUMN_NAME");
                 String parentColumn = resultSet.getString("PKCOLUMN_NAME");
-                if (tableName == null || tableName.isBlank() || columnName == null || columnName.isBlank()) {
+                if (tableName == null || tableName.isBlank()
+                        || foreignKeyColumn == null || foreignKeyColumn.isBlank()
+                        || parentColumn == null || parentColumn.isBlank()) {
                     continue;
                 }
-                references.add(new ForeignKeyReference(
-                        new TableRef(
-                                resultSet.getString("FKTABLE_CAT"),
-                                resultSet.getString("FKTABLE_SCHEM"),
-                                tableName
-                        ),
-                        columnName,
-                        parentColumn,
-                        resultSet.getShort("DELETE_RULE"),
-                        resultSet.getString("FK_NAME")
-                ));
+
+                TableRef childTable = new TableRef(
+                        resultSet.getString("FKTABLE_CAT"),
+                        resultSet.getString("FKTABLE_SCHEM"),
+                        tableName
+                );
+                short keySequence = resultSet.getShort("KEY_SEQ");
+                ColumnMapping mapping = new ColumnMapping(foreignKeyColumn, parentColumn, keySequence);
+                String foreignKeyName = normalizeName(resultSet.getString("FK_NAME"));
+                if (foreignKeyName == null) {
+                    if (keySequence != 1) {
+                        throw new IllegalStateException(
+                                "Unnamed composite foreign key on table '" + childTable.name() +
+                                        "' cannot be safely planned for player deletion."
+                        );
+                    }
+                    unnamedReferences.add(new ForeignKeyReference(
+                            parent,
+                            childTable,
+                            List.of(mapping),
+                            null
+                    ));
+                    continue;
+                }
+                namedReferences.computeIfAbsent(
+                        new ForeignKeyKey(childTable, foreignKeyName),
+                        ignored -> new ArrayList<>()
+                ).add(mapping);
             }
         }
+
+        List<ForeignKeyReference> references = new ArrayList<>();
+        for (Map.Entry<ForeignKeyKey, List<ColumnMapping>> entry : namedReferences.entrySet()) {
+            List<ColumnMapping> columns = new ArrayList<>(entry.getValue());
+            columns.sort(Comparator.comparingInt(ColumnMapping::keySequence));
+            references.add(new ForeignKeyReference(
+                    parent,
+                    entry.getKey().table(),
+                    List.copyOf(columns),
+                    entry.getKey().foreignKeyName()
+            ));
+        }
+        references.addAll(unnamedReferences);
+        references.sort(Comparator
+                .comparing((ForeignKeyReference reference) -> reference.table().sortKey())
+                .thenComparing(reference -> Objects.toString(reference.foreignKeyName(), "")));
         return references;
     }
 
@@ -356,17 +501,12 @@ public final class PlayerDeletionService {
         }
     }
 
-    private static void validateDependencyNamespace(
-            TableRef playerTable,
-            List<ForeignKeyReference> references
-    ) {
-        for (ForeignKeyReference reference : references) {
-            if (!sameNamespace(playerTable, reference.table())) {
-                throw new IllegalStateException(
-                        "Refusing to delete cross-schema player dependency '" + reference.table().name() +
-                                "' (constraint " + Objects.toString(reference.foreignKeyName(), "unknown") + ")."
-                );
-            }
+    private static void validateDependencyNamespace(TableRef namespaceRoot, ForeignKeyReference reference) {
+        if (!sameNamespace(namespaceRoot, reference.table())) {
+            throw new IllegalStateException(
+                    "Refusing to delete cross-schema player dependency '" + reference.table().name() +
+                            "' (constraint " + Objects.toString(reference.foreignKeyName(), "unknown") + ")."
+            );
         }
     }
 
@@ -382,9 +522,12 @@ public final class PlayerDeletionService {
         return right != null && left.equalsIgnoreCase(right);
     }
 
-    private static boolean requiresExplicitDelete(short deleteRule) {
-        return deleteRule != DatabaseMetaData.importedKeyCascade
-                && deleteRule != DatabaseMetaData.importedKeySetNull;
+    private static String normalizeName(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private static String quoteTable(DatabaseMetaData metadata, TableRef table) throws SQLException {
@@ -418,13 +561,62 @@ public final class PlayerDeletionService {
         }
     }
 
+    private record ColumnMapping(String foreignKeyColumn, String parentColumn, short keySequence) {
+        private ColumnMapping {
+            Objects.requireNonNull(foreignKeyColumn, "foreignKeyColumn must not be null");
+            Objects.requireNonNull(parentColumn, "parentColumn must not be null");
+        }
+    }
+
+    private record ForeignKeyKey(TableRef table, String foreignKeyName) {
+        private ForeignKeyKey {
+            Objects.requireNonNull(table, "table must not be null");
+            Objects.requireNonNull(foreignKeyName, "foreignKeyName must not be null");
+        }
+    }
+
     private record ForeignKeyReference(
+            TableRef parentTable,
             TableRef table,
-            String foreignKeyColumn,
-            String parentColumn,
-            short deleteRule,
+            List<ColumnMapping> columns,
             String foreignKeyName
     ) {
+        private ForeignKeyReference {
+            Objects.requireNonNull(parentTable, "parentTable must not be null");
+            Objects.requireNonNull(table, "table must not be null");
+            columns = List.copyOf(Objects.requireNonNull(columns, "columns must not be null"));
+            if (columns.isEmpty()) {
+                throw new IllegalArgumentException("Foreign key columns must not be empty.");
+            }
+        }
+    }
+
+    private record DependencyPath(List<ForeignKeyReference> references) {
+        private DependencyPath {
+            references = List.copyOf(Objects.requireNonNull(references, "references must not be null"));
+            if (references.isEmpty()) {
+                throw new IllegalArgumentException("Dependency path must not be empty.");
+            }
+        }
+
+        private int depth() {
+            return references.size();
+        }
+
+        private TableRef target() {
+            return references.getLast().table();
+        }
+
+        private String sortKey() {
+            StringBuilder key = new StringBuilder();
+            for (ForeignKeyReference reference : references) {
+                key.append(reference.table().sortKey())
+                        .append('#')
+                        .append(Objects.toString(reference.foreignKeyName(), ""))
+                        .append('/');
+            }
+            return key.toString();
+        }
     }
 
     private record LogicalPlayerTable(String tableName, String playerIdColumn) {
