@@ -43,15 +43,15 @@ features:
   activity-summary: true
   sessions: true
   session-visits: true
-  # Canonical network/logical-gamemode population state, memberships, ordinals, online counts, peaks and transitions.
-  # When explicitly enabled, requires online-status, sessions and session-visits; missing prerequisites are enabled at runtime.
-  population: true
   playtime: true
   language: true
   nicknames: true
   name-history: true
-  service-registry: true
+  # Canonical network/logical-gamemode population state, memberships, ordinals, online counts, peaks and transitions.
+  # When explicitly enabled, requires online-status, sessions and session-visits; missing prerequisites are enabled at runtime.
+  population: true
 
+  service-registry: true
 playtime:
   # Applies to: Velocity.
   # Population reuses these server-to-gamemode mapping rules rather than maintaining a duplicate mapping configuration.
