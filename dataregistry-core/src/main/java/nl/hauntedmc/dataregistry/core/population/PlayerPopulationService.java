@@ -72,7 +72,6 @@ public final class PlayerPopulationService {
             Instant now
     ) {
         if (!featureEnabled) {
-            markPersistedBaselinesUnverified(session);
             return;
         }
         requirePersisted(player);
@@ -153,7 +152,6 @@ public final class PlayerPopulationService {
 
     public void onDisconnect(Session session, PlayerEntity player, Instant now) {
         if (!featureEnabled) {
-            markPersistedBaselinesUnverified(session);
             return;
         }
         requirePersisted(player);
@@ -333,10 +331,14 @@ public final class PlayerPopulationService {
                 }
             }
             try (var statement = connection.prepareStatement(
-                    "UPDATE " + SCOPE_STATE_TABLE + " SET membership_baseline_quality = ?, peak_baseline_quality = ?"
+                    "UPDATE " + SCOPE_STATE_TABLE + " SET membership_baseline_quality = ?, peak_baseline_quality = ? " +
+                            "WHERE membership_baseline_quality <> ? OR peak_baseline_quality <> ?"
             )) {
-                statement.setString(1, PopulationBaselineQuality.TRACKED_ONLY.name());
-                statement.setString(2, PopulationBaselineQuality.TRACKED_ONLY.name());
+                String trackedOnly = PopulationBaselineQuality.TRACKED_ONLY.name();
+                statement.setString(1, trackedOnly);
+                statement.setString(2, trackedOnly);
+                statement.setString(3, trackedOnly);
+                statement.setString(4, trackedOnly);
                 statement.executeUpdate();
             }
         });
