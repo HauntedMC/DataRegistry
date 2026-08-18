@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -82,14 +83,7 @@ class DataRegistryConfigIOTest {
                 query:
                   timeout-millis: 3000
                 """;
-        ClassLoader resourceLoader = new ClassLoader() {
-            @Override
-            public java.io.InputStream getResourceAsStream(String name) {
-                return DataRegistryConfigIO.FILE_NAME.equals(name)
-                        ? new ByteArrayInputStream(template.getBytes(StandardCharsets.UTF_8))
-                        : null;
-            }
-        };
+        ClassLoader resourceLoader = resourceLoader(template);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
 
         DataRegistryConfigIO.addMissingDefaults(configPath, resourceLoader, logger);
@@ -107,5 +101,56 @@ class DataRegistryConfigIOTest {
         assertEquals(3000, query.get("timeout-millis"));
         verify(logger).info("Updated DataRegistry config with 3 missing default settings: "
                 + "features.population, playtime.resolve-unknown-servers-as-gamemode, query.timeout-millis");
+    }
+
+    @Test
+    void addMissingDefaultsReportsUnknownSettingsWithoutRemovingThem() throws Exception {
+        Path configPath = temporaryDirectory.resolve(DataRegistryConfigIO.FILE_NAME);
+        Files.writeString(configPath, """
+                features:
+                  online-status: true
+                  online-stauts: false
+                custom-section:
+                  custom-value: true
+                """);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+
+        DataRegistryConfigIO.addMissingDefaults(
+                configPath,
+                resourceLoader("features:\n  online-status: true\n"),
+                logger
+        );
+
+        Map<?, ?> config = DataRegistryConfigIO.readConfig(configPath, logger);
+        assertTrue(config.containsKey("custom-section"));
+        verify(logger).warn("Unknown DataRegistry config settings are ignored: custom-section, features.online-stauts");
+    }
+
+    @Test
+    void addMissingDefaultsReportsMalformedYamlWithConfigPath() throws Exception {
+        Path configPath = temporaryDirectory.resolve(DataRegistryConfigIO.FILE_NAME);
+        Files.writeString(configPath, "features: [\n");
+
+        IllegalStateException failure = assertThrows(
+                IllegalStateException.class,
+                () -> DataRegistryConfigIO.addMissingDefaults(
+                        configPath,
+                        resourceLoader("features:\n  online-status: true\n"),
+                        mock(ILoggerAdapter.class)
+                )
+        );
+
+        assertTrue(failure.getMessage().contains(configPath.toString()));
+    }
+
+    private static ClassLoader resourceLoader(String template) {
+        return new ClassLoader() {
+            @Override
+            public java.io.InputStream getResourceAsStream(String name) {
+                return DataRegistryConfigIO.FILE_NAME.equals(name)
+                        ? new ByteArrayInputStream(template.getBytes(StandardCharsets.UTF_8))
+                        : null;
+            }
+        };
     }
 }

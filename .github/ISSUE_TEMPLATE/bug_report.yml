@@ -121,6 +121,14 @@ body:
     validations:
       required: false
   - type: textarea
+    id: diagnostics
+    attributes:
+      label: Velocity Diagnostics (Optional)
+      description: If relevant, paste the output of `/dr diagnostics` from the affected Velocity proxy.
+      render: shell
+    validations:
+      required: false
+  - type: textarea
     id: logs
     attributes:
       label: Relevant Logs or Stacktrace (Optional)

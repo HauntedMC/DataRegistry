@@ -5,6 +5,7 @@ import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
+import org.yaml.snakeyaml.error.YAMLException;
 import org.yaml.snakeyaml.nodes.MappingNode;
 import org.yaml.snakeyaml.nodes.Node;
 import org.yaml.snakeyaml.nodes.NodeTuple;
@@ -77,6 +78,14 @@ final class DataRegistryConfigIO {
             if (!(defaultRoot instanceof MappingNode defaultMap)) {
                 throw new IOException("Bundled DataRegistry config root must be a map");
             }
+
+            List<String> unknownPaths = new ArrayList<>();
+            collectUnknownSettings(existingMap, defaultMap, "", unknownPaths);
+            if (!unknownPaths.isEmpty()) {
+                unknownPaths.sort(String::compareTo);
+                logger.warn("Unknown DataRegistry config settings are ignored: " + String.join(", ", unknownPaths));
+            }
+
             List<String> addedPaths = new ArrayList<>();
             if (!mergeMissingDefaults(existingMap, defaultMap, "", addedPaths)) {
                 return;
@@ -88,6 +97,8 @@ final class DataRegistryConfigIO {
             String settingLabel = addedPaths.size() == 1 ? "setting" : "settings";
             logger.info("Updated DataRegistry config with " + addedPaths.size() + " missing default " + settingLabel
                     + ": " + String.join(", ", addedPaths));
+        } catch (YAMLException exception) {
+            throw new IllegalStateException("Failed to parse DataRegistry config file at " + configPath, exception);
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to update DataRegistry config file at " + configPath, exception);
         }
@@ -106,8 +117,34 @@ final class DataRegistryConfigIO {
             }
             logger.warn("Invalid root YAML node in " + FILE_NAME + ". Expected a map; using defaults.");
             return Map.of();
+        } catch (YAMLException exception) {
+            throw new IllegalStateException("Failed to parse DataRegistry config file at " + configPath, exception);
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to load DataRegistry config file at " + configPath, exception);
+        }
+    }
+
+    private static void collectUnknownSettings(
+            MappingNode existing,
+            MappingNode defaults,
+            String path,
+            List<String> unknownPaths
+    ) {
+        for (NodeTuple existingEntry : existing.getValue()) {
+            if (!(existingEntry.getKeyNode() instanceof ScalarNode scalar)) {
+                continue;
+            }
+            String key = scalar.getValue();
+            String entryPath = path.isEmpty() ? key : path + "." + key;
+            NodeTuple defaultEntry = findEntry(defaults, key);
+            if (defaultEntry == null) {
+                unknownPaths.add(entryPath);
+                continue;
+            }
+            if (existingEntry.getValueNode() instanceof MappingNode existingMap
+                    && defaultEntry.getValueNode() instanceof MappingNode defaultMap) {
+                collectUnknownSettings(existingMap, defaultMap, entryPath, unknownPaths);
+            }
         }
     }
 

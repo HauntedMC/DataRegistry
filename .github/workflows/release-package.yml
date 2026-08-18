@@ -52,6 +52,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: platform-acceptance-logs
+          retention-days: 7
           if-no-files-found: warn
           path: |
             ${{ runner.temp }}/dataregistry-platform-acceptance/runner.log
@@ -64,6 +65,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: dataregistry-platform-jars
+          retention-days: 7
           if-no-files-found: error
           path: |
             dataregistry-platform-paper/target/dataregistry-platform-paper-${{ steps.release-version.outputs.value }}-bundled.jar
