@@ -123,8 +123,9 @@ final class DataRegistryConfigIO {
             String entryPath = path.isEmpty() ? key : path + "." + key;
             NodeTuple existingEntry = findEntry(existing, key);
             if (existingEntry == null) {
-                existing.getValue().add(compatibleDefaultEntry(existing, defaultEntry, path, key));
-                addedPaths.add(entryPath);
+                NodeTuple compatibleEntry = compatibleDefaultEntry(existing, defaultEntry, path, key);
+                existing.getValue().add(compatibleEntry);
+                collectSettingPaths(compatibleEntry.getValueNode(), entryPath, addedPaths);
                 changed = true;
                 continue;
             }
@@ -134,6 +135,17 @@ final class DataRegistryConfigIO {
             }
         }
         return changed;
+    }
+
+    private static void collectSettingPaths(Node node, String path, List<String> paths) {
+        if (node instanceof MappingNode mapping && !mapping.getValue().isEmpty()) {
+            for (NodeTuple entry : mapping.getValue()) {
+                String childPath = path + "." + scalarKey(entry.getKeyNode());
+                collectSettingPaths(entry.getValueNode(), childPath, paths);
+            }
+            return;
+        }
+        paths.add(path);
     }
 
     private static NodeTuple compatibleDefaultEntry(
