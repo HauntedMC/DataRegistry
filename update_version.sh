@@ -4,6 +4,7 @@ set -euo pipefail
 readonly POM_FILE="pom.xml"
 readonly API_POM_FILE="dataregistry-api/pom.xml"
 readonly VELOCITY_FILE="dataregistry-platform-velocity/src/main/java/nl/hauntedmc/dataregistry/platform/velocity/VelocityDataRegistry.java"
+readonly MAVEN_WRAPPER="./mvnw"
 readonly VERSION_PROPERTY="revision"
 
 die() {
@@ -32,7 +33,7 @@ require_clean_worktree() {
 resolve_maven_version() {
   local version
   version="$(
-    mvn -q -ntp -DforceStdout help:evaluate -Dexpression=project.version \
+    "$MAVEN_WRAPPER" -q -ntp -DforceStdout help:evaluate -Dexpression=project.version \
       | awk '/^[0-9]+\.[0-9]+\.[0-9]+$/ { print; exit }'
   )"
   [[ -n "$version" ]] || die "Unable to resolve a release semantic version from Maven."
@@ -42,7 +43,7 @@ resolve_maven_version() {
 resolve_api_version() {
   local version
   version="$(
-    mvn -q -ntp -pl dataregistry-api -DforceStdout help:evaluate -Dexpression=project.version \
+    "$MAVEN_WRAPPER" -q -ntp -pl dataregistry-api -DforceStdout help:evaluate -Dexpression=project.version \
       | awk '/^[0-9]+\.[0-9]+\.[0-9]+$/ { print; exit }'
   )"
   [[ -n "$version" ]] || die "Unable to resolve a release semantic version for the API module."
@@ -123,14 +124,14 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   die "This script must be run inside a git repository."
 fi
 
-command -v mvn >/dev/null 2>&1 || die "Maven (mvn) is required."
-
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 require_file "$POM_FILE"
 require_file "$API_POM_FILE"
 require_file "$VELOCITY_FILE"
+require_file "$MAVEN_WRAPPER"
+[[ -x "$MAVEN_WRAPPER" ]] || die "Maven wrapper is not executable: ${MAVEN_WRAPPER}"
 require_clean_worktree
 
 bump_type="$1"
@@ -151,7 +152,8 @@ echo "Current version: ${current_version}"
 echo "Bumping to: ${new_version}"
 
 # The root POM's revision property is the single source of truth for every module.
-mvn -B -ntp versions:set-property -Dproperty="${VERSION_PROPERTY}" -DnewVersion="${new_version}" -DgenerateBackupPoms=false
+"$MAVEN_WRAPPER" -B -ntp versions:set-property -Dproperty="${VERSION_PROPERTY}" -DnewVersion="${new_version}" \
+  -DgenerateBackupPoms=false
 
 resolved_after_bump="$(resolve_maven_version)"
 [[ "$resolved_after_bump" == "$new_version" ]] || {
