@@ -7,6 +7,7 @@ import nl.hauntedmc.dataregistry.api.population.PopulationScope;
 import nl.hauntedmc.dataregistry.api.population.PopulationScopeType;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEventType;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPopulationMembershipEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PopulationScopeStateEntity;
 
@@ -56,16 +57,19 @@ public final class PopulationMigrationService {
             );
 
             boolean networkVersionUpdated = networkState.getBackfillVersion() < BACKFILL_VERSION;
+            boolean untrackedLifecycleGap = hasLoginAfter(session, networkState.getUpdatedAt());
             long networkAdded = backfillNetworkMemberships(session, networkState, now);
             if (networkAdded > 0L) {
                 networkState.setMembershipBaselineQuality(PopulationBaselineQuality.TRACKED_ONLY);
+            }
+            if (networkAdded > 0L || untrackedLifecycleGap) {
                 networkState.setPeakBaselineQuality(PopulationBaselineQuality.TRACKED_ONLY);
                 downgradeExistingGamemodeBaselines(session, now);
             }
             if (networkVersionUpdated) {
                 networkState.setBackfillVersion(BACKFILL_VERSION);
             }
-            if (networkVersionUpdated || networkAdded > 0L) {
+            if (networkVersionUpdated || networkAdded > 0L || untrackedLifecycleGap) {
                 networkState.setUpdatedAt(now);
             }
 
@@ -78,9 +82,23 @@ public final class PopulationMigrationService {
                     networkAdded,
                     gamemode.added(),
                     networkState.getMembershipBaselineQuality(),
-                    networkVersionUpdated || networkAdded > 0L || gamemode.applied()
+                    networkVersionUpdated || networkAdded > 0L || untrackedLifecycleGap || gamemode.applied()
             );
         });
+    }
+
+    private static boolean hasLoginAfter(org.hibernate.Session session, Instant lastPopulationUpdate) {
+        if (lastPopulationUpdate == null) {
+            return false;
+        }
+        return session.createQuery(
+                        "SELECT COUNT(o) FROM PlayerLifecycleOutboxEntity o " +
+                                "WHERE o.eventType = :eventType AND o.occurredAt > :lastPopulationUpdate",
+                        Long.class
+                )
+                .setParameter("eventType", PlayerLifecycleOutboxEventType.LOGIN)
+                .setParameter("lastPopulationUpdate", lastPopulationUpdate)
+                .getSingleResult() > 0L;
     }
 
     private static void downgradeExistingGamemodeBaselines(org.hibernate.Session session, Instant now) {
