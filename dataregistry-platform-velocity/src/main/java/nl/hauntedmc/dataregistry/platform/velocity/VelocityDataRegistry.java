@@ -92,6 +92,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
     static final long SERVICE_REGISTRY_SHUTDOWN_TIMEOUT_SECONDS = 2L;
     static final long SERVICE_PROBE_SHUTDOWN_TIMEOUT_SECONDS = 2L;
     static final long LIFECYCLE_OUTBOX_RETENTION_SHUTDOWN_TIMEOUT_SECONDS = 2L;
+    private static final int ADMIN_COMMAND_LIST_FETCH_LIMIT = 21;
 
     private final ProxyServer proxyServer;
     private final Logger logger;
@@ -656,26 +657,52 @@ public class VelocityDataRegistry implements PlatformPlugin {
         if (!settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)) {
             return CompletableFuture.completedFuture(List.of());
         }
-        return runtimeDataRegistry().players().findOnlinePlayers(20)
-                .thenApply(players -> players.stream()
-                        .map(player -> new DataRegistryBrigadierCommand.OnlinePlayer(
-                                player.playerId(),
-                                player.currentServer()
-                        ))
-                        .toList());
+        return runtimeDataRegistry().players().findOnlinePlayers(ADMIN_COMMAND_LIST_FETCH_LIMIT)
+                .thenCompose(players -> resolveCommandUsernames(players.stream()
+                        .map(player -> player.playerId())
+                        .toList())
+                        .thenApply(usernames -> players.stream()
+                                .map(player -> new DataRegistryBrigadierCommand.OnlinePlayer(
+                                        player.playerId(),
+                                        usernames.get(player.playerId()),
+                                        player.currentServer()
+                                ))
+                                .toList()));
     }
 
     private java.util.concurrent.CompletionStage<List<DataRegistryBrigadierCommand.RecentPlayer>> listCommandRecentPlayers() {
         if (!settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)) {
             return CompletableFuture.completedFuture(List.of());
         }
-        return runtimeDataRegistry().players().findRecentlySeen(20)
-                .thenApply(players -> players.stream()
-                        .map(player -> new DataRegistryBrigadierCommand.RecentPlayer(
-                                player.playerId(),
-                                player.lastSeenAt()
-                        ))
-                        .toList());
+        return runtimeDataRegistry().players().findRecentlySeen(ADMIN_COMMAND_LIST_FETCH_LIMIT)
+                .thenCompose(players -> resolveCommandUsernames(players.stream()
+                        .map(player -> player.playerId())
+                        .toList())
+                        .thenApply(usernames -> players.stream()
+                                .map(player -> new DataRegistryBrigadierCommand.RecentPlayer(
+                                        player.playerId(),
+                                        usernames.get(player.playerId()),
+                                        player.lastSeenAt()
+                                ))
+                                .toList()));
+    }
+
+    private java.util.concurrent.CompletionStage<Map<Long, String>> resolveCommandUsernames(List<Long> playerIds) {
+        if (playerIds.isEmpty()) {
+            return CompletableFuture.completedFuture(Map.of());
+        }
+        List<PlayerLookup> lookups = playerIds.stream()
+                .distinct()
+                .map(PlayerLookup::playerId)
+                .toList();
+        return runtimeDataRegistry().players().findIdentities(lookups).thenApply(identities -> {
+            Map<Long, String> usernames = new LinkedHashMap<>();
+            for (PlayerLookup lookup : lookups) {
+                identities.getOrDefault(lookup, Optional.empty())
+                        .ifPresent(identity -> usernames.put(lookup.playerId(), identity.username()));
+            }
+            return Map.copyOf(usernames);
+        });
     }
 
     private java.util.concurrent.CompletionStage<Optional<PlayerDeletionResult>> deletePlayerFromCommand(
