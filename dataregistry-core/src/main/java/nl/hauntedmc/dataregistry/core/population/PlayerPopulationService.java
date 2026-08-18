@@ -72,6 +72,7 @@ public final class PlayerPopulationService {
             Instant now
     ) {
         if (!featureEnabled) {
+            markPersistedBaselinesUnverified(session);
             return;
         }
         requirePersisted(player);
@@ -152,6 +153,7 @@ public final class PlayerPopulationService {
 
     public void onDisconnect(Session session, PlayerEntity player, Instant now) {
         if (!featureEnabled) {
+            markPersistedBaselinesUnverified(session);
             return;
         }
         requirePersisted(player);
