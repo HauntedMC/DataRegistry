@@ -298,7 +298,10 @@ class DataRegistryBrigadierCommandTest {
         return new DataRegistryBrigadierCommand.Handler() {
             @Override
             public DataRegistryBrigadierCommand.Status status() {
-                return status(Set.of(DataRegistryFeature.ONLINE_STATUS.configKey()), false);
+                return DataRegistryBrigadierCommandTest.status(
+                        Set.of(DataRegistryFeature.ONLINE_STATUS.configKey()),
+                        false
+                );
             }
 
             @Override
@@ -322,7 +325,7 @@ class DataRegistryBrigadierCommandTest {
         return new DataRegistryBrigadierCommand.Handler() {
             @Override
             public DataRegistryBrigadierCommand.Status status() {
-                return status(Set.of(), false);
+                return DataRegistryBrigadierCommandTest.status(Set.of(), false);
             }
 
             @Override
