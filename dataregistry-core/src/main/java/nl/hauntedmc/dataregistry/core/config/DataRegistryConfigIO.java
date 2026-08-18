@@ -1,13 +1,21 @@
 package nl.hauntedmc.dataregistry.core.config;
 
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
+import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
+import org.yaml.snakeyaml.nodes.MappingNode;
+import org.yaml.snakeyaml.nodes.Node;
+import org.yaml.snakeyaml.nodes.NodeTuple;
+import org.yaml.snakeyaml.nodes.ScalarNode;
+import org.yaml.snakeyaml.representer.Representer;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
+import java.io.StringReader;
+import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -16,7 +24,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.Map;
 import java.util.Objects;
 
-/** Reads {@code config.yml} safely and copies the packaged template on first run. */
+/** Reads {@code config.yml} safely and keeps it aligned with the packaged defaults. */
 final class DataRegistryConfigIO {
 
     static final String FILE_NAME = "config.yml";
@@ -42,6 +50,44 @@ final class DataRegistryConfigIO {
         }
     }
 
+    static void addMissingDefaults(Path configPath, ClassLoader resourceLoader, ILoggerAdapter logger) {
+        Objects.requireNonNull(configPath, "configPath must not be null");
+        Objects.requireNonNull(resourceLoader, "resourceLoader must not be null");
+        Objects.requireNonNull(logger, "logger must not be null");
+
+        try {
+            String packagedConfig = readPackagedConfig(resourceLoader);
+            Yaml yaml = createCommentPreservingYaml();
+            Node existingRoot;
+            try (Reader reader = Files.newBufferedReader(configPath, StandardCharsets.UTF_8)) {
+                existingRoot = yaml.compose(reader);
+            }
+            Node defaultRoot = yaml.compose(new StringReader(packagedConfig));
+
+            if (existingRoot == null) {
+                writeAtomically(configPath, packagedConfig);
+                logger.info("Updated DataRegistry config with missing default settings.");
+                return;
+            }
+            if (!(existingRoot instanceof MappingNode existingMap)) {
+                return;
+            }
+            if (!(defaultRoot instanceof MappingNode defaultMap)) {
+                throw new IOException("Bundled DataRegistry config root must be a map");
+            }
+            if (!mergeMissingDefaults(existingMap, defaultMap, "")) {
+                return;
+            }
+
+            StringWriter writer = new StringWriter();
+            yaml.serialize(existingRoot, writer);
+            writeAtomically(configPath, writer.toString());
+            logger.info("Updated DataRegistry config with missing default settings.");
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to update DataRegistry config file at " + configPath, exception);
+        }
+    }
+
     static Map<?, ?> readConfig(Path configPath, ILoggerAdapter logger) {
         Objects.requireNonNull(configPath, "configPath must not be null");
         Objects.requireNonNull(logger, "logger must not be null");
@@ -58,6 +104,76 @@ final class DataRegistryConfigIO {
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to load DataRegistry config file at " + configPath, exception);
         }
+    }
+
+    private static boolean mergeMissingDefaults(MappingNode existing, MappingNode defaults, String path) {
+        boolean changed = false;
+        for (NodeTuple defaultEntry : defaults.getValue()) {
+            String key = scalarKey(defaultEntry.getKeyNode());
+            NodeTuple existingEntry = findEntry(existing, key);
+            if (existingEntry == null) {
+                existing.getValue().add(compatibleDefaultEntry(existing, defaultEntry, path, key));
+                changed = true;
+                continue;
+            }
+            if (existingEntry.getValueNode() instanceof MappingNode existingMap
+                    && defaultEntry.getValueNode() instanceof MappingNode defaultMap) {
+                String childPath = path.isEmpty() ? key : path + "." + key;
+                changed |= mergeMissingDefaults(existingMap, defaultMap, childPath);
+            }
+        }
+        return changed;
+    }
+
+    private static NodeTuple compatibleDefaultEntry(
+            MappingNode existing,
+            NodeTuple defaultEntry,
+            String path,
+            String key
+    ) {
+        if (!"features".equals(path)) {
+            return defaultEntry;
+        }
+
+        Node disabledPrerequisite = switch (key) {
+            case "session-visits", "playtime" -> explicitlyFalseValue(existing, "sessions");
+            case "population" -> explicitlyFalseValue(existing, "online-status", "sessions", "session-visits");
+            default -> null;
+        };
+        if (disabledPrerequisite == null) {
+            return defaultEntry;
+        }
+        return new NodeTuple(defaultEntry.getKeyNode(), disabledPrerequisite);
+    }
+
+    private static Node explicitlyFalseValue(MappingNode mapping, String... keys) {
+        for (String key : keys) {
+            NodeTuple entry = findEntry(mapping, key);
+            if (entry != null && isExplicitlyFalse(entry.getValueNode())) {
+                return entry.getValueNode();
+            }
+        }
+        return null;
+    }
+
+    private static boolean isExplicitlyFalse(Node node) {
+        return node instanceof ScalarNode scalar && "false".equalsIgnoreCase(scalar.getValue().trim());
+    }
+
+    private static NodeTuple findEntry(MappingNode mapping, String key) {
+        for (NodeTuple entry : mapping.getValue()) {
+            if (entry.getKeyNode() instanceof ScalarNode scalar && key.equals(scalar.getValue())) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
+    private static String scalarKey(Node keyNode) {
+        if (keyNode instanceof ScalarNode scalar) {
+            return scalar.getValue();
+        }
+        throw new IllegalStateException("Bundled DataRegistry config contains a non-scalar key");
     }
 
     private static void writeAtomically(Path configPath, String content) throws IOException {
@@ -85,20 +201,43 @@ final class DataRegistryConfigIO {
     }
 
     private static Yaml createSafeYaml() {
+        return new Yaml(new SafeConstructor(createLoaderOptions()));
+    }
+
+    private static Yaml createCommentPreservingYaml() {
+        LoaderOptions loaderOptions = createLoaderOptions();
+        loaderOptions.setProcessComments(true);
+        DumperOptions dumperOptions = new DumperOptions();
+        dumperOptions.setProcessComments(true);
+        dumperOptions.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
+        dumperOptions.setIndent(2);
+        return new Yaml(
+                new SafeConstructor(loaderOptions),
+                new Representer(dumperOptions),
+                dumperOptions,
+                loaderOptions
+        );
+    }
+
+    private static LoaderOptions createLoaderOptions() {
         LoaderOptions options = new LoaderOptions();
         options.setAllowDuplicateKeys(false);
         options.setMaxAliasesForCollections(20);
         options.setNestingDepthLimit(50);
         options.setCodePointLimit(2_000_000);
-        return new Yaml(new SafeConstructor(options));
+        return options;
     }
 
     private static void writeInitialConfig(Path configPath, ClassLoader resourceLoader) throws IOException {
+        writeAtomically(configPath, readPackagedConfig(resourceLoader));
+    }
+
+    private static String readPackagedConfig(ClassLoader resourceLoader) throws IOException {
         try (InputStream input = resourceLoader.getResourceAsStream(FILE_NAME)) {
             if (input == null) {
                 throw new IOException("Missing bundled DataRegistry config resource: " + FILE_NAME);
             }
-            writeAtomically(configPath, new String(input.readAllBytes(), StandardCharsets.UTF_8));
+            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
         }
     }
 }

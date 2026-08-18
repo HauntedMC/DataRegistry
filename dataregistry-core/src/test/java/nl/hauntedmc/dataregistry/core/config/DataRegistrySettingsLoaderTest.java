@@ -273,7 +273,7 @@ class DataRegistrySettingsLoaderTest {
     }
 
     @Test
-    void loadNeverRewritesExistingOperatorConfig() throws Exception {
+    void loadAddsMissingPackagedDefaultsWithoutOverwritingExistingValues() throws Exception {
         Path configFile = temporaryDirectory.resolve("config.yml");
         String existing = """
                 # custom operator comment must survive
@@ -290,19 +290,28 @@ class DataRegistrySettingsLoaderTest {
                   playtime: false
                 """;
         Files.writeString(configFile, existing);
+        RecordingLogger logger = new RecordingLogger();
 
         DataRegistrySettings settings = new DataRegistrySettingsLoader().load(
                 temporaryDirectory,
                 getClass().getClassLoader(),
-                new RecordingLogger()
+                logger
         );
 
-        assertEquals(existing, Files.readString(configFile));
+        String updated = Files.readString(configFile);
+        assertTrue(updated.contains("# custom operator comment must survive"));
+        assertTrue(updated.contains("connection-id: players-main"));
+        assertTrue(updated.contains("old-or-plugin-specific-section:"));
+        assertTrue(updated.contains("keep-me: true"));
+        assertTrue(updated.contains("services:"));
+        assertTrue(updated.contains("lifecycle:"));
+        assertTrue(updated.contains("write-max-attempts: 3"));
         assertEquals("players-main", settings.playerDatabaseConnectionId());
         assertEquals(DataRegistrySettings.defaults().serviceDatabaseConnectionId(), settings.serviceDatabaseConnectionId());
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.POPULATION));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME));
+        assertTrue(logger.infoMessages.stream().anyMatch(message -> message.contains("Updated DataRegistry config")));
     }
 
     @Test
@@ -324,7 +333,7 @@ class DataRegistrySettingsLoaderTest {
     }
 
     @Test
-    void configuredPlaytimeCollectionsRemainStableAcrossLoadsWithoutRewriting() throws Exception {
+    void configuredPlaytimeCollectionsRemainStableAfterConfigUpgrade() throws Exception {
         Path configFile = temporaryDirectory.resolve("config.yml");
         String existing = """
                 # preserve formatting too
@@ -342,9 +351,11 @@ class DataRegistrySettingsLoaderTest {
         RecordingLogger logger = new RecordingLogger();
 
         DataRegistrySettings first = loader.load(temporaryDirectory, getClass().getClassLoader(), logger);
+        String afterFirstLoad = Files.readString(configFile);
         DataRegistrySettings second = loader.load(temporaryDirectory, getClass().getClassLoader(), logger);
 
-        assertEquals(existing, Files.readString(configFile));
+        assertEquals(afterFirstLoad, Files.readString(configFile));
+        assertTrue(afterFirstLoad.contains("# preserve formatting too"));
         assertEquals(first.playtimeTrackingSettings().ignoredGamemodes(), second.playtimeTrackingSettings().ignoredGamemodes());
         assertEquals(
                 first.playtimeTrackingSettings().excludedFromNetworkTotalGamemodes(),
