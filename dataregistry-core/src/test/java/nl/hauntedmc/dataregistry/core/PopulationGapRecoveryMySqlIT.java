@@ -36,6 +36,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -194,6 +195,36 @@ class PopulationGapRecoveryMySqlIT {
             assertEquals("survival", context.serverName());
             assertTrue(context.networkFirstJoinThisSession());
             assertTrue(context.gamemodeFirstJoinThisVisit());
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
+    void networkFirstJoinIsLimitedToFirstVisitOfFirstSession() throws Exception {
+        DataRegistry registry = newRegistry(DataRegistrySettings.builder()
+                .ormSchemaMode("update")
+                .playtimeTrackingSettings(MAPPING)
+                .build());
+        UUID uuid = UUID.fromString("60000000-0000-0000-0000-000000000004");
+        try {
+            assertTrue(registry.initialize());
+            PlayerLifecycleWriter writer = registry.newPlayerLifecycleWriter(mock(ILoggerAdapter.class));
+            writeJoin(writer, uuid, "FirstVisit", "survival-1");
+
+            var initial = registry.population().findJoinContext(uuid, "survival-1")
+                    .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow();
+            assertTrue(initial.networkFirstJoinThisSession());
+            assertTrue(initial.gamemodeFirstJoinThisVisit());
+
+            assertTrue(writer.transfer(TransferCommand.create(
+                    uuid.toString(), "FirstVisit", "survival-2"
+            )).succeeded());
+
+            var switched = registry.population().findJoinContext(uuid, "survival-2")
+                    .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow();
+            assertFalse(switched.networkFirstJoinThisSession());
+            assertFalse(switched.gamemodeFirstJoinThisVisit());
         } finally {
             registry.shutdown();
         }
