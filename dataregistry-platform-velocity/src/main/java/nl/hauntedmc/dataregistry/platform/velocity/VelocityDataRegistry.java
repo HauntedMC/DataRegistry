@@ -995,6 +995,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
         } catch (RuntimeException exception) {
             logger.error("Service registry backend probe pass failed.", exception);
         } finally {
+            // Retention must continue even if Velocity has no backends to probe or one probe pass fails.
             purgeStaleProbesIfDue(registryService, retentionHours, purgeIntervalHours);
             purgeStoppedServiceInstancesIfDue(registryService);
         }
@@ -1175,6 +1176,8 @@ public class VelocityDataRegistry implements PlatformPlugin {
     }
 
     private void stopServiceRegistryLifecycle() {
+        // Await an already-running heartbeat before recording STOPPED. Otherwise that heartbeat can commit
+        // afterwards and incorrectly reactivate this instance.
         shutdownServiceRegistryHeartbeatExecutor();
         shutdownServiceRegistryProbeExecutor();
         ServiceRegistryService registryService = serviceRegistryService;
