@@ -160,6 +160,45 @@ class PopulationGapRecoveryMySqlIT {
         }
     }
 
+    @Test
+    void rawBackendNameUsesCanonicalPersistedRepresentationEverywhere() throws Exception {
+        String rawServerName = "SURVIVAL-extra";
+        PlaytimeTrackingSettings mapping = PlaytimeTrackingSettings.builder()
+                .resolveUnknownServersAsGamemode(false)
+                .serverGamemodeRules(List.of(
+                        new PlaytimeTrackingSettings.ServerGamemodeRule("survival", "survival")
+                ))
+                .build();
+        DataRegistry registry = newRegistry(DataRegistrySettings.builder()
+                .ormSchemaMode("update")
+                .serverNameMaxLength(8)
+                .playtimeTrackingSettings(mapping)
+                .build());
+        UUID uuid = UUID.fromString("60000000-0000-0000-0000-000000000003");
+        try {
+            assertTrue(registry.initialize());
+            writeJoin(registry.newPlayerLifecycleWriter(mock(ILoggerAdapter.class)), uuid, "Canonical", rawServerName);
+
+            var resolved = registry.population().resolveGamemode(rawServerName)
+                    .toCompletableFuture().get(10, TimeUnit.SECONDS);
+            assertEquals("survival", resolved.serverName());
+            assertEquals("survival", resolved.gamemodeKey());
+            assertTrue(resolved.tracked());
+
+            var survival = registry.population().findSnapshot(PopulationScope.gamemode("survival"))
+                    .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow();
+            assertEquals(1L, survival.currentOnline());
+
+            var context = registry.population().findJoinContext(uuid, rawServerName)
+                    .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow();
+            assertEquals("survival", context.serverName());
+            assertTrue(context.networkFirstJoinThisSession());
+            assertTrue(context.gamemodeFirstJoinThisVisit());
+        } finally {
+            registry.shutdown();
+        }
+    }
+
     private static void writeJoin(PlayerLifecycleWriter writer, UUID uuid, String username, String serverName) {
         assertTrue(writer.login(LoginCommand.create(uuid.toString(), username, null, null)).succeeded());
         assertTrue(writer.transfer(TransferCommand.create(uuid.toString(), username, serverName)).succeeded());
