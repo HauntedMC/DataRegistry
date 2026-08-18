@@ -337,6 +337,26 @@ public class PlayerStatusListener {
     }
 
     /**
+     * Runs destructive player maintenance under the same per-player lock as lifecycle and playtime writes.
+     * The action is allowed only after this proxy has fully drained local state for the UUID.
+     */
+    public <T> T runOfflinePlayerMaintenance(String uuid, Supplier<T> action) {
+        Objects.requireNonNull(uuid, "uuid must not be null");
+        Objects.requireNonNull(action, "action must not be null");
+        return playerWriteCoordinator.execute(uuid, () -> {
+            if (currentPlayerConnections.containsKey(uuid)
+                    || retainedCommands.hasPendingCommand(uuid)
+                    || playerEventPipelines.containsKey(uuid)
+                    || disconnectsAwaitingReconciliation.contains(uuid)) {
+                throw new IllegalStateException(
+                        "Player has an active or pending lifecycle operation and must be fully offline before maintenance."
+                );
+            }
+            return withPlaytimePolicyReadLock(action);
+        });
+    }
+
+    /**
      * Enqueues a lightweight playtime accrual flush for currently active players.
      */
     public void flushActivePlaytime() {
