@@ -24,7 +24,7 @@ tables and should reference players by the stable scalar `playerId`.
 - Java 25
 - Maven 3.8.6+
 - Docker, for the container-backed and platform-acceptance suites
-- DataProvider `3.1.8`
+- DataProvider `3.1.16`
 - Velocity `4.1.0-SNAPSHOT` and/or Paper `26.2`
 
 Configure both the shell `JAVA_HOME` and the IDE Maven runner/importer to Java 25. The build deliberately rejects
@@ -36,10 +36,10 @@ Start the server once to generate `plugins/DataRegistry/config.yml`, then review
 privacy, playtime/population mapping, retention, service-registry, and platform sections.
 
 Defaults and comments live in [dataregistry-core/src/main/resources/config.yml](dataregistry-core/src/main/resources/config.yml),
-which is the single documented configuration template. DataRegistry never rewrites an existing operator config on
-startup. Missing settings use the runtime defaults, invalid settings warn and fall back to their defaults, and unknown
-keys are ignored. Delete/regenerate the file after an upgrade if you want a fresh copy of the latest documented
-template.
+which is the single documented configuration template. On startup, DataRegistry adds settings that are missing from
+an existing config while preserving operator-provided values and comments. Invalid settings warn and fall back to
+their defaults, and unknown keys are ignored. The startup log lists the default paths added during an upgrade, so
+operators can immediately review newly introduced settings.
 
 The `population` domain is enabled by default. It requires `online-status`, `sessions`, and `session-visits`, which
 provide the canonical presence and visit evidence used by Population. Population does **not** require playtime. It
@@ -83,7 +83,7 @@ Depend only on `dataregistry-api` as `provided` (replace the version with the re
 <dependency>
   <groupId>nl.hauntedmc.dataregistry</groupId>
   <artifactId>dataregistry-api</artifactId>
-  <version>1.14.0</version>
+  <version>1.14.2</version>
   <scope>provided</scope>
 </dependency>
 ```
