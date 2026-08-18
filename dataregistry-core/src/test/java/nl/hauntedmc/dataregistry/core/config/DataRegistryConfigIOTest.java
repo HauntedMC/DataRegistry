@@ -8,6 +8,7 @@ import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -95,12 +96,16 @@ class DataRegistryConfigIOTest {
 
         String updated = Files.readString(configPath);
         assertTrue(updated.contains("# keep my comment"));
-        assertTrue(updated.contains("online-status: false"));
-        assertTrue(updated.contains("population: false"));
-        assertTrue(updated.contains("flush-interval-seconds: 45"));
-        assertTrue(updated.contains("resolve-unknown-servers-as-gamemode: true"));
-        assertTrue(updated.contains("timeout-millis: 3000"));
+        Map<?, ?> config = DataRegistryConfigIO.readConfig(configPath, logger);
+        Map<?, ?> features = (Map<?, ?>) config.get("features");
+        Map<?, ?> playtime = (Map<?, ?>) config.get("playtime");
+        Map<?, ?> query = (Map<?, ?>) config.get("query");
+        assertEquals(false, features.get("online-status"));
+        assertEquals(false, features.get("population"));
+        assertEquals(45, playtime.get("flush-interval-seconds"));
+        assertEquals(true, playtime.get("resolve-unknown-servers-as-gamemode"));
+        assertEquals(3000, query.get("timeout-millis"));
         verify(logger).info("Updated DataRegistry config with 3 missing default settings: "
-                + "features.population, playtime.resolve-unknown-servers-as-gamemode, query");
+                + "features.population, playtime.resolve-unknown-servers-as-gamemode, query.timeout-millis");
     }
 }
