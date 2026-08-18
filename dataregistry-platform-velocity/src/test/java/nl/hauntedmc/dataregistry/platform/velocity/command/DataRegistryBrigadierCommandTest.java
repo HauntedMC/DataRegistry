@@ -128,7 +128,7 @@ class DataRegistryBrigadierCommandTest {
 
         assertEquals(1, dispatcher.execute("dataregistry players delete Alice confirm", source));
         assertEquals(1, deleteCalls.get());
-        verify(source, times(9)).sendMessage(org.mockito.ArgumentMatchers.any());
+        verify(source, times(10)).sendMessage(org.mockito.ArgumentMatchers.any());
     }
 
     private static CommandDispatcher<CommandSource> dispatcher(DataRegistryBrigadierCommand.Handler handler) {
@@ -202,11 +202,6 @@ class DataRegistryBrigadierCommandTest {
                 return CompletableFuture.completedFuture(List.of(
                         new DataRegistryBrigadierCommand.RecentPlayer(1L, Instant.now())
                 ));
-            }
-
-            @Override
-            public CompletableFuture<PlayerDeletionResult> unsupportedDeletion() {
-                return null;
             }
 
             @Override
