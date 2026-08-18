@@ -28,6 +28,8 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceProbeStatus;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerLifecycleOutboxRepository;
 import nl.hauntedmc.dataregistry.core.service.PlayerActivitySummaryService;
 import nl.hauntedmc.dataregistry.core.service.PlayerConnectionInfoService;
+import nl.hauntedmc.dataregistry.core.service.PlayerDeletionResult;
+import nl.hauntedmc.dataregistry.core.service.PlayerDeletionService;
 import nl.hauntedmc.dataregistry.core.service.PlayerNameHistoryService;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerLifecycleWriter;
 import nl.hauntedmc.dataregistry.core.playtime.PlaytimeGamemodeResolver;
@@ -549,6 +551,13 @@ public class VelocityDataRegistry implements PlatformPlugin {
                     }
 
                     @Override
+                    public java.util.concurrent.CompletionStage<Optional<PlayerDeletionResult>> deletePlayer(
+                            String identifier
+                    ) {
+                        return deletePlayerFromCommand(identifier);
+                    }
+
+                    @Override
                     public java.util.concurrent.CompletionStage<List<DataRegistryBrigadierCommand.ServiceHealth>> services() {
                         return listCommandServiceHealth();
                     }
@@ -667,6 +676,41 @@ public class VelocityDataRegistry implements PlatformPlugin {
                                 player.lastSeenAt()
                         ))
                         .toList());
+    }
+
+    private java.util.concurrent.CompletionStage<Optional<PlayerDeletionResult>> deletePlayerFromCommand(
+            String identifier
+    ) {
+        DataRegistry registry = runtimeDataRegistry();
+        return registry.players().findIdentityByIdentifier(identifier).thenCompose(identity -> {
+            if (identity.isEmpty()) {
+                return CompletableFuture.completedFuture(Optional.empty());
+            }
+            ensureAdminCommandExecutor();
+            return CompletableFuture.supplyAsync(() -> {
+                var resolvedIdentity = identity.get();
+                if (proxyServer.getPlayer(resolvedIdentity.uuid()).isPresent()) {
+                    throw new IllegalStateException("Player is currently connected and must be offline before deletion.");
+                }
+                PlayerStatusListener listener = playerStatusListener;
+                if (listener == null) {
+                    throw new IllegalStateException("Player lifecycle listener is unavailable.");
+                }
+                return listener.runOfflinePlayerMaintenance(resolvedIdentity.uuid().toString(), () -> {
+                    if (proxyServer.getPlayer(resolvedIdentity.uuid()).isPresent()) {
+                        throw new IllegalStateException(
+                                "Player connected while deletion was being prepared; no data was deleted."
+                        );
+                    }
+                    PlayerDeletionService deletionService = new PlayerDeletionService(
+                            registry,
+                            registry.newPlayerService(getPlatformLogger()),
+                            getPlatformLogger()
+                    );
+                    return Optional.of(deletionService.delete(resolvedIdentity));
+                });
+            }, adminCommandExecutor);
+        });
     }
 
     private java.util.concurrent.CompletionStage<List<DataRegistryBrigadierCommand.ServiceHealth>> listCommandServiceHealth() {

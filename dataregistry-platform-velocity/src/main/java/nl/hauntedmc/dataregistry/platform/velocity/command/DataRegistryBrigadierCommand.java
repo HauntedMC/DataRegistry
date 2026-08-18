@@ -11,6 +11,7 @@ import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.api.player.PlayerProfile;
 import nl.hauntedmc.dataregistry.api.player.PlayerProfileResult;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlaytimePolicyReconciliationResult;
+import nl.hauntedmc.dataregistry.core.service.PlayerDeletionResult;
 import nl.hauntedmc.dataregistry.core.service.PlayerPresenceRepairResult;
 import nl.hauntedmc.theme.HauntedMcColor;
 
@@ -18,6 +19,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -28,6 +30,7 @@ import java.util.stream.Collectors;
 public final class DataRegistryBrigadierCommand {
 
     public static final String PERMISSION = "dataregistry.admin";
+    public static final String PLAYER_DELETE_PERMISSION = "dataregistry.admin.players.delete";
     private static final int MAX_ROWS_TO_DISPLAY = 20;
     private static final TextColor BRAND = HauntedMcColor.BRAND.textColor();
     private static final TextColor ACCENT = HauntedMcColor.ACCENT.textColor();
@@ -101,7 +104,25 @@ public final class DataRegistryBrigadierCommand {
                                     runAsync(context.getSource(), "Loading player profile", handler.playerProfile(identifier),
                                             DataRegistryBrigadierCommand::sendPlayerProfile);
                                     return Command.SINGLE_SUCCESS;
-                                })));
+                                })))
+                .then(BrigadierCommand.literalArgumentBuilder("delete")
+                        .requires(source -> source.hasPermission(PLAYER_DELETE_PERMISSION))
+                        .then(BrigadierCommand.requiredArgumentBuilder("player", StringArgumentType.word())
+                                .executes(context -> sendPlayerDeleteConfirmation(
+                                        context.getSource(),
+                                        StringArgumentType.getString(context, "player")
+                                ))
+                                .then(BrigadierCommand.literalArgumentBuilder("confirm")
+                                        .executes(context -> {
+                                            String identifier = StringArgumentType.getString(context, "player");
+                                            runAsync(
+                                                    context.getSource(),
+                                                    "Deleting offline player identity",
+                                                    handler.deletePlayer(identifier),
+                                                    DataRegistryBrigadierCommand::sendPlayerDeletion
+                                            );
+                                            return Command.SINGLE_SUCCESS;
+                                        }))));
     }
 
     private static LiteralArgumentBuilder<CommandSource> servicesCommand(Handler handler) {
@@ -165,7 +186,10 @@ public final class DataRegistryBrigadierCommand {
         source.sendMessage(command("/dr status", "runtime and live-proxy overview"));
         source.sendMessage(command("/dr features", "all built-in feature switches and capabilities"));
         source.sendMessage(command("/dr diagnostics", "durable row counts, open state, and lifecycle health"));
-        source.sendMessage(command("/dr players <online|recent|inspect <player>>", "durable playerbase and activity views"));
+        String playersCommand = source.hasPermission(PLAYER_DELETE_PERMISSION)
+                ? "/dr players <online|recent|inspect <player>|delete <player> confirm>"
+                : "/dr players <online|recent|inspect <player>>";
+        source.sendMessage(command(playersCommand, "durable playerbase, activity, and debugging controls"));
         source.sendMessage(command("/dr services [health]", "service registry instances and probe health"));
         source.sendMessage(command("/dr presence repair", "force-refresh durable online status from this proxy"));
         source.sendMessage(command("/dr playtime <status|mappings|flush|reconcile>", "playtime policy controls"));
@@ -268,6 +292,38 @@ public final class DataRegistryBrigadierCommand {
         )));
         source.sendMessage(field("Name history", profile.nameHistory().isEmpty()
                 ? "none" : profile.nameHistory().size() + " stored entry/entries", MUTED));
+    }
+
+    private static int sendPlayerDeleteConfirmation(CommandSource source, String identifier) {
+        header(source, "Delete player identity");
+        source.sendMessage(field("Player", identifier, WARNING));
+        source.sendMessage(note("This permanently removes the canonical identity and its dependent player rows."));
+        source.sendMessage(command(
+                "/dr players delete " + identifier + " confirm",
+                "confirm permanent deletion; the player must be fully offline"
+        ));
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private static void sendPlayerDeletion(CommandSource source, Optional<PlayerDeletionResult> deletion) {
+        if (deletion.isEmpty()) {
+            source.sendMessage(error("No DataRegistry player identity was found."));
+            return;
+        }
+        PlayerDeletionResult result = deletion.get();
+        header(source, "Player identity deleted");
+        source.sendMessage(field(
+                "Player",
+                result.deletedIdentity().username() + " (#" + result.deletedIdentity().playerId() + ")",
+                SUCCESS
+        ));
+        source.sendMessage(field("UUID", result.deletedIdentity().uuid().toString(), ACCENT));
+        source.sendMessage(field(
+                "Dependent rows",
+                result.deletedDependentRows() + " across " + result.deletedTableCount() + " table(s)",
+                ACCENT
+        ));
+        source.sendMessage(note("The next join will create a new DataRegistry player identity and player ID."));
     }
 
     private static void sendServices(CommandSource source, List<ServiceHealth> services) {
@@ -429,12 +485,19 @@ public final class DataRegistryBrigadierCommand {
 
     private static String describeFailure(Throwable failure) {
         Throwable current = failure;
-        while (current.getCause() != null && (current instanceof java.util.concurrent.CompletionException
-                || current instanceof java.util.concurrent.ExecutionException)) {
+        while (current.getCause() != null && shouldUnwrapFailure(current)) {
             current = current.getCause();
         }
         String message = current.getMessage();
         return message == null || message.isBlank() ? current.getClass().getSimpleName() : message;
+    }
+
+    private static boolean shouldUnwrapFailure(Throwable failure) {
+        if (failure instanceof java.util.concurrent.CompletionException
+                || failure instanceof java.util.concurrent.ExecutionException) {
+            return true;
+        }
+        return failure.getClass() == RuntimeException.class && "Transaction failed".equals(failure.getMessage());
     }
 
     public interface Handler {
@@ -459,6 +522,10 @@ public final class DataRegistryBrigadierCommand {
 
         default CompletionStage<PlayerProfileResult> playerProfile(String identifier) {
             return CompletableFuture.failedFuture(new UnsupportedOperationException("Player profiles are unavailable."));
+        }
+
+        default CompletionStage<Optional<PlayerDeletionResult>> deletePlayer(String identifier) {
+            return CompletableFuture.failedFuture(new UnsupportedOperationException("Player deletion is unavailable."));
         }
 
         default CompletionStage<List<ServiceHealth>> services() {
