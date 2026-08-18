@@ -3,7 +3,7 @@
 ## Development Standards
 
 - Java: `25`
-- Build tool: `Maven 3.8.6+`
+- Build tool: Maven Wrapper (`./mvnw`; Maven 3.8.6+ is enforced by the build)
 - Required fast quality gate before merge: `./mvnw -B -ntp verify`
 - Required database gate for persistence changes:
   `./mvnw -B -ntp -Pintegration-tests verify`
@@ -37,6 +37,7 @@ Data domains can be disabled in `config.yml` under `features`:
 - `language`
 - `nicknames`
 - `name-history`
+- `population`
 - `service-registry`
 
 When a feature is disabled:
