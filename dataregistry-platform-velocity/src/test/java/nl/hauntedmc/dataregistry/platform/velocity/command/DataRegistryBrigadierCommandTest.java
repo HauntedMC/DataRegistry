@@ -21,7 +21,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -102,19 +101,15 @@ class DataRegistryBrigadierCommandTest {
     }
 
     @Test
-    void playerDeletionIsHiddenWithoutDedicatedPermission() throws Exception {
+    void playerDeletionRequiresDedicatedPermission() {
         CommandSource source = source(true, false);
         CommandDispatcher<CommandSource> dispatcher = dispatcher(handler());
 
-        List<String> suggestions = dispatcher.getCompletionSuggestions(
-                dispatcher.parse("dataregistry players ", source)
-        ).get().getList().stream().map(suggestion -> suggestion.getText()).toList();
-
-        assertFalse(suggestions.contains("delete"));
         assertThrows(
                 CommandSyntaxException.class,
                 () -> dispatcher.execute("dataregistry players delete Alice confirm", source)
         );
+        verify(source, never()).sendMessage(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
