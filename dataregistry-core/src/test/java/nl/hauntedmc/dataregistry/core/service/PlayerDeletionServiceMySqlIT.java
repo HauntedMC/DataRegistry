@@ -33,6 +33,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -116,7 +117,18 @@ class PlayerDeletionServiceMySqlIT {
             assertThrows(IllegalStateException.class, () -> deletionService.delete(originalIdentity));
 
             registry.newPlayerService(platformLogger).onPlayerQuit(PLAYER_NAME, PLAYER_UUID.toString());
-            assertThrows(IllegalStateException.class, () -> deletionService.delete(originalIdentity));
+            RuntimeException durableOnlineFailure = assertThrows(
+                    RuntimeException.class,
+                    () -> deletionService.delete(originalIdentity)
+            );
+            IllegalStateException durableOnlineCause = assertInstanceOf(
+                    IllegalStateException.class,
+                    durableOnlineFailure.getCause()
+            );
+            assertEquals(
+                    "Player is marked online in durable DataRegistry state and cannot be deleted.",
+                    durableOnlineCause.getMessage()
+            );
 
             assertTrue(writer.transfer(new TransferCommand(
                     "transfer:deletion:1",
