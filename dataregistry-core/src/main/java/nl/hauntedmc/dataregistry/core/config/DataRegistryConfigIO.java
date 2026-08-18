@@ -21,6 +21,8 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -75,14 +77,17 @@ final class DataRegistryConfigIO {
             if (!(defaultRoot instanceof MappingNode defaultMap)) {
                 throw new IOException("Bundled DataRegistry config root must be a map");
             }
-            if (!mergeMissingDefaults(existingMap, defaultMap, "")) {
+            List<String> addedPaths = new ArrayList<>();
+            if (!mergeMissingDefaults(existingMap, defaultMap, "", addedPaths)) {
                 return;
             }
 
             StringWriter writer = new StringWriter();
             yaml.serialize(existingRoot, writer);
             writeAtomically(configPath, writer.toString());
-            logger.info("Updated DataRegistry config with missing default settings.");
+            String settingLabel = addedPaths.size() == 1 ? "setting" : "settings";
+            logger.info("Updated DataRegistry config with " + addedPaths.size() + " missing default " + settingLabel
+                    + ": " + String.join(", ", addedPaths));
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to update DataRegistry config file at " + configPath, exception);
         }
@@ -106,20 +111,26 @@ final class DataRegistryConfigIO {
         }
     }
 
-    private static boolean mergeMissingDefaults(MappingNode existing, MappingNode defaults, String path) {
+    private static boolean mergeMissingDefaults(
+            MappingNode existing,
+            MappingNode defaults,
+            String path,
+            List<String> addedPaths
+    ) {
         boolean changed = false;
         for (NodeTuple defaultEntry : defaults.getValue()) {
             String key = scalarKey(defaultEntry.getKeyNode());
+            String entryPath = path.isEmpty() ? key : path + "." + key;
             NodeTuple existingEntry = findEntry(existing, key);
             if (existingEntry == null) {
                 existing.getValue().add(compatibleDefaultEntry(existing, defaultEntry, path, key));
+                addedPaths.add(entryPath);
                 changed = true;
                 continue;
             }
             if (existingEntry.getValueNode() instanceof MappingNode existingMap
                     && defaultEntry.getValueNode() instanceof MappingNode defaultMap) {
-                String childPath = path.isEmpty() ? key : path + "." + key;
-                changed |= mergeMissingDefaults(existingMap, defaultMap, childPath);
+                changed |= mergeMissingDefaults(existingMap, defaultMap, entryPath, addedPaths);
             }
         }
         return changed;
