@@ -162,6 +162,55 @@ class PopulationGapRecoveryMySqlIT {
     }
 
     @Test
+    void loginWhilePopulationDisabledInvalidatesVerifiedBaselinesWithoutNewPlayer() throws Exception {
+        UUID uuid = UUID.fromString("60000000-0000-0000-0000-000000000005");
+        DataRegistry original = newRegistry(DataRegistrySettings.builder()
+                .ormSchemaMode("update")
+                .playtimeTrackingSettings(MAPPING)
+                .build());
+        try {
+            assertTrue(original.initialize());
+            writeJoin(original.newPlayerLifecycleWriter(mock(ILoggerAdapter.class)), uuid, "Existing", "survival-1");
+        } finally {
+            original.shutdown();
+        }
+
+        DataRegistry disabled = newRegistry(DataRegistrySettings.builder()
+                .ormSchemaMode("update")
+                .playtimeTrackingSettings(MAPPING)
+                .disableFeature(DataRegistryFeature.POPULATION)
+                .disableFeature(DataRegistryFeature.PLAYTIME)
+                .build());
+        try {
+            assertTrue(disabled.initialize());
+            assertTrue(disabled.newPlayerLifecycleWriter(mock(ILoggerAdapter.class))
+                    .login(LoginCommand.create(uuid.toString(), "Existing", null, null)).succeeded());
+        } finally {
+            disabled.shutdown();
+        }
+
+        DataRegistry recovered = newRegistry(DataRegistrySettings.builder()
+                .ormSchemaMode("update")
+                .playtimeTrackingSettings(MAPPING)
+                .disableFeature(DataRegistryFeature.PLAYTIME)
+                .build());
+        try {
+            assertTrue(recovered.initialize());
+            var network = recovered.population().findNetworkSnapshot().toCompletableFuture()
+                    .get(10, TimeUnit.SECONDS).orElseThrow();
+            var survival = recovered.population().findSnapshot(PopulationScope.gamemode("survival"))
+                    .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow();
+            assertEquals(1L, network.uniquePlayerCount());
+            assertEquals(PopulationBaselineQuality.TRACKED_ONLY, network.membershipBaselineQuality());
+            assertEquals(PopulationBaselineQuality.TRACKED_ONLY, network.peakBaselineQuality());
+            assertEquals(PopulationBaselineQuality.TRACKED_ONLY, survival.membershipBaselineQuality());
+            assertEquals(PopulationBaselineQuality.TRACKED_ONLY, survival.peakBaselineQuality());
+        } finally {
+            recovered.shutdown();
+        }
+    }
+
+    @Test
     void rawBackendNameUsesCanonicalPersistedRepresentationEverywhere() throws Exception {
         String rawServerName = "SURVIVAL-extra";
         PlaytimeTrackingSettings mapping = PlaytimeTrackingSettings.builder()
