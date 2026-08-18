@@ -1,6 +1,7 @@
 package nl.hauntedmc.dataregistry.api;
 
 import nl.hauntedmc.dataregistry.api.player.PlayerData;
+import nl.hauntedmc.dataregistry.api.population.PopulationData;
 import nl.hauntedmc.dataregistry.api.service.FeatureServiceDirectory;
 
 import java.util.Set;
@@ -14,28 +15,21 @@ import java.util.Set;
  */
 public interface DataRegistryApi {
 
-    /**
-     * Returns the player-facing domain facade.
-     */
+    /** Returns the player-facing domain facade. */
     PlayerData players();
 
-    /**
-     * Returns the catalog of feature-owned public service interfaces.
-     */
+    /** Returns canonical network and logical-gamemode population state. */
+    PopulationData population();
+
+    /** Returns the catalog of feature-owned public service interfaces. */
     FeatureServiceDirectory featureServices();
 
-    /**
-     * Returns the enabled built-in capabilities for this runtime.
-     */
+    /** Returns the enabled built-in capabilities for this runtime. */
     Set<DataRegistryFeature> enabledFeatures();
 
-    /**
-     * Returns whether a built-in capability is enabled.
-     */
+    /** Returns whether a built-in capability is enabled. */
     boolean supports(DataRegistryFeature feature);
 
-    /**
-     * Returns whether the public facade is ready to serve requests.
-     */
+    /** Returns whether the public facade is ready to serve requests. */
     boolean isReady();
 }

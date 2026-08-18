@@ -4,18 +4,19 @@ DataRegistry is HauntedMC's shared read/write boundary for canonical player iden
 player metadata on Velocity and Paper.
 
 It owns player creation, username updates, active identity state, connection metadata, language and nickname
-preferences, playtime summaries, and name history. Feature plugins own their own tables and should reference
-players by the stable scalar `playerId`.
+preferences, playtime summaries, population membership and counters, and name history. Feature plugins own their own
+tables and should reference players by the stable scalar `playerId`.
 
 ## Runtime
 
-- Velocity is the authoritative writer for joins, switches, disconnects, sessions, connection info, and probes.
+- Velocity is the authoritative writer for joins, switches, disconnects, sessions, connection info, population state,
+  and probes.
 - Paper prepares backend identity state and exposes the same read APIs to Paper features.
 - DataProvider supplies database connections and ORM bootstrap.
 - Hibernate automatically applies additive schema updates by default.
 - On Velocity startup, stale player presence from an unclean shutdown is reconciled before periodic flushing starts.
-  Open sessions, visits, playtime segments, and online flags are closed from the last durable activity timestamp instead
-  of from startup time.
+  Open sessions, visits, playtime segments, online flags, and derived population online counters are reconciled from
+  durable state instead of inventing activity after the last known event.
 - On Velocity shutdown, queued player lifecycle writes are drained before active players are persisted offline.
 
 ## Requirements
@@ -32,10 +33,18 @@ Java 26 or newer until the bundled DataProvider/Hibernate stack is qualified for
 ## Configuration
 
 Start the server once to generate `plugins/DataRegistry/config.yml`, then review the database, feature,
-privacy, playtime, service-registry, and platform sections.
+privacy, playtime/population mapping, retention, service-registry, and platform sections.
 
-Defaults and comments live in [dataregistry-core/src/main/resources/config.yml](dataregistry-core/src/main/resources/config.yml). Missing supported
-keys are restored on load and stale keys are removed.
+Defaults and comments live in [dataregistry-core/src/main/resources/config.yml](dataregistry-core/src/main/resources/config.yml),
+which is the single documented configuration template. DataRegistry never rewrites an existing operator config on
+startup. Missing settings use the runtime defaults, invalid settings warn and fall back to their defaults, and unknown
+keys are ignored. Delete/regenerate the file after an upgrade if you want a fresh copy of the latest documented
+template.
+
+The `population` domain is enabled by default. It requires `online-status`, `sessions`, and `session-visits`, which
+provide the canonical presence and visit evidence used by Population. Population does **not** require playtime. It
+reuses the existing `playtime.server-gamemode-rules`, ignored-gamemode policy, and unknown-server resolution so the
+network has one server-to-logical-gamemode mapping rather than two competing mapping systems.
 
 ## Velocity administration
 
@@ -49,15 +58,16 @@ The Velocity command `/dataregistry` (alias `/dr`) requires `dataregistry.admin`
   activity, and profile views.
 - `/dataregistry services health` reports effective service/probe health.
 - `/dataregistry presence repair` force-refreshes durable online status from the players connected to this proxy. It
-  never marks absent players offline, which keeps it safe for a shared multi-proxy database.
+  never marks absent players offline, which keeps it safe for a shared multi-proxy database. Population online
+  aggregates are reconciled from the resulting canonical status rows.
 - `/dataregistry playtime status` shows the active flush interval plus ignored and network-total-excluded keys.
 - `/dataregistry playtime mappings` shows the ordered server-to-gamemode mapping rules (first match wins) and the
   unknown-server fallback behavior.
 - `/dataregistry playtime flush` queues an immediate playtime accrual flush for active players. It is useful before
   inspecting persisted totals; the command reports how many player queues accepted the flush.
 - `/dataregistry playtime reconcile` reloads the playtime section of `config.yml` and applies it immediately. It
-  updates server-to-gamemode mapping, unknown-server handling, network-total exclusions, and flush cadence while
-  retaining historic playtime records.
+  updates the shared server-to-gamemode mapping, unknown-server handling, network-total exclusions, and flush cadence
+  while retaining historic playtime and population membership records.
 
 The command deliberately does not live-reload feature flags, database settings, or other non-playtime configuration;
 restart Velocity for those changes.
@@ -73,7 +83,7 @@ Depend only on `dataregistry-api` as `provided` (replace the version with the re
 <dependency>
   <groupId>nl.hauntedmc.dataregistry</groupId>
   <artifactId>dataregistry-api</artifactId>
-  <version>1.13.10</version>
+  <version>1.14.0</version>
   <scope>provided</scope>
 </dependency>
 ```
@@ -98,20 +108,20 @@ players.whenReady(uuid).thenAccept(identity -> {
 
 - `dataregistry-api` is the only dependency for ProxyFeatures, ServerFeatures, and other consumers. It has no
   DataProvider, Hibernate/Jakarta Persistence, Velocity, or Paper dependency.
-- `dataregistry-core` owns entities, repositories, ORM wiring, lifecycle writers, recovery, and query execution.
-  It is an implementation dependency of the platform modules, never a feature dependency.
+- `dataregistry-core` owns entities, repositories, ORM wiring, lifecycle writers, recovery, population reconciliation,
+  and query execution. It is an implementation dependency of the platform modules, never a feature dependency.
 - `dataregistry-platform-velocity` owns authoritative proxy lifecycle listeners, including
   `PlayerStatusListener`; `dataregistry-platform-paper` provides the Paper identity bridge.
-- `dataregistry-testkit` supplies `FakeDataRegistryApi`, immutable player fixtures, temporary IDs, and async failure
-  simulation for feature contract tests.
+- `dataregistry-testkit` supplies `FakeDataRegistryApi`, `FakePopulationData`, immutable player fixtures, temporary
+  IDs, and async failure simulation for feature contract tests.
 
 `DataRegistryApiProvider#getDataRegistry()` returns `DataRegistryApi`, not the core runtime. Platform plugins
 implement that provider capability; consumers can depend on `dataregistry-api` alone. There is deliberately no
 public path from that type to an ORM context, entity, repository, lifecycle writer, or DataProvider handle.
 
-Feature maintainers migrating from the former monolithic artifact should follow
-[DOWNSTREAM_MIGRATION.md](DOWNSTREAM_MIGRATION.md). A dependency-coordinate change alone is not valid for a feature
-that currently maps `PlayerEntity` in its own ORM model.
+Feature maintainers migrating from an older DataRegistry API should follow
+[DOWNSTREAM_MIGRATION.md](DOWNSTREAM_MIGRATION.md). DataRegistry 1.14.0 intentionally makes the Population facade part
+of the required `DataRegistryApi` contract; custom API implementations and test fakes must implement it.
 
 ### Identity
 
@@ -171,6 +181,112 @@ work and schedule platform API work back onto the platform thread when required.
 
 Downstream plugins must not create, update, or merge canonical player rows. They may write only through the
 narrow DataRegistry methods for DataRegistry-owned preferences such as language and nickname.
+
+### Population
+
+`DataRegistryApi#population()` is the canonical population boundary for network-wide and logical-gamemode player
+counts. It is deliberately separate from playtime: playtime describes duration/activity, while Population describes
+membership, live presence, ordinal assignment, peaks, and population transitions.
+
+A population scope is either the entire network or one normalized logical gamemode:
+
+```java
+DataRegistryApi dataRegistry = apiProvider.getDataRegistry();
+if (!dataRegistry.supports(DataRegistryFeature.POPULATION)) {
+    return;
+}
+
+PopulationData population = dataRegistry.population();
+population.findNetworkSnapshot().thenAccept(snapshotOpt -> snapshotOpt.ifPresent(snapshot -> {
+    long uniquePlayers = snapshot.uniquePlayerCount();
+    long onlineNow = snapshot.currentOnline();
+    long allTimePeak = snapshot.onlinePeak();
+}));
+
+population.findSnapshot(PopulationScope.gamemode("survival"))
+        .thenAccept(snapshotOpt -> snapshotOpt.ifPresent(snapshot -> {
+            long localUniquePlayers = snapshot.uniquePlayerCount();
+        }));
+```
+
+Population owns these canonical values:
+
+- network unique-player count
+- logical-gamemode unique-player count
+- current network online count
+- current logical-gamemode online count
+- network and logical-gamemode online peaks
+- one durable network ordinal per player
+- one durable ordinal per player per logical gamemode
+- durable first-join correlation to the creating network session and gamemode visit
+- a cursor-based transition journal for downstream event-style consumers
+
+Use membership reads when a feature needs the player's stable number:
+
+```java
+population.findMembership(PlayerLookup.uuid(uuid), PopulationScope.gamemode("survival"))
+        .thenAccept(membershipOpt -> membershipOpt.ifPresent(membership -> {
+            long playerNumber = membership.ordinal();
+        }));
+```
+
+Live ordinals are allocated atomically inside the same authoritative lifecycle transaction as status/session state.
+They are `RECORDED_EXACT`. When Population is introduced to a database that already contains DataRegistry history,
+existing network and gamemode memberships are reconstructed deterministically from the strongest canonical history
+available and are marked `BACKFILLED_DETERMINISTIC` instead of pretending those historic numbers were recorded live.
+
+`PopulationSnapshot.membershipBaselineQuality()` and `peakBaselineQuality()` describe historical completeness. A new
+empty DataRegistry population starts `VERIFIED`. A database that already contains pre-Population history starts
+`TRACKED_ONLY` until an administrator explicitly verifies/seeds the historic baseline. Current/live state after
+Population starts is still maintained exactly.
+
+For join-triggered features on Paper, use the durable join context instead of comparing timestamps or querying a
+count after the fact:
+
+```java
+population.findJoinContext(player.getUniqueId(), serverName)
+        .thenAccept(contextOpt -> contextOpt.ifPresent(context -> {
+            if (context.gamemodeFirstJoinThisVisit()) {
+                long localNumber = context.gamemodeMembership().orElseThrow().ordinal();
+            }
+            if (context.networkFirstJoinThisSession()) {
+                long networkNumber = context.networkMembership().ordinal();
+            }
+        }));
+```
+
+The context is valid only for the player's current durable online server/session/visit. This prevents a later query,
+reconnect, or backend switch from being mistaken for the original first join.
+
+Downstream milestone-style consumers should poll the transition journal by cursor rather than repeatedly counting
+large player tables:
+
+```java
+PopulationTransitionQuery query = PopulationTransitionQuery.after(lastProcessedId, 250)
+        .withCauses(Set.of(PopulationTransitionCause.LIVE));
+
+population.findTransitions(query).thenAccept(batch -> {
+    if (batch.hasRetentionGapAfter(lastProcessedId)) {
+        // Consumer cursor is older than retained transition history: resnapshot/reconcile before continuing.
+    }
+    for (PopulationTransition transition : batch.transitions()) {
+        // MEMBERSHIP_ADDED, ONLINE_CHANGED, or ONLINE_PEAK_CHANGED
+    }
+});
+```
+
+Transition retention is configurable with `retention.population-transition-days`. Purging transition rows never
+removes memberships, ordinals, unique counts, current online state, or peak state. `PopulationTransitionBatch`
+includes the earliest/latest retained IDs so consumers can detect a cursor that fell behind retention.
+
+Population reuses the existing canonical server-to-gamemode resolver. A transfer such as `survival-1` to
+`survival-2` therefore leaves the logical survival online count unchanged when both backend names map to `survival`;
+a transfer from survival to creative moves one player between those two logical scopes while network online remains
+unchanged.
+
+DataRegistry owns the population facts, not feature policy. Reward commands, milestone thresholds, warning rules,
+welcome messages, and already-fired milestone claims belong in the consuming feature/plugin rather than in
+DataRegistry.
 
 ### Feature Services
 

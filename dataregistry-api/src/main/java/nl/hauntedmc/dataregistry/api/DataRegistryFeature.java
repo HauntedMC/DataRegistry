@@ -13,6 +13,7 @@ public enum DataRegistryFeature {
     ACTIVITY_SUMMARY("activity-summary"),
     SESSIONS("sessions"),
     SESSION_VISITS("session-visits"),
+    POPULATION("population"),
     PLAYTIME("playtime"),
     LANGUAGE("language"),
     NICKNAMES("nicknames"),

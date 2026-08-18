@@ -15,6 +15,7 @@ class DataRegistryApiSurfaceTest {
     void publicApiContainsOnlyDomainFacadesAndCapabilities() {
         Set<String> methodNames = Set.of(
                 "players",
+                "population",
                 "featureServices",
                 "enabledFeatures",
                 "supports",

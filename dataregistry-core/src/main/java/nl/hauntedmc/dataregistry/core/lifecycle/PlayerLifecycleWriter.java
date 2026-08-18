@@ -1,13 +1,14 @@
 package nl.hauntedmc.dataregistry.core.lifecycle;
 
-import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
+import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
+import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.core.persistence.RetryableDatabaseFailure;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEventType;
-import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerRepository;
+import nl.hauntedmc.dataregistry.core.population.PlayerPopulationService;
 import nl.hauntedmc.dataregistry.core.service.PlayerActivitySummaryService;
 import nl.hauntedmc.dataregistry.core.service.PlayerConnectionInfoService;
 import nl.hauntedmc.dataregistry.core.service.PlayerNameHistoryService;
@@ -43,6 +44,7 @@ public final class PlayerLifecycleWriter {
     private final PlayerConnectionInfoService connectionService;
     private final PlayerSessionService sessionService;
     private final PlayerPlaytimeService playtimeService;
+    private final PlayerPopulationService populationService;
     private final ILoggerAdapter logger;
     private final int maxAttempts;
     private final long retryBaseDelayMillis;
@@ -68,8 +70,8 @@ public final class PlayerLifecycleWriter {
                 sessionService,
                 playtimeService,
                 logger,
-                DEFAULT_MAX_ATTEMPTS,
-                BASE_RETRY_DELAY_MILLIS
+                configuredMaxAttempts(dataRegistry),
+                configuredRetryBaseDelayMillis(dataRegistry)
         );
     }
 
@@ -124,6 +126,10 @@ public final class PlayerLifecycleWriter {
         this.connectionService = Objects.requireNonNull(connectionService, "connectionService must not be null");
         this.sessionService = Objects.requireNonNull(sessionService, "sessionService must not be null");
         this.playtimeService = Objects.requireNonNull(playtimeService, "playtimeService must not be null");
+        this.populationService = new PlayerPopulationService(
+                dataRegistry,
+                dataRegistry.isFeatureEnabled(DataRegistryFeature.POPULATION)
+        );
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
         if (maxAttempts < 1 || maxAttempts > 10) {
             throw new IllegalArgumentException("maxAttempts must be between 1 and 10.");
@@ -136,7 +142,8 @@ public final class PlayerLifecycleWriter {
     }
 
     /**
-     * Atomically applies player identity, name history, activity, connection, session, and outbox writes for login.
+     * Atomically applies player identity, name history, activity, connection, session, population, status and outbox
+     * writes for login.
      */
     public PlayerLifecycleWriteResult login(LoginCommand command) {
         Objects.requireNonNull(command, "command must not be null");
@@ -180,6 +187,9 @@ public final class PlayerLifecycleWriter {
                     sessionService.sanitizeVirtualHost(command.virtualHost()),
                     now
             );
+            // Population observes the previous durable status, then login marks this proxy connection online.
+            populationService.onLogin(session, player, command.eventId(), now);
+            statusService.updateStatusOnLogin(session, player);
             persistOutbox(
                     session,
                     command.eventId(),
@@ -193,7 +203,8 @@ public final class PlayerLifecycleWriter {
     }
 
     /**
-     * Atomically applies activity, online status, session visit, playtime, and outbox writes for a server transfer.
+     * Atomically applies activity, playtime, session-visit, population, online-status and outbox writes for a server
+     * transfer.
      */
     public PlayerLifecycleWriteResult transfer(TransferCommand command) {
         Objects.requireNonNull(command, "command must not be null");
@@ -210,21 +221,26 @@ public final class PlayerLifecycleWriter {
             }
 
             Instant now = command.occurredAt();
+            String serverName = sessionService.sanitizeServerName(command.serverName());
+            if (serverName == null) {
+                throw new IllegalArgumentException("serverName must contain a persistable backend server name.");
+            }
             PlayerEntity player = playerService.getOrCreatePlayer(session, command.playerUuid(), command.username());
             flushForGeneratedId(session, player);
             activitySummaryService.recordSeen(session, player, now);
-            statusService.updateStatus(session, player, command.serverName());
-            // Playtime must observe the session's previous backend before this transfer replaces it.
-            // That previous backend is persisted as the segment entry server, including when it is
-            // an ignored gamemode such as a lobby or queue.
-            playtimeService.onServerSwitch(session, player, command.serverName(), now);
-            sessionService.updateServerOnSwitch(session, player, command.serverName(), now);
+            // Every lifecycle domain observes the same canonical persisted backend name.
+            playtimeService.onServerSwitch(session, player, serverName, now);
+            // Open/update the new durable visit before population records firstVisitId for exact join correlation.
+            sessionService.updateServerOnSwitch(session, player, serverName, now);
+            // Population intentionally runs before status replacement so it can see the previous logical gamemode.
+            populationService.onTransfer(session, player, serverName, command.eventId(), now);
+            statusService.updateStatus(session, player, serverName);
             persistOutbox(
                     session,
                     command.eventId(),
                     PlayerLifecycleOutboxEventType.TRANSFER,
                     player,
-                    sessionService.sanitizeServerName(command.serverName()),
+                    serverName,
                     now
             );
             return new TransactionOutcome(false, true, player);
@@ -232,7 +248,8 @@ public final class PlayerLifecycleWriter {
     }
 
     /**
-     * Atomically applies offline status, activity, connection, playtime, session, and outbox writes for disconnect.
+     * Atomically applies population, offline status, activity, connection, playtime, session and outbox writes for
+     * disconnect.
      */
     public PlayerLifecycleWriteResult disconnect(DisconnectCommand command) {
         Objects.requireNonNull(command, "command must not be null");
@@ -251,6 +268,8 @@ public final class PlayerLifecycleWriter {
             Instant now = command.occurredAt();
             PlayerEntity player = playerService.getOrCreatePlayer(session, command.playerUuid(), command.username());
             flushForGeneratedId(session, player);
+            // Population must see the player's final durable backend before status/session state is closed.
+            populationService.onDisconnect(session, player, now);
             statusService.updateStatusOnQuit(session, player);
             activitySummaryService.recordDisconnect(session, player, now);
             connectionService.updateOnDisconnect(session, player, now);
@@ -384,6 +403,18 @@ public final class PlayerLifecycleWriter {
         } catch (InterruptedException interruptedException) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    private static int configuredMaxAttempts(DataRegistry dataRegistry) {
+        return dataRegistry != null && dataRegistry.getSettings() != null
+                ? dataRegistry.getSettings().lifecycleWriteMaxAttempts()
+                : DEFAULT_MAX_ATTEMPTS;
+    }
+
+    private static long configuredRetryBaseDelayMillis(DataRegistry dataRegistry) {
+        return dataRegistry != null && dataRegistry.getSettings() != null
+                ? dataRegistry.getSettings().lifecycleRetryBaseDelayMillis()
+                : BASE_RETRY_DELAY_MILLIS;
     }
 
     private static String safeForLog(String value) {

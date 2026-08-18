@@ -8,17 +8,15 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Map;
 import java.util.Objects;
 
-/**
- * Reads/writes {@code config.yml} with safe YAML parsing constraints.
- */
+/** Reads {@code config.yml} safely and copies the packaged template on first run. */
 final class DataRegistryConfigIO {
 
     static final String FILE_NAME = "config.yml";
@@ -62,21 +60,6 @@ final class DataRegistryConfigIO {
         }
     }
 
-    static boolean writeIfChanged(Path configPath, String content) {
-        Objects.requireNonNull(configPath, "configPath must not be null");
-        Objects.requireNonNull(content, "content must not be null");
-        try {
-            String current = Files.readString(configPath, StandardCharsets.UTF_8);
-            if (current.equals(content)) {
-                return false;
-            }
-            writeAtomically(configPath, content);
-            return true;
-        } catch (IOException exception) {
-            throw new IllegalStateException("Failed to write DataRegistry config file at " + configPath, exception);
-        }
-    }
-
     private static void writeAtomically(Path configPath, String content) throws IOException {
         Path directory = configPath.toAbsolutePath().getParent();
         if (directory == null) {
@@ -112,11 +95,10 @@ final class DataRegistryConfigIO {
 
     private static void writeInitialConfig(Path configPath, ClassLoader resourceLoader) throws IOException {
         try (InputStream input = resourceLoader.getResourceAsStream(FILE_NAME)) {
-            if (input != null) {
-                writeAtomically(configPath, new String(input.readAllBytes(), StandardCharsets.UTF_8));
-                return;
+            if (input == null) {
+                throw new IOException("Missing bundled DataRegistry config resource: " + FILE_NAME);
             }
+            writeAtomically(configPath, new String(input.readAllBytes(), StandardCharsets.UTF_8));
         }
-        writeAtomically(configPath, DataRegistryConfigSchema.defaultTemplate());
     }
 }

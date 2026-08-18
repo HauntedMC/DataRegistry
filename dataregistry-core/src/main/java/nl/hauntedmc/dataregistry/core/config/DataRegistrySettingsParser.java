@@ -14,9 +14,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.BiConsumer;
 
-/**
- * Parses runtime settings from a reconciled config map with per-key validation fallbacks.
- */
+/** Parses runtime settings from a reconciled config map with per-key validation fallbacks. */
 final class DataRegistrySettingsParser {
 
     private static final String DATABASE_TYPE_KEY = "database.type";
@@ -30,6 +28,7 @@ final class DataRegistrySettingsParser {
     private static final String FEATURE_ACTIVITY_SUMMARY_KEY = "features.activity-summary";
     private static final String FEATURE_SESSIONS_KEY = "features.sessions";
     private static final String FEATURE_SESSION_VISITS_KEY = "features.session-visits";
+    private static final String FEATURE_POPULATION_KEY = "features.population";
     private static final String FEATURE_PLAYTIME_KEY = "features.playtime";
     private static final String FEATURE_LANGUAGE_KEY = "features.language";
     private static final String FEATURE_NICKNAMES_KEY = "features.nicknames";
@@ -41,6 +40,7 @@ final class DataRegistrySettingsParser {
     private static final String SERVICE_PROBE_RETENTION_HOURS_KEY = "service-registry.probe-retention-hours";
     private static final String SERVICE_PROBE_PURGE_INTERVAL_HOURS_KEY = "service-registry.probe-purge-interval-hours";
     private static final String LIFECYCLE_OUTBOX_RETENTION_DAYS_KEY = "retention.lifecycle-outbox-days";
+    private static final String POPULATION_TRANSITION_RETENTION_DAYS_KEY = "retention.population-transition-days";
     private static final String SERVICE_INSTANCE_RETENTION_DAYS_KEY = "retention.service-instance-days";
     private static final String CLOSED_SESSION_HISTORY_RETENTION_DAYS_KEY = "retention.closed-session-history-days";
     private static final String RETENTION_PURGE_BATCH_SIZE_KEY = "retention.purge-batch-size";
@@ -79,353 +79,179 @@ final class DataRegistrySettingsParser {
 
         builder.databaseType(validateWithBuilder(
                 DATABASE_TYPE_KEY,
-                parseEnum(
-                        configRoot,
-                        DATABASE_TYPE_KEY,
-                        DatabaseType.class,
-                        defaults.databaseType(),
-                        logger
-                ),
-                defaults.databaseType(),
-                logger,
-                DataRegistrySettings.Builder::databaseType
+                parseEnum(configRoot, DATABASE_TYPE_KEY, DatabaseType.class, defaults.databaseType(), logger),
+                defaults.databaseType(), logger, DataRegistrySettings.Builder::databaseType
         ));
         builder.playerDatabaseConnectionId(validateWithBuilder(
                 PLAYER_DATABASE_CONNECTION_ID_KEY,
-                parseString(
-                        configRoot,
-                        PLAYER_DATABASE_CONNECTION_ID_KEY,
-                        defaults.playerDatabaseConnectionId(),
-                        logger
-                ),
-                defaults.playerDatabaseConnectionId(),
-                logger,
-                DataRegistrySettings.Builder::playerDatabaseConnectionId
+                parseString(configRoot, PLAYER_DATABASE_CONNECTION_ID_KEY, defaults.playerDatabaseConnectionId(), logger),
+                defaults.playerDatabaseConnectionId(), logger, DataRegistrySettings.Builder::playerDatabaseConnectionId
         ));
         builder.serviceDatabaseConnectionId(validateWithBuilder(
                 SERVICE_DATABASE_CONNECTION_ID_KEY,
-                parseString(
-                        configRoot,
-                        SERVICE_DATABASE_CONNECTION_ID_KEY,
-                        defaults.serviceDatabaseConnectionId(),
-                        logger
-                ),
-                defaults.serviceDatabaseConnectionId(),
-                logger,
-                DataRegistrySettings.Builder::serviceDatabaseConnectionId
+                parseString(configRoot, SERVICE_DATABASE_CONNECTION_ID_KEY, defaults.serviceDatabaseConnectionId(), logger),
+                defaults.serviceDatabaseConnectionId(), logger, DataRegistrySettings.Builder::serviceDatabaseConnectionId
         ));
         builder.ormSchemaMode(validateWithBuilder(
                 ORM_SCHEMA_MODE_KEY,
-                parseString(
-                        configRoot,
-                        ORM_SCHEMA_MODE_KEY,
-                        defaults.ormSchemaMode(),
-                        logger
-                ),
-                defaults.ormSchemaMode(),
-                logger,
-                DataRegistrySettings.Builder::ormSchemaMode
+                parseString(configRoot, ORM_SCHEMA_MODE_KEY, defaults.ormSchemaMode(), logger),
+                defaults.ormSchemaMode(), logger, DataRegistrySettings.Builder::ormSchemaMode
         ));
-        builder.persistIpAddress(parseBoolean(
-                configRoot,
-                PRIVACY_PERSIST_IP_KEY,
-                defaults.persistIpAddress(),
-                logger
-        ));
+        builder.persistIpAddress(parseBoolean(configRoot, PRIVACY_PERSIST_IP_KEY, defaults.persistIpAddress(), logger));
         builder.persistVirtualHost(parseBoolean(
-                configRoot,
-                PRIVACY_PERSIST_VHOST_KEY,
-                defaults.persistVirtualHost(),
-                logger
+                configRoot, PRIVACY_PERSIST_VHOST_KEY, defaults.persistVirtualHost(), logger
         ));
         builder.enabledFeatures(parseEnabledFeatures(configRoot, defaults, logger));
         builder.serviceHeartbeatIntervalSeconds(validateWithBuilder(
                 SERVICE_HEARTBEAT_INTERVAL_SECONDS_KEY,
-                parseInteger(
-                        configRoot,
-                        SERVICE_HEARTBEAT_INTERVAL_SECONDS_KEY,
-                        defaults.serviceHeartbeatIntervalSeconds(),
-                        logger
-                ),
-                defaults.serviceHeartbeatIntervalSeconds(),
-                logger,
+                parseInteger(configRoot, SERVICE_HEARTBEAT_INTERVAL_SECONDS_KEY,
+                        defaults.serviceHeartbeatIntervalSeconds(), logger),
+                defaults.serviceHeartbeatIntervalSeconds(), logger,
                 DataRegistrySettings.Builder::serviceHeartbeatIntervalSeconds
         ));
         builder.serviceProbeIntervalSeconds(validateWithBuilder(
                 SERVICE_PROBE_INTERVAL_SECONDS_KEY,
-                parseInteger(
-                        configRoot,
-                        SERVICE_PROBE_INTERVAL_SECONDS_KEY,
-                        defaults.serviceProbeIntervalSeconds(),
-                        logger
-                ),
-                defaults.serviceProbeIntervalSeconds(),
-                logger,
+                parseInteger(configRoot, SERVICE_PROBE_INTERVAL_SECONDS_KEY, defaults.serviceProbeIntervalSeconds(), logger),
+                defaults.serviceProbeIntervalSeconds(), logger,
                 DataRegistrySettings.Builder::serviceProbeIntervalSeconds
         ));
         builder.serviceProbeTimeoutMillis(validateWithBuilder(
                 SERVICE_PROBE_TIMEOUT_MILLIS_KEY,
-                parseInteger(
-                        configRoot,
-                        SERVICE_PROBE_TIMEOUT_MILLIS_KEY,
-                        defaults.serviceProbeTimeoutMillis(),
-                        logger
-                ),
-                defaults.serviceProbeTimeoutMillis(),
-                logger,
+                parseInteger(configRoot, SERVICE_PROBE_TIMEOUT_MILLIS_KEY, defaults.serviceProbeTimeoutMillis(), logger),
+                defaults.serviceProbeTimeoutMillis(), logger,
                 DataRegistrySettings.Builder::serviceProbeTimeoutMillis
         ));
         builder.serviceProbeRetentionHours(validateWithBuilder(
                 SERVICE_PROBE_RETENTION_HOURS_KEY,
-                parseInteger(
-                        configRoot,
-                        SERVICE_PROBE_RETENTION_HOURS_KEY,
-                        defaults.serviceProbeRetentionHours(),
-                        logger
-                ),
-                defaults.serviceProbeRetentionHours(),
-                logger,
+                parseInteger(configRoot, SERVICE_PROBE_RETENTION_HOURS_KEY, defaults.serviceProbeRetentionHours(), logger),
+                defaults.serviceProbeRetentionHours(), logger,
                 DataRegistrySettings.Builder::serviceProbeRetentionHours
         ));
         builder.serviceProbePurgeIntervalHours(validateWithBuilder(
                 SERVICE_PROBE_PURGE_INTERVAL_HOURS_KEY,
-                parseInteger(
-                        configRoot,
-                        SERVICE_PROBE_PURGE_INTERVAL_HOURS_KEY,
-                        defaults.serviceProbePurgeIntervalHours(),
-                        logger
-                ),
-                defaults.serviceProbePurgeIntervalHours(),
-                logger,
+                parseInteger(configRoot, SERVICE_PROBE_PURGE_INTERVAL_HOURS_KEY,
+                        defaults.serviceProbePurgeIntervalHours(), logger),
+                defaults.serviceProbePurgeIntervalHours(), logger,
                 DataRegistrySettings.Builder::serviceProbePurgeIntervalHours
         ));
         builder.lifecycleOutboxRetentionDays(validateWithBuilder(
                 LIFECYCLE_OUTBOX_RETENTION_DAYS_KEY,
-                parseInteger(
-                        configRoot,
-                        LIFECYCLE_OUTBOX_RETENTION_DAYS_KEY,
-                        defaults.lifecycleOutboxRetentionDays(),
-                        logger
-                ),
-                defaults.lifecycleOutboxRetentionDays(),
-                logger,
+                parseInteger(configRoot, LIFECYCLE_OUTBOX_RETENTION_DAYS_KEY,
+                        defaults.lifecycleOutboxRetentionDays(), logger),
+                defaults.lifecycleOutboxRetentionDays(), logger,
                 DataRegistrySettings.Builder::lifecycleOutboxRetentionDays
+        ));
+        builder.populationTransitionRetentionDays(validateWithBuilder(
+                POPULATION_TRANSITION_RETENTION_DAYS_KEY,
+                parseInteger(configRoot, POPULATION_TRANSITION_RETENTION_DAYS_KEY,
+                        defaults.populationTransitionRetentionDays(), logger),
+                defaults.populationTransitionRetentionDays(), logger,
+                DataRegistrySettings.Builder::populationTransitionRetentionDays
         ));
         builder.serviceInstanceRetentionDays(validateWithBuilder(
                 SERVICE_INSTANCE_RETENTION_DAYS_KEY,
-                parseInteger(
-                        configRoot,
-                        SERVICE_INSTANCE_RETENTION_DAYS_KEY,
-                        defaults.serviceInstanceRetentionDays(),
-                        logger
-                ),
-                defaults.serviceInstanceRetentionDays(),
-                logger,
+                parseInteger(configRoot, SERVICE_INSTANCE_RETENTION_DAYS_KEY,
+                        defaults.serviceInstanceRetentionDays(), logger),
+                defaults.serviceInstanceRetentionDays(), logger,
                 DataRegistrySettings.Builder::serviceInstanceRetentionDays
         ));
         builder.closedSessionHistoryRetentionDays(validateWithBuilder(
                 CLOSED_SESSION_HISTORY_RETENTION_DAYS_KEY,
-                parseInteger(
-                        configRoot,
-                        CLOSED_SESSION_HISTORY_RETENTION_DAYS_KEY,
-                        defaults.closedSessionHistoryRetentionDays(),
-                        logger
-                ),
-                defaults.closedSessionHistoryRetentionDays(),
-                logger,
+                parseInteger(configRoot, CLOSED_SESSION_HISTORY_RETENTION_DAYS_KEY,
+                        defaults.closedSessionHistoryRetentionDays(), logger),
+                defaults.closedSessionHistoryRetentionDays(), logger,
                 DataRegistrySettings.Builder::closedSessionHistoryRetentionDays
         ));
         builder.retentionPurgeBatchSize(validateWithBuilder(
                 RETENTION_PURGE_BATCH_SIZE_KEY,
-                parseInteger(
-                        configRoot,
-                        RETENTION_PURGE_BATCH_SIZE_KEY,
-                        defaults.retentionPurgeBatchSize(),
-                        logger
-                ),
-                defaults.retentionPurgeBatchSize(),
-                logger,
+                parseInteger(configRoot, RETENTION_PURGE_BATCH_SIZE_KEY, defaults.retentionPurgeBatchSize(), logger),
+                defaults.retentionPurgeBatchSize(), logger,
                 DataRegistrySettings.Builder::retentionPurgeBatchSize
         ));
         builder.playerHistoryPurgeIntervalHours(validateWithBuilder(
                 PLAYER_HISTORY_PURGE_INTERVAL_HOURS_KEY,
-                parseInteger(
-                        configRoot,
-                        PLAYER_HISTORY_PURGE_INTERVAL_HOURS_KEY,
-                        defaults.playerHistoryPurgeIntervalHours(),
-                        logger
-                ),
-                defaults.playerHistoryPurgeIntervalHours(),
-                logger,
+                parseInteger(configRoot, PLAYER_HISTORY_PURGE_INTERVAL_HOURS_KEY,
+                        defaults.playerHistoryPurgeIntervalHours(), logger),
+                defaults.playerHistoryPurgeIntervalHours(), logger,
                 DataRegistrySettings.Builder::playerHistoryPurgeIntervalHours
         ));
         builder.serviceInstancePurgeIntervalHours(validateWithBuilder(
                 SERVICE_INSTANCE_PURGE_INTERVAL_HOURS_KEY,
-                parseInteger(
-                        configRoot,
-                        SERVICE_INSTANCE_PURGE_INTERVAL_HOURS_KEY,
-                        defaults.serviceInstancePurgeIntervalHours(),
-                        logger
-                ),
-                defaults.serviceInstancePurgeIntervalHours(),
-                logger,
+                parseInteger(configRoot, SERVICE_INSTANCE_PURGE_INTERVAL_HOURS_KEY,
+                        defaults.serviceInstancePurgeIntervalHours(), logger),
+                defaults.serviceInstancePurgeIntervalHours(), logger,
                 DataRegistrySettings.Builder::serviceInstancePurgeIntervalHours
         ));
         builder.lifecycleWriteMaxAttempts(validateWithBuilder(
                 LIFECYCLE_WRITE_MAX_ATTEMPTS_KEY,
-                parseInteger(
-                        configRoot,
-                        LIFECYCLE_WRITE_MAX_ATTEMPTS_KEY,
-                        defaults.lifecycleWriteMaxAttempts(),
-                        logger
-                ),
-                defaults.lifecycleWriteMaxAttempts(),
-                logger,
+                parseInteger(configRoot, LIFECYCLE_WRITE_MAX_ATTEMPTS_KEY, defaults.lifecycleWriteMaxAttempts(), logger),
+                defaults.lifecycleWriteMaxAttempts(), logger,
                 DataRegistrySettings.Builder::lifecycleWriteMaxAttempts
         ));
         builder.lifecycleRetryBaseDelayMillis(validateWithBuilder(
                 LIFECYCLE_RETRY_BASE_DELAY_MILLIS_KEY,
-                parseInteger(
-                        configRoot,
-                        LIFECYCLE_RETRY_BASE_DELAY_MILLIS_KEY,
-                        defaults.lifecycleRetryBaseDelayMillis(),
-                        logger
-                ),
-                defaults.lifecycleRetryBaseDelayMillis(),
-                logger,
+                parseInteger(configRoot, LIFECYCLE_RETRY_BASE_DELAY_MILLIS_KEY,
+                        defaults.lifecycleRetryBaseDelayMillis(), logger),
+                defaults.lifecycleRetryBaseDelayMillis(), logger,
                 DataRegistrySettings.Builder::lifecycleRetryBaseDelayMillis
         ));
         builder.bukkitJoinDelayTicks(validateWithBuilder(
                 BUKKIT_JOIN_DELAY_TICKS_KEY,
-                parseInteger(
-                        configRoot,
-                        BUKKIT_JOIN_DELAY_TICKS_KEY,
-                        defaults.bukkitJoinDelayTicks(),
-                        logger
-                ),
-                defaults.bukkitJoinDelayTicks(),
-                logger,
+                parseInteger(configRoot, BUKKIT_JOIN_DELAY_TICKS_KEY, defaults.bukkitJoinDelayTicks(), logger),
+                defaults.bukkitJoinDelayTicks(), logger,
                 DataRegistrySettings.Builder::bukkitJoinDelayTicks
         ));
         builder.bukkitRegisterServiceInstance(parseBoolean(
-                configRoot,
-                BUKKIT_REGISTER_SERVICE_INSTANCE_KEY,
-                defaults.bukkitRegisterServiceInstance(),
-                logger
+                configRoot, BUKKIT_REGISTER_SERVICE_INSTANCE_KEY, defaults.bukkitRegisterServiceInstance(), logger
         ));
         builder.bukkitServiceName(validateWithBuilder(
                 BUKKIT_SERVICE_NAME_KEY,
-                parseString(
-                        configRoot,
-                        BUKKIT_SERVICE_NAME_KEY,
-                        defaults.bukkitServiceName(),
-                        logger
-                ),
-                defaults.bukkitServiceName(),
-                logger,
-                DataRegistrySettings.Builder::bukkitServiceName
+                parseString(configRoot, BUKKIT_SERVICE_NAME_KEY, defaults.bukkitServiceName(), logger),
+                defaults.bukkitServiceName(), logger, DataRegistrySettings.Builder::bukkitServiceName
         ));
         builder.velocityServiceName(validateWithBuilder(
                 VELOCITY_SERVICE_NAME_KEY,
-                parseString(
-                        configRoot,
-                        VELOCITY_SERVICE_NAME_KEY,
-                        defaults.velocityServiceName(),
-                        logger
-                ),
-                defaults.velocityServiceName(),
-                logger,
-                DataRegistrySettings.Builder::velocityServiceName
+                parseString(configRoot, VELOCITY_SERVICE_NAME_KEY, defaults.velocityServiceName(), logger),
+                defaults.velocityServiceName(), logger, DataRegistrySettings.Builder::velocityServiceName
         ));
         builder.queryExecutorThreads(validateWithBuilder(
                 QUERY_EXECUTOR_THREADS_KEY,
-                parseInteger(
-                        configRoot,
-                        QUERY_EXECUTOR_THREADS_KEY,
-                        defaults.queryExecutorThreads(),
-                        logger
-                ),
-                defaults.queryExecutorThreads(),
-                logger,
-                DataRegistrySettings.Builder::queryExecutorThreads
+                parseInteger(configRoot, QUERY_EXECUTOR_THREADS_KEY, defaults.queryExecutorThreads(), logger),
+                defaults.queryExecutorThreads(), logger, DataRegistrySettings.Builder::queryExecutorThreads
         ));
         builder.queryTimeoutMillis(validateWithBuilder(
                 QUERY_TIMEOUT_MILLIS_KEY,
-                parseInteger(
-                        configRoot,
-                        QUERY_TIMEOUT_MILLIS_KEY,
-                        defaults.queryTimeoutMillis(),
-                        logger
-                ),
-                defaults.queryTimeoutMillis(),
-                logger,
-                DataRegistrySettings.Builder::queryTimeoutMillis
+                parseInteger(configRoot, QUERY_TIMEOUT_MILLIS_KEY, defaults.queryTimeoutMillis(), logger),
+                defaults.queryTimeoutMillis(), logger, DataRegistrySettings.Builder::queryTimeoutMillis
         ));
         builder.queryDevelopmentThreadChecks(parseBoolean(
-                configRoot,
-                QUERY_DEVELOPMENT_THREAD_CHECKS_KEY,
-                defaults.queryDevelopmentThreadChecks(),
-                logger
+                configRoot, QUERY_DEVELOPMENT_THREAD_CHECKS_KEY, defaults.queryDevelopmentThreadChecks(), logger
         ));
         builder.usernameMaxLength(validateWithBuilder(
                 USERNAME_MAX_LENGTH_KEY,
-                parseInteger(
-                        configRoot,
-                        USERNAME_MAX_LENGTH_KEY,
-                        defaults.usernameMaxLength(),
-                        logger
-                ),
-                defaults.usernameMaxLength(),
-                logger,
-                DataRegistrySettings.Builder::usernameMaxLength
+                parseInteger(configRoot, USERNAME_MAX_LENGTH_KEY, defaults.usernameMaxLength(), logger),
+                defaults.usernameMaxLength(), logger, DataRegistrySettings.Builder::usernameMaxLength
         ));
         builder.serverNameMaxLength(validateWithBuilder(
                 SERVER_NAME_MAX_LENGTH_KEY,
-                parseInteger(
-                        configRoot,
-                        SERVER_NAME_MAX_LENGTH_KEY,
-                        defaults.serverNameMaxLength(),
-                        logger
-                ),
-                defaults.serverNameMaxLength(),
-                logger,
-                DataRegistrySettings.Builder::serverNameMaxLength
+                parseInteger(configRoot, SERVER_NAME_MAX_LENGTH_KEY, defaults.serverNameMaxLength(), logger),
+                defaults.serverNameMaxLength(), logger, DataRegistrySettings.Builder::serverNameMaxLength
         ));
         PlaytimeTrackingSettings defaultPlaytimeSettings = defaults.playtimeTrackingSettings();
         builder.playtimeTrackingSettings(validateWithBuilder(
                 "playtime",
-                parsePlaytimeSettings(
-                        configRoot,
-                        defaultPlaytimeSettings,
-                        logger
-                ),
-                defaultPlaytimeSettings,
-                logger,
-                DataRegistrySettings.Builder::playtimeTrackingSettings
+                parsePlaytimeSettings(configRoot, defaultPlaytimeSettings, logger),
+                defaultPlaytimeSettings, logger, DataRegistrySettings.Builder::playtimeTrackingSettings
         ));
         builder.virtualHostMaxLength(validateWithBuilder(
                 VIRTUAL_HOST_MAX_LENGTH_KEY,
-                parseInteger(
-                        configRoot,
-                        VIRTUAL_HOST_MAX_LENGTH_KEY,
-                        defaults.virtualHostMaxLength(),
-                        logger
-                ),
-                defaults.virtualHostMaxLength(),
-                logger,
-                DataRegistrySettings.Builder::virtualHostMaxLength
+                parseInteger(configRoot, VIRTUAL_HOST_MAX_LENGTH_KEY, defaults.virtualHostMaxLength(), logger),
+                defaults.virtualHostMaxLength(), logger, DataRegistrySettings.Builder::virtualHostMaxLength
         ));
         builder.ipAddressMaxLength(validateWithBuilder(
                 IP_ADDRESS_MAX_LENGTH_KEY,
-                parseInteger(
-                        configRoot,
-                        IP_ADDRESS_MAX_LENGTH_KEY,
-                        defaults.ipAddressMaxLength(),
-                        logger
-                ),
-                defaults.ipAddressMaxLength(),
-                logger,
-                DataRegistrySettings.Builder::ipAddressMaxLength
+                parseInteger(configRoot, IP_ADDRESS_MAX_LENGTH_KEY, defaults.ipAddressMaxLength(), logger),
+                defaults.ipAddressMaxLength(), logger, DataRegistrySettings.Builder::ipAddressMaxLength
         ));
 
         try {
@@ -458,12 +284,8 @@ final class DataRegistrySettingsParser {
 
     private static int parseInteger(Map<?, ?> configRoot, String key, int defaultValue, ILoggerAdapter logger) {
         Object value = getValue(configRoot, key);
-        if (value == null) {
-            return defaultValue;
-        }
-        if (value instanceof Number number) {
-            return number.intValue();
-        }
+        if (value == null) { return defaultValue; }
+        if (value instanceof Number number) { return number.intValue(); }
         try {
             return Integer.parseInt(value.toString().trim());
         } catch (NumberFormatException exception) {
@@ -474,19 +296,11 @@ final class DataRegistrySettingsParser {
 
     private static boolean parseBoolean(Map<?, ?> configRoot, String key, boolean defaultValue, ILoggerAdapter logger) {
         Object value = getValue(configRoot, key);
-        if (value == null) {
-            return defaultValue;
-        }
-        if (value instanceof Boolean booleanValue) {
-            return booleanValue;
-        }
+        if (value == null) { return defaultValue; }
+        if (value instanceof Boolean booleanValue) { return booleanValue; }
         String normalized = value.toString().trim().toLowerCase(Locale.ROOT);
-        if ("true".equals(normalized)) {
-            return true;
-        }
-        if ("false".equals(normalized)) {
-            return false;
-        }
+        if ("true".equals(normalized)) { return true; }
+        if ("false".equals(normalized)) { return false; }
         logger.warn("Invalid boolean for key '" + key + "': '" + value + "'. Using default " + defaultValue);
         return defaultValue;
     }
@@ -499,9 +313,7 @@ final class DataRegistrySettingsParser {
             ILoggerAdapter logger
     ) {
         Object value = getValue(configRoot, key);
-        if (value == null) {
-            return defaultValue;
-        }
+        if (value == null) { return defaultValue; }
         try {
             return Enum.valueOf(enumType, value.toString().trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException exception) {
@@ -512,9 +324,7 @@ final class DataRegistrySettingsParser {
 
     private static String parseString(Map<?, ?> configRoot, String key, String defaultValue, ILoggerAdapter logger) {
         Object value = getValue(configRoot, key);
-        if (value == null) {
-            return defaultValue;
-        }
+        if (value == null) { return defaultValue; }
         if (!(value instanceof String result)) {
             logger.warn("Invalid string for key '" + key + "': '" + value + "'. Using default '" + defaultValue + "'.");
             return defaultValue;
@@ -532,77 +342,49 @@ final class DataRegistrySettingsParser {
             ILoggerAdapter logger
     ) {
         EnumSet<DataRegistryFeature> enabledFeatures = EnumSet.noneOf(DataRegistryFeature.class);
-        if (parseBoolean(
-                configRoot,
-                FEATURE_ONLINE_STATUS_KEY,
-                defaults.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS),
-                logger
-        )) {
-            enabledFeatures.add(DataRegistryFeature.ONLINE_STATUS);
-        }
-        if (parseBoolean(
-                configRoot,
-                FEATURE_CONNECTION_INFO_KEY,
-                defaults.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO),
-                logger
-        )) {
+        boolean onlineStatusEnabled = parseBoolean(
+                configRoot, FEATURE_ONLINE_STATUS_KEY,
+                defaults.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS), logger
+        );
+        boolean sessionsEnabled = parseBoolean(
+                configRoot, FEATURE_SESSIONS_KEY,
+                defaults.isFeatureEnabled(DataRegistryFeature.SESSIONS), logger
+        );
+        boolean sessionVisitsEnabled = parseBoolean(
+                configRoot, FEATURE_SESSION_VISITS_KEY,
+                sessionsEnabled && defaults.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS), logger
+        );
+        boolean populationEnabled = parseBoolean(
+                configRoot, FEATURE_POPULATION_KEY,
+                defaults.isFeatureEnabled(DataRegistryFeature.POPULATION), logger
+        );
+
+        if (onlineStatusEnabled) { enabledFeatures.add(DataRegistryFeature.ONLINE_STATUS); }
+        if (parseBoolean(configRoot, FEATURE_CONNECTION_INFO_KEY,
+                defaults.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO), logger)) {
             enabledFeatures.add(DataRegistryFeature.CONNECTION_INFO);
         }
-        if (parseBoolean(
-                configRoot,
-                FEATURE_ACTIVITY_SUMMARY_KEY,
-                defaults.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY),
-                logger
-        )) {
+        if (parseBoolean(configRoot, FEATURE_ACTIVITY_SUMMARY_KEY,
+                defaults.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY), logger)) {
             enabledFeatures.add(DataRegistryFeature.ACTIVITY_SUMMARY);
         }
-        boolean sessionsEnabled = parseBoolean(
-                configRoot,
-                FEATURE_SESSIONS_KEY,
-                defaults.isFeatureEnabled(DataRegistryFeature.SESSIONS),
-                logger
-        );
-        if (sessionsEnabled) {
-            enabledFeatures.add(DataRegistryFeature.SESSIONS);
-        }
-        if (parseBoolean(
-                configRoot,
-                FEATURE_SESSION_VISITS_KEY,
-                sessionsEnabled && defaults.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS),
-                logger
-        )) {
-            enabledFeatures.add(DataRegistryFeature.SESSION_VISITS);
-        }
-        if (parseBoolean(
-                configRoot,
-                FEATURE_NAME_HISTORY_KEY,
-                defaults.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY),
-                logger
-        )) {
+        if (sessionsEnabled) { enabledFeatures.add(DataRegistryFeature.SESSIONS); }
+        if (sessionVisitsEnabled) { enabledFeatures.add(DataRegistryFeature.SESSION_VISITS); }
+        if (populationEnabled) { enabledFeatures.add(DataRegistryFeature.POPULATION); }
+        if (parseBoolean(configRoot, FEATURE_NAME_HISTORY_KEY,
+                defaults.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY), logger)) {
             enabledFeatures.add(DataRegistryFeature.NAME_HISTORY);
         }
-        if (parseBoolean(
-                configRoot,
-                FEATURE_LANGUAGE_KEY,
-                defaults.isFeatureEnabled(DataRegistryFeature.LANGUAGE),
-                logger
-        )) {
+        if (parseBoolean(configRoot, FEATURE_LANGUAGE_KEY,
+                defaults.isFeatureEnabled(DataRegistryFeature.LANGUAGE), logger)) {
             enabledFeatures.add(DataRegistryFeature.LANGUAGE);
         }
-        if (parseBoolean(
-                configRoot,
-                FEATURE_NICKNAMES_KEY,
-                defaults.isFeatureEnabled(DataRegistryFeature.NICKNAMES),
-                logger
-        )) {
+        if (parseBoolean(configRoot, FEATURE_NICKNAMES_KEY,
+                defaults.isFeatureEnabled(DataRegistryFeature.NICKNAMES), logger)) {
             enabledFeatures.add(DataRegistryFeature.NICKNAMES);
         }
-        if (parseBoolean(
-                configRoot,
-                FEATURE_SERVICE_REGISTRY_KEY,
-                defaults.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY),
-                logger
-        )) {
+        if (parseBoolean(configRoot, FEATURE_SERVICE_REGISTRY_KEY,
+                defaults.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY), logger)) {
             enabledFeatures.add(DataRegistryFeature.SERVICE_REGISTRY);
         }
         if (parseBoolean(
@@ -613,11 +395,24 @@ final class DataRegistrySettingsParser {
         )) {
             enabledFeatures.add(DataRegistryFeature.PLAYTIME);
         }
+
         if (!enabledFeatures.contains(DataRegistryFeature.SESSIONS)
                 && (enabledFeatures.contains(DataRegistryFeature.PLAYTIME)
                 || enabledFeatures.contains(DataRegistryFeature.SESSION_VISITS))) {
             logger.warn("Features 'playtime' and 'session-visits' require 'sessions'. Enabling 'sessions' automatically.");
             enabledFeatures.add(DataRegistryFeature.SESSIONS);
+        }
+        if (enabledFeatures.contains(DataRegistryFeature.POPULATION)) {
+            EnumSet<DataRegistryFeature> missing = EnumSet.of(
+                    DataRegistryFeature.ONLINE_STATUS,
+                    DataRegistryFeature.SESSIONS,
+                    DataRegistryFeature.SESSION_VISITS
+            );
+            missing.removeAll(enabledFeatures);
+            if (!missing.isEmpty()) {
+                logger.warn("Feature 'population' requires " + missing + ". Enabling required domains automatically.");
+                enabledFeatures.addAll(missing);
+            }
         }
         return enabledFeatures;
     }
@@ -630,55 +425,28 @@ final class DataRegistrySettingsParser {
         PlaytimeTrackingSettings.Builder builder = PlaytimeTrackingSettings.builder();
         int gamemodeKeyMaxLength = validatePlaytimeWithBuilder(
                 GAMEMODE_MAX_LENGTH_KEY,
-                parseInteger(
-                        configRoot,
-                        GAMEMODE_MAX_LENGTH_KEY,
-                        defaults.gamemodeKeyMaxLength(),
-                        logger
-                ),
-                defaults.gamemodeKeyMaxLength(),
-                logger,
-                PlaytimeTrackingSettings.Builder::gamemodeKeyMaxLength
+                parseInteger(configRoot, GAMEMODE_MAX_LENGTH_KEY, defaults.gamemodeKeyMaxLength(), logger),
+                defaults.gamemodeKeyMaxLength(), logger, PlaytimeTrackingSettings.Builder::gamemodeKeyMaxLength
         );
         builder.flushIntervalSeconds(validatePlaytimeWithBuilder(
                 PLAYTIME_FLUSH_INTERVAL_SECONDS_KEY,
-                parseInteger(
-                        configRoot,
-                        PLAYTIME_FLUSH_INTERVAL_SECONDS_KEY,
-                        defaults.flushIntervalSeconds(),
-                        logger
-                ),
-                defaults.flushIntervalSeconds(),
-                logger,
-                PlaytimeTrackingSettings.Builder::flushIntervalSeconds
+                parseInteger(configRoot, PLAYTIME_FLUSH_INTERVAL_SECONDS_KEY, defaults.flushIntervalSeconds(), logger),
+                defaults.flushIntervalSeconds(), logger, PlaytimeTrackingSettings.Builder::flushIntervalSeconds
         ));
         builder.resolveUnknownServersAsGamemode(parseBoolean(
-                configRoot,
-                PLAYTIME_RESOLVE_UNKNOWN_SERVERS_KEY,
-                defaults.resolveUnknownServersAsGamemode(),
-                logger
+                configRoot, PLAYTIME_RESOLVE_UNKNOWN_SERVERS_KEY, defaults.resolveUnknownServersAsGamemode(), logger
         ));
         builder.gamemodeKeyMaxLength(gamemodeKeyMaxLength);
         builder.ignoredGamemodes(parseGamemodeKeySet(
-                configRoot,
-                PLAYTIME_IGNORED_GAMEMODES_KEY,
-                gamemodeKeyMaxLength,
-                defaults.ignoredGamemodes(),
-                logger
+                configRoot, PLAYTIME_IGNORED_GAMEMODES_KEY, gamemodeKeyMaxLength, defaults.ignoredGamemodes(), logger
         ));
         builder.excludedFromNetworkTotalGamemodes(parseGamemodeKeySet(
-                configRoot,
-                PLAYTIME_EXCLUDED_GAMEMODES_KEY,
-                gamemodeKeyMaxLength,
-                defaults.excludedFromNetworkTotalGamemodes(),
-                logger
+                configRoot, PLAYTIME_EXCLUDED_GAMEMODES_KEY, gamemodeKeyMaxLength,
+                defaults.excludedFromNetworkTotalGamemodes(), logger
         ));
         builder.serverGamemodeRules(parseServerGamemodeRules(
-                configRoot,
-                PLAYTIME_SERVER_GAMEMODE_RULES_KEY,
-                gamemodeKeyMaxLength,
-                defaults.serverGamemodeRules(),
-                logger
+                configRoot, PLAYTIME_SERVER_GAMEMODE_RULES_KEY, gamemodeKeyMaxLength,
+                defaults.serverGamemodeRules(), logger
         ));
         try {
             return builder.build();
@@ -716,9 +484,7 @@ final class DataRegistrySettingsParser {
             ILoggerAdapter logger
     ) {
         Object value = getValue(configRoot, key);
-        if (value == null) {
-            return defaultValue;
-        }
+        if (value == null) { return defaultValue; }
         if (!(value instanceof List<?> listValue)) {
             logger.warn("Invalid list for key '" + key + "'. Using default '" + defaultValue + "'.");
             return defaultValue;
@@ -728,9 +494,7 @@ final class DataRegistrySettingsParser {
             String rawValue = item == null ? null : item.toString();
             String normalized = PlaytimeTrackingSettings.normalizeGamemodeKeyOrNull(rawValue, maxLength);
             if (normalized == null) {
-                logger.warn(
-                        "Invalid gamemode key for key '" + key + "': '" + rawValue + "'. Skipping entry."
-                );
+                logger.warn("Invalid gamemode key for key '" + key + "': '" + rawValue + "'. Skipping entry.");
                 continue;
             }
             parsed.add(normalized);
@@ -746,9 +510,7 @@ final class DataRegistrySettingsParser {
             ILoggerAdapter logger
     ) {
         Object value = getValue(configRoot, key);
-        if (value == null) {
-            return defaultValue;
-        }
+        if (value == null) { return defaultValue; }
         if (!(value instanceof List<?> listValue)) {
             logger.warn("Invalid list for key '" + key + "'. Using default '" + defaultValue + "'.");
             return defaultValue;
@@ -762,8 +524,7 @@ final class DataRegistrySettingsParser {
             Object matchValue = ruleMap.get("match");
             Object gamemodeValue = ruleMap.get("gamemode");
             String normalizedGamemode = PlaytimeTrackingSettings.normalizeGamemodeKeyOrNull(
-                    gamemodeValue == null ? null : gamemodeValue.toString(),
-                    maxLength
+                    gamemodeValue == null ? null : gamemodeValue.toString(), maxLength
             );
             if (matchValue == null || normalizedGamemode == null) {
                 logger.warn("Playtime rule for key '" + key + "' requires both match and gamemode. Skipping entry.");
@@ -771,13 +532,10 @@ final class DataRegistrySettingsParser {
             }
             try {
                 parsed.add(new PlaytimeTrackingSettings.ServerGamemodeRule(
-                        matchValue.toString(),
-                        normalizedGamemode
+                        matchValue.toString(), normalizedGamemode
                 ));
             } catch (IllegalArgumentException exception) {
-                logger.warn(
-                        "Invalid playtime rule for key '" + key + "': '" + item + "'. Skipping entry."
-                );
+                logger.warn("Invalid playtime rule for key '" + key + "': '" + item + "'. Skipping entry.");
             }
         }
         return parsed;
@@ -787,13 +545,9 @@ final class DataRegistrySettingsParser {
         Object current = configRoot;
         String[] segments = dottedKey.split("\\.");
         for (String segment : segments) {
-            if (!(current instanceof Map<?, ?> map)) {
-                return null;
-            }
+            if (!(current instanceof Map<?, ?> map)) { return null; }
             current = map.get(segment);
-            if (current == null) {
-                return null;
-            }
+            if (current == null) { return null; }
         }
         return current;
     }

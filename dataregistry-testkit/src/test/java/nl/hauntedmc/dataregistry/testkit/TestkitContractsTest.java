@@ -3,6 +3,7 @@ package nl.hauntedmc.dataregistry.testkit;
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.api.player.PlayerData;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
+import nl.hauntedmc.dataregistry.api.population.PopulationData;
 import nl.hauntedmc.dataregistry.api.service.FeatureServiceDirectory;
 import org.junit.jupiter.api.Test;
 
@@ -92,17 +93,21 @@ class TestkitContractsTest {
     @Test
     void fakeApiExposesConfiguredCollaboratorsAndReadiness() {
         PlayerData players = mock(PlayerData.class);
+        PopulationData population = new FakePopulationData();
         FeatureServiceDirectory services = mock(FeatureServiceDirectory.class);
         FakeDataRegistryApi api = new FakeDataRegistryApi(
                 players,
+                population,
                 services,
-                EnumSet.of(DataRegistryFeature.PLAYTIME, DataRegistryFeature.SESSIONS),
+                EnumSet.of(DataRegistryFeature.POPULATION, DataRegistryFeature.PLAYTIME, DataRegistryFeature.SESSIONS),
                 true
         );
 
         assertSame(players, api.players());
+        assertSame(population, api.population());
         assertSame(services, api.featureServices());
         assertTrue(api.isReady());
+        assertTrue(api.supports(DataRegistryFeature.POPULATION));
         assertTrue(api.supports(DataRegistryFeature.PLAYTIME));
         assertFalse(api.supports(DataRegistryFeature.LANGUAGE));
     }
@@ -112,6 +117,7 @@ class TestkitContractsTest {
         EnumSet<DataRegistryFeature> features = EnumSet.of(DataRegistryFeature.LANGUAGE);
         FakeDataRegistryApi api = new FakeDataRegistryApi(
                 mock(PlayerData.class),
+                new FakePopulationData(),
                 mock(FeatureServiceDirectory.class),
                 features,
                 false
@@ -125,10 +131,24 @@ class TestkitContractsTest {
     @Test
     void fakeApiRejectsMissingRequiredDependencies() {
         PlayerData players = mock(PlayerData.class);
+        PopulationData population = new FakePopulationData();
         FeatureServiceDirectory services = mock(FeatureServiceDirectory.class);
 
-        assertThrows(NullPointerException.class, () -> new FakeDataRegistryApi(null, services, Set.of(), false));
-        assertThrows(NullPointerException.class, () -> new FakeDataRegistryApi(players, null, Set.of(), false));
-        assertThrows(NullPointerException.class, () -> new FakeDataRegistryApi(players, services, null, false));
+        assertThrows(
+                NullPointerException.class,
+                () -> new FakeDataRegistryApi(null, population, services, Set.of(), false)
+        );
+        assertThrows(
+                NullPointerException.class,
+                () -> new FakeDataRegistryApi(players, null, services, Set.of(), false)
+        );
+        assertThrows(
+                NullPointerException.class,
+                () -> new FakeDataRegistryApi(players, population, null, Set.of(), false)
+        );
+        assertThrows(
+                NullPointerException.class,
+                () -> new FakeDataRegistryApi(players, population, services, null, false)
+        );
     }
 }
