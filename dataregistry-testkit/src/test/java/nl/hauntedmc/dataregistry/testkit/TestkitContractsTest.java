@@ -183,6 +183,20 @@ class TestkitContractsTest {
     }
 
     @Test
+    void fakeApiBuilderCanEnableAllAndDisableSelectedFeatures() {
+        FakeDataRegistryApi api = FakeDataRegistryApi.builder()
+                .enableAll()
+                .disable(DataRegistryFeature.CONNECTION_INFO, DataRegistryFeature.NICKNAMES)
+                .build();
+
+        assertEquals(DataRegistryFeature.values().length - 2, api.enabledFeatures().size());
+        assertTrue(api.supports(DataRegistryFeature.PLAYTIME));
+        assertTrue(api.supports(DataRegistryFeature.POPULATION));
+        assertFalse(api.supports(DataRegistryFeature.CONNECTION_INFO));
+        assertFalse(api.supports(DataRegistryFeature.NICKNAMES));
+    }
+
+    @Test
     void fakeApiExposesConfiguredCollaboratorsAndReadiness() {
         PlayerData players = mock(PlayerData.class);
         PopulationData population = new FakePopulationData();
