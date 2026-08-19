@@ -24,8 +24,7 @@ class PlayerValueContractsTest {
         PlayerLookup byUuid = PlayerLookup.uuid("  " + uuid + "  ");
         PlayerLookup byUsername = PlayerLookup.username("  Alice  ");
         PlayerLookup byIdentifier = PlayerLookup.identifier("  Alice-or-uuid  ");
-        PlayerLookup byExplicitId = PlayerLookup.identifier("  #42  ");
-        PlayerLookup invalidExplicitId = PlayerLookup.identifier("#not-an-id");
+        PlayerLookup hashIdentifier = PlayerLookup.identifier("  #42  ");
 
         assertEquals(PlayerLookup.Type.PLAYER_ID, byId.type());
         assertEquals(42L, byId.playerId());
@@ -40,13 +39,11 @@ class PlayerValueContractsTest {
         assertEquals("Alice", byUsername.text());
         assertEquals(null, byUsername.playerId());
         assertEquals(null, byUsername.uuid());
+        assertEquals(PlayerLookup.Type.IDENTIFIER, byIdentifier.type());
         assertEquals("Alice-or-uuid", byIdentifier.text());
-
-        assertEquals(PlayerLookup.Type.PLAYER_ID, byExplicitId.type());
-        assertEquals(42L, byExplicitId.playerId());
-        assertEquals(null, byExplicitId.text());
-        assertEquals(PlayerLookup.Type.IDENTIFIER, invalidExplicitId.type());
-        assertEquals("#not-an-id", invalidExplicitId.text());
+        assertEquals(PlayerLookup.Type.IDENTIFIER, hashIdentifier.type());
+        assertEquals("#42", hashIdentifier.text());
+        assertEquals(null, hashIdentifier.playerId());
     }
 
     @Test
