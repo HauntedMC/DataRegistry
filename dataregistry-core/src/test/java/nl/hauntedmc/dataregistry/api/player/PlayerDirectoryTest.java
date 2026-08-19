@@ -6,12 +6,12 @@ import nl.hauntedmc.dataregistry.core.player.RepositoryPlayerDirectory;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerRepository;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -147,18 +147,24 @@ class PlayerDirectoryTest {
     }
 
     @Test
-    void findByIdentifierResolvesUuidOrUsername() {
+    void findByIdentifierResolvesUuidUsernameOrExplicitPlayerId() {
         PlayerRepository repository = mock(PlayerRepository.class);
         PlayerDirectory directory = new RepositoryPlayerDirectory(repository, new PlayerIdentityInitializationTracker());
         UUID uuid = UUID.randomUUID();
-        PlayerIdentity identity = new PlayerIdentity(20L, uuid, "Alice");
+        PlayerIdentity uuidIdentity = new PlayerIdentity(20L, uuid, "Alice");
         PlayerIdentity namedIdentity = new PlayerIdentity(21L, UUID.randomUUID(), "Bob");
+        PlayerIdentity idIdentity = new PlayerIdentity(22L, UUID.randomUUID(), "Carol");
+        PlayerLookup uuidLookup = PlayerLookup.identifier(uuid.toString());
+        PlayerLookup usernameLookup = PlayerLookup.identifier("Bob");
+        PlayerLookup idLookup = PlayerLookup.identifier("#22");
 
-        when(repository.findIdentityByIdentifier(uuid.toString())).thenReturn(Optional.of(identity));
-        when(repository.findIdentityByIdentifier(" Bob ")).thenReturn(Optional.of(namedIdentity));
+        when(repository.findIdentity(uuidLookup)).thenReturn(Optional.of(uuidIdentity));
+        when(repository.findIdentity(usernameLookup)).thenReturn(Optional.of(namedIdentity));
+        when(repository.findIdentity(idLookup)).thenReturn(Optional.of(idIdentity));
 
-        assertEquals(Optional.of(identity), join(directory.findByIdentifier(uuid.toString())));
+        assertEquals(Optional.of(uuidIdentity), join(directory.findByIdentifier(uuid.toString())));
         assertEquals(Optional.of(namedIdentity), join(directory.findByIdentifier(" Bob ")));
+        assertEquals(Optional.of(idIdentity), join(directory.findByIdentifier(" #22 ")));
         assertEquals(Optional.empty(), join(directory.findByIdentifier(" ")));
     }
 
