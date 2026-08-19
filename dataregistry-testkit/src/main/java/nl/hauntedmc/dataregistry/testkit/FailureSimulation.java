@@ -1,5 +1,7 @@
 package nl.hauntedmc.dataregistry.testkit;
 
+import java.util.Objects;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
@@ -12,6 +14,23 @@ public final class FailureSimulation {
     }
 
     public static <T> CompletionStage<T> failedStage(Throwable failure) {
-        return CompletableFuture.failedFuture(failure);
+        return CompletableFuture.failedFuture(Objects.requireNonNull(failure, "failure must not be null"));
+    }
+
+    /** Returns a stage that intentionally never completes for timeout and lifecycle tests. */
+    public static <T> CompletableFuture<T> neverCompletingFuture() {
+        return new CompletableFuture<>();
+    }
+
+    /** Returns an already-cancelled future for cancellation-path contract tests. */
+    public static <T> CompletableFuture<T> cancelledFuture() {
+        CompletableFuture<T> future = new CompletableFuture<>();
+        future.cancel(false);
+        return future;
+    }
+
+    /** Returns a stage that fails with a standard cancellation exception without marking the future cancelled. */
+    public static <T> CompletionStage<T> cancellationFailure() {
+        return CompletableFuture.failedFuture(new CancellationException("simulated cancellation"));
     }
 }
