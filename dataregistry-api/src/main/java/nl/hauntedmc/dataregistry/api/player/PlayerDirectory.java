@@ -79,7 +79,7 @@ public interface PlayerDirectory {
     CompletionStage<Optional<PlayerIdentity>> findByUsernameIgnoreCase(String username);
 
     /**
-     * Looks up a persisted identity by UUID string, case-insensitive username, or explicit {@code #<playerId>}.
+     * Looks up a persisted identity by UUID string or case-insensitive username.
      */
     CompletionStage<Optional<PlayerIdentity>> findByIdentifier(String identifier);
 
