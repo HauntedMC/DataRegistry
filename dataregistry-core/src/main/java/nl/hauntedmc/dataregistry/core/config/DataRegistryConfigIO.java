@@ -10,6 +10,7 @@ import org.yaml.snakeyaml.nodes.MappingNode;
 import org.yaml.snakeyaml.nodes.Node;
 import org.yaml.snakeyaml.nodes.NodeTuple;
 import org.yaml.snakeyaml.nodes.ScalarNode;
+import org.yaml.snakeyaml.nodes.SequenceNode;
 import org.yaml.snakeyaml.representer.Representer;
 
 import java.io.IOException;
@@ -26,12 +27,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /** Reads {@code config.yml} safely and keeps it aligned with the packaged defaults. */
 final class DataRegistryConfigIO {
 
     static final String FILE_NAME = "config.yml";
     static final String BACKUP_FILE_NAME = "config.yml.bak";
+    private static final String SERVER_GAMEMODE_RULES_PATH = "playtime.server-gamemode-rules";
+    private static final Set<String> SERVER_GAMEMODE_RULE_KEYS = Set.of("match", "gamemode");
 
     private DataRegistryConfigIO() {
     }
@@ -83,10 +87,16 @@ final class DataRegistryConfigIO {
             }
 
             List<String> unknownPaths = new ArrayList<>();
-            collectUnknownSettings(existingMap, defaultMap, "", unknownPaths);
+            List<String> incompatibleStructurePaths = new ArrayList<>();
+            collectConfigIssues(existingMap, defaultMap, "", unknownPaths, incompatibleStructurePaths);
             if (!unknownPaths.isEmpty()) {
                 unknownPaths.sort(String::compareTo);
                 logger.warn("Unknown DataRegistry config settings are ignored: " + String.join(", ", unknownPaths));
+            }
+            if (!incompatibleStructurePaths.isEmpty()) {
+                incompatibleStructurePaths.sort(String::compareTo);
+                logger.warn("DataRegistry config settings have incompatible YAML structure and may use defaults: "
+                        + String.join(", ", incompatibleStructurePaths));
             }
 
             List<String> addedPaths = new ArrayList<>();
@@ -129,11 +139,12 @@ final class DataRegistryConfigIO {
         }
     }
 
-    private static void collectUnknownSettings(
+    private static void collectConfigIssues(
             MappingNode existing,
             MappingNode defaults,
             String path,
-            List<String> unknownPaths
+            List<String> unknownPaths,
+            List<String> incompatibleStructurePaths
     ) {
         for (NodeTuple existingEntry : existing.getValue()) {
             if (!(existingEntry.getKeyNode() instanceof ScalarNode scalar)) {
@@ -146,9 +157,57 @@ final class DataRegistryConfigIO {
                 unknownPaths.add(entryPath);
                 continue;
             }
-            if (existingEntry.getValueNode() instanceof MappingNode existingMap
-                    && defaultEntry.getValueNode() instanceof MappingNode defaultMap) {
-                collectUnknownSettings(existingMap, defaultMap, entryPath, unknownPaths);
+
+            Node existingValue = existingEntry.getValueNode();
+            Node defaultValue = defaultEntry.getValueNode();
+            if (defaultValue instanceof MappingNode defaultMap) {
+                if (existingValue instanceof MappingNode existingMap) {
+                    collectConfigIssues(
+                            existingMap,
+                            defaultMap,
+                            entryPath,
+                            unknownPaths,
+                            incompatibleStructurePaths
+                    );
+                } else {
+                    incompatibleStructurePaths.add(entryPath);
+                }
+                continue;
+            }
+            if (defaultValue instanceof SequenceNode) {
+                if (existingValue instanceof SequenceNode existingSequence) {
+                    if (SERVER_GAMEMODE_RULES_PATH.equals(entryPath)) {
+                        collectUnknownServerGamemodeRuleSettings(existingSequence, entryPath, unknownPaths);
+                    }
+                } else {
+                    incompatibleStructurePaths.add(entryPath);
+                }
+                continue;
+            }
+            if (defaultValue instanceof ScalarNode && !(existingValue instanceof ScalarNode)) {
+                incompatibleStructurePaths.add(entryPath);
+            }
+        }
+    }
+
+    private static void collectUnknownServerGamemodeRuleSettings(
+            SequenceNode rules,
+            String path,
+            List<String> unknownPaths
+    ) {
+        for (int index = 0; index < rules.getValue().size(); index++) {
+            Node ruleNode = rules.getValue().get(index);
+            if (!(ruleNode instanceof MappingNode ruleMap)) {
+                continue;
+            }
+            for (NodeTuple ruleEntry : ruleMap.getValue()) {
+                if (!(ruleEntry.getKeyNode() instanceof ScalarNode scalar)) {
+                    continue;
+                }
+                String key = scalar.getValue();
+                if (!SERVER_GAMEMODE_RULE_KEYS.contains(key)) {
+                    unknownPaths.add(path + "[" + index + "]." + key);
+                }
             }
         }
     }
