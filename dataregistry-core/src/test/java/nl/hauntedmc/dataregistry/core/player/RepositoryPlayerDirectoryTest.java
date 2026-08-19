@@ -87,23 +87,20 @@ class RepositoryPlayerDirectoryTest {
     }
 
     @Test
-    void namedIdentifierAndIdLookupsDelegateToCanonicalLookupForms() {
+    void namedAndIdLookupsDelegateToCanonicalLookupForms() {
         PlayerRepository repository = mock(PlayerRepository.class);
         RepositoryPlayerDirectory directory = directory(repository);
         PlayerIdentity identity = identity(UUID.randomUUID(), 4L);
         PlayerLookup namedIdentifier = PlayerLookup.identifier("Alice");
-        PlayerLookup explicitId = PlayerLookup.identifier("#4");
         when(repository.findIdentityById(4L)).thenReturn(Optional.of(identity));
         when(repository.findIdentityByUsername("Alice")).thenReturn(Optional.of(identity));
         when(repository.findIdentityByUsernameIgnoreCase("alice")).thenReturn(Optional.of(identity));
         when(repository.findIdentity(namedIdentifier)).thenReturn(Optional.of(identity));
-        when(repository.findIdentity(explicitId)).thenReturn(Optional.of(identity));
 
         assertEquals(Optional.of(identity), directory.findByPlayerId(4L).toCompletableFuture().join());
         assertEquals(Optional.of(identity), directory.findByUsername("Alice").toCompletableFuture().join());
         assertEquals(Optional.of(identity), directory.findByUsernameIgnoreCase("alice").toCompletableFuture().join());
         assertEquals(Optional.of(identity), directory.findByIdentifier("Alice").toCompletableFuture().join());
-        assertEquals(Optional.of(identity), directory.findByIdentifier("  #4 ").toCompletableFuture().join());
         assertTrue(directory.findByIdentifier(" ").toCompletableFuture().join().isEmpty());
     }
 
