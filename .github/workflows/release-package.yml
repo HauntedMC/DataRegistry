@@ -21,6 +21,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up JDK 25
         uses: actions/setup-java@v5
@@ -34,10 +35,26 @@ jobs:
 
       - name: Validate release version
         id: release-version
+        shell: bash
         run: |
-          PROJECT_VERSION="$(./mvnw -q -ntp -DforceStdout help:evaluate -Dexpression=project.version | tail -n 1)"
+          set -euo pipefail
           TAG_VERSION="${GITHUB_REF_NAME#v}"
-          test "$PROJECT_VERSION" = "$TAG_VERSION" || { echo "Tag version does not match Maven project version." >&2; exit 1; }
+          [[ "$TAG_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Release tag must use vX.Y.Z semantic versioning; got '${GITHUB_REF_NAME}'." >&2
+            exit 1
+          }
+          PROJECT_VERSION="$(
+            ./mvnw -q -ntp -DforceStdout help:evaluate -Dexpression=project.version \
+              | awk '/^[0-9]+\.[0-9]+\.[0-9]+$/ { print; exit }'
+          )"
+          [[ -n "$PROJECT_VERSION" ]] || {
+            echo "Unable to resolve a semantic Maven project version." >&2
+            exit 1
+          }
+          [[ "$PROJECT_VERSION" == "$TAG_VERSION" ]] || {
+            echo "Tag version '${TAG_VERSION}' does not match Maven project version '${PROJECT_VERSION}'." >&2
+            exit 1
+          }
           echo "value=$PROJECT_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Verify and publish exact release reactor
