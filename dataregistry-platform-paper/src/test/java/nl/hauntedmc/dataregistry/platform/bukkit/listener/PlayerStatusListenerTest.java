@@ -1,5 +1,6 @@
 package nl.hauntedmc.dataregistry.platform.bukkit.listener;
 
+import net.kyori.adventure.text.Component;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerIdentityInitializationTracker;
@@ -83,7 +84,7 @@ class PlayerStatusListenerTest {
         when(player.getUniqueId()).thenReturn(uuid);
         when(player.getName()).thenReturn("Alice");
 
-        listener.onPlayerQuit(new PlayerQuitEvent(player, "quit"));
+        listener.onPlayerQuit(quitEvent(player));
 
         verify(repository).removeActivePlayer(uuid.toString());
         verify(scheduler).runTaskLater(eq(plugin), any(Runnable.class), eq(1L));
@@ -115,7 +116,7 @@ class PlayerStatusListenerTest {
                 new IllegalStateException("scheduler stopped")
         );
 
-        listener.onPlayerQuit(new PlayerQuitEvent(player, "quit"));
+        listener.onPlayerQuit(quitEvent(player));
 
         verify(repository).removeActivePlayer(uuid.toString());
         verify(platformLogger).warn(
@@ -142,7 +143,7 @@ class PlayerStatusListenerTest {
                 () -> scheduler,
                 id -> id.equals(uuid) ? livePlayer : null
         );
-        PlayerJoinEvent joinEvent = new PlayerJoinEvent(joinedPlayer, "join");
+        PlayerJoinEvent joinEvent = joinEvent(joinedPlayer);
         PlayerEntity persisted = new PlayerEntity();
         persisted.setId(1L);
         persisted.setUuid(uuid.toString());
@@ -205,7 +206,7 @@ class PlayerStatusListenerTest {
             return mock(BukkitTask.class);
         });
 
-        listener.onPlayerJoin(new PlayerJoinEvent(joinedPlayer, "join"));
+        listener.onPlayerJoin(joinEvent(joinedPlayer));
 
         verify(repository, never()).getOrCreateActivePlayer(any(), any());
         verify(scheduler).runTaskLater(eq(plugin), any(Runnable.class), eq(4L));
@@ -230,7 +231,7 @@ class PlayerStatusListenerTest {
                 () -> scheduler,
                 id -> null
         );
-        PlayerJoinEvent joinEvent = new PlayerJoinEvent(joinedPlayer, "join");
+        PlayerJoinEvent joinEvent = joinEvent(joinedPlayer);
 
         when(joinedPlayer.getUniqueId()).thenReturn(uuid);
         when(joinedPlayer.getName()).thenReturn("Alice");
@@ -259,7 +260,7 @@ class PlayerStatusListenerTest {
                 () -> scheduler,
                 id -> null
         );
-        PlayerJoinEvent joinEvent = new PlayerJoinEvent(joinedPlayer, "join");
+        PlayerJoinEvent joinEvent = joinEvent(joinedPlayer);
 
         when(joinedPlayer.getUniqueId()).thenReturn(uuid);
         when(joinedPlayer.getName()).thenReturn("Alice");
@@ -267,7 +268,7 @@ class PlayerStatusListenerTest {
         when(quitPlayer.getName()).thenReturn("Alice");
 
         listener.onPlayerJoin(joinEvent);
-        listener.onPlayerQuit(new PlayerQuitEvent(quitPlayer, "quit"));
+        listener.onPlayerQuit(quitEvent(quitPlayer));
 
         verify(scheduler, never()).runTaskAsynchronously(eq(plugin), any(Runnable.class));
         verify(repository).removeActivePlayer(uuid.toString());
@@ -314,9 +315,9 @@ class PlayerStatusListenerTest {
             return mock(BukkitTask.class);
         });
 
-        listener.onPlayerJoin(new PlayerJoinEvent(firstJoinPlayer, "join"));
-        listener.onPlayerQuit(new PlayerQuitEvent(quitPlayer, "quit"));
-        listener.onPlayerJoin(new PlayerJoinEvent(secondJoinPlayer, "join"));
+        listener.onPlayerJoin(joinEvent(firstJoinPlayer));
+        listener.onPlayerQuit(quitEvent(quitPlayer));
+        listener.onPlayerJoin(joinEvent(secondJoinPlayer));
 
         CompletableFuture<?> secondJoinInitialization = playerDirectory.whenReady(uuid);
         asyncTasks.get(0).run();
@@ -355,9 +356,17 @@ class PlayerStatusListenerTest {
             throw new IllegalStateException("scheduler stopped");
         });
 
-        listener.onPlayerJoin(new PlayerJoinEvent(joinedPlayer, "join"));
+        listener.onPlayerJoin(joinEvent(joinedPlayer));
 
         assertThrows(ExecutionException.class, () -> pendingInitialization.get().get());
         verify(platformLogger).warn(eq("Failed to schedule Bukkit player join processing."), any(RuntimeException.class));
+    }
+
+    private static PlayerJoinEvent joinEvent(Player player) {
+        return new PlayerJoinEvent(player, Component.empty());
+    }
+
+    private static PlayerQuitEvent quitEvent(Player player) {
+        return new PlayerQuitEvent(player, Component.empty(), PlayerQuitEvent.QuitReason.DISCONNECTED);
     }
 }
