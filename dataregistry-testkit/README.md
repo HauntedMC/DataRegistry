@@ -31,7 +31,8 @@ players.putActiveIdentity(remy)
 ```
 
 The builder supplies `FakePlayerData`, `FakePopulationData`, and `FakeFeatureServiceDirectory` automatically unless a
-custom collaborator is provided.
+custom collaborator is provided. Use `enableAll()` for broad integration-style tests and chain `disable(...)` when only
+a few unavailable domains need to be modeled; focused tests should generally continue to enable only what they use.
 
 ## Player data
 
