@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   lint:
-    name: Checkstyle and Acceptance Runner
+    name: Checkstyle and Shell Scripts
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -37,5 +37,5 @@ jobs:
           server-password: PACKAGES_TOKEN
       - name: Run Checkstyle
         run: ./mvnw -U -B -ntp -DskipTests checkstyle:check
-      - name: Lint platform acceptance runner
-        run: shellcheck dataregistry-platform-acceptance/run-platform-acceptance.sh
+      - name: Lint shell scripts
+        run: shellcheck update_version.sh dataregistry-platform-acceptance/run-platform-acceptance.sh
