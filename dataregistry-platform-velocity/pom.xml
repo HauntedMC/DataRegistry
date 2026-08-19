@@ -38,9 +38,9 @@
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>nl.hauntedmc</groupId>
+            <groupId>nl.hauntedmc.theme</groupId>
             <artifactId>hauntedmc-theme-palette</artifactId>
-            <version>${theme.palette.version}</version>
+            <version>${hauntedmc-theme.version}</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -61,8 +61,11 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>${maven.compiler.version}</version>
                 <configuration>
+                    <proc>full</proc>
+                    <annotationProcessors>
+                        <annotationProcessor>com.velocitypowered.api.plugin.ap.PluginAnnotationProcessor</annotationProcessor>
+                    </annotationProcessors>
                     <annotationProcessorPaths>
                         <path>
                             <groupId>com.velocitypowered</groupId>
@@ -91,7 +94,7 @@
                                     <include>nl.hauntedmc.dataregistry:dataregistry-api</include>
                                     <include>nl.hauntedmc.dataregistry:dataregistry-core</include>
                                     <include>nl.hauntedmc.dataregistry:dataregistry-platform-common</include>
-                                    <include>nl.hauntedmc:hauntedmc-theme-palette</include>
+                                    <include>nl.hauntedmc.theme:hauntedmc-theme-palette</include>
                                     <include>org.yaml:snakeyaml</include>
                                 </includes>
                             </artifactSet>
