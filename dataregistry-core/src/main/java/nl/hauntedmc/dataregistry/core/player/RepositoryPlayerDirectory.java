@@ -115,7 +115,10 @@ public final class RepositoryPlayerDirectory implements PlayerDirectory {
         if (identifier == null || identifier.isBlank()) {
             return CompletableFuture.completedFuture(Optional.empty());
         }
-        return findIdentity(PlayerLookup.identifier(identifier));
+        return queryExecutor.supply(
+                "player.identity.identifier",
+                () -> playerRepository.findIdentityByIdentifier(identifier)
+        );
     }
 
     @Override
