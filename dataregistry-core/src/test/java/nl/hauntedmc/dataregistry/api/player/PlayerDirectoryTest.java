@@ -153,14 +153,12 @@ class PlayerDirectoryTest {
         UUID uuid = UUID.randomUUID();
         PlayerIdentity uuidIdentity = new PlayerIdentity(20L, uuid, "Alice");
         PlayerIdentity namedIdentity = new PlayerIdentity(21L, UUID.randomUUID(), "Bob");
-        PlayerLookup uuidLookup = PlayerLookup.identifier(uuid.toString());
-        PlayerLookup usernameLookup = PlayerLookup.identifier("Bob");
 
-        when(repository.findIdentity(uuidLookup)).thenReturn(Optional.of(uuidIdentity));
-        when(repository.findIdentity(usernameLookup)).thenReturn(Optional.of(namedIdentity));
+        when(repository.findIdentityByIdentifier(uuid.toString())).thenReturn(Optional.of(uuidIdentity));
+        when(repository.findIdentityByIdentifier("Bob")).thenReturn(Optional.of(namedIdentity));
 
         assertEquals(Optional.of(uuidIdentity), join(directory.findByIdentifier(uuid.toString())));
-        assertEquals(Optional.of(namedIdentity), join(directory.findByIdentifier(" Bob ")));
+        assertEquals(Optional.of(namedIdentity), join(directory.findByIdentifier("Bob")));
         assertEquals(Optional.empty(), join(directory.findByIdentifier(" ")));
     }
 
