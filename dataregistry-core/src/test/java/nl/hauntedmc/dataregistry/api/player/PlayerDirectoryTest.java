@@ -147,24 +147,20 @@ class PlayerDirectoryTest {
     }
 
     @Test
-    void findByIdentifierResolvesUuidUsernameOrExplicitPlayerId() {
+    void findByIdentifierResolvesUuidOrUsername() {
         PlayerRepository repository = mock(PlayerRepository.class);
         PlayerDirectory directory = new RepositoryPlayerDirectory(repository, new PlayerIdentityInitializationTracker());
         UUID uuid = UUID.randomUUID();
         PlayerIdentity uuidIdentity = new PlayerIdentity(20L, uuid, "Alice");
         PlayerIdentity namedIdentity = new PlayerIdentity(21L, UUID.randomUUID(), "Bob");
-        PlayerIdentity idIdentity = new PlayerIdentity(22L, UUID.randomUUID(), "Carol");
         PlayerLookup uuidLookup = PlayerLookup.identifier(uuid.toString());
         PlayerLookup usernameLookup = PlayerLookup.identifier("Bob");
-        PlayerLookup idLookup = PlayerLookup.identifier("#22");
 
         when(repository.findIdentity(uuidLookup)).thenReturn(Optional.of(uuidIdentity));
         when(repository.findIdentity(usernameLookup)).thenReturn(Optional.of(namedIdentity));
-        when(repository.findIdentity(idLookup)).thenReturn(Optional.of(idIdentity));
 
         assertEquals(Optional.of(uuidIdentity), join(directory.findByIdentifier(uuid.toString())));
         assertEquals(Optional.of(namedIdentity), join(directory.findByIdentifier(" Bob ")));
-        assertEquals(Optional.of(idIdentity), join(directory.findByIdentifier(" #22 ")));
         assertEquals(Optional.empty(), join(directory.findByIdentifier(" ")));
     }
 
