@@ -16,15 +16,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class FakePlayerDataTest {
 
     @Test
-    void explicitPlayerIdIdentifierMatchesRuntimeSyntax() {
+    void identifierLookupMatchesUsernameAndUuidRuntimeSemantics() {
         FakePlayerData players = new FakePlayerData();
         PlayerIdentity identity = PlayerFixtures.identity(42L, "Alice");
         players.putIdentity(identity);
 
-        assertEquals(identity, players.findIdentityByIdentifier("#42").toCompletableFuture().join().orElseThrow());
-        assertEquals(42L, players.findPlayerIdByIdentifier(" #42 ").toCompletableFuture().join().orElseThrow());
-        assertEquals(identity, players.findProfileByIdentifier("#42", 0)
+        assertEquals(identity, players.findIdentityByIdentifier("alice").toCompletableFuture().join().orElseThrow());
+        assertEquals(42L, players.findPlayerIdByIdentifier(identity.uuid().toString())
+                .toCompletableFuture().join().orElseThrow());
+        assertEquals(identity, players.findProfileByIdentifier("Alice", 0)
                 .toCompletableFuture().join().orElseThrow().identity());
+        assertTrue(players.findIdentityByIdentifier("#42").toCompletableFuture().join().isEmpty());
     }
 
     @Test
