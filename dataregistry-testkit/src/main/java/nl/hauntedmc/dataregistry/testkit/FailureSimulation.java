@@ -1,7 +1,6 @@
 package nl.hauntedmc.dataregistry.testkit;
 
 import java.util.Objects;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
@@ -27,10 +26,5 @@ public final class FailureSimulation {
         CompletableFuture<T> future = new CompletableFuture<>();
         future.cancel(false);
         return future;
-    }
-
-    /** Returns a stage that fails with a standard cancellation exception without marking the future cancelled. */
-    public static <T> CompletionStage<T> cancellationFailure() {
-        return CompletableFuture.failedFuture(new CancellationException("simulated cancellation"));
     }
 }
