@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0">
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
+
     <parent>
         <groupId>nl.hauntedmc.dataregistry</groupId>
         <artifactId>dataregistry-parent</artifactId>
         <version>${revision}</version>
+        <relativePath>../pom.xml</relativePath>
     </parent>
 
     <artifactId>dataregistry-platform-velocity</artifactId>
@@ -12,10 +16,14 @@
 
     <dependencies>
         <dependency>
-            <groupId>${project.groupId}</groupId>
+            <groupId>nl.hauntedmc.dataregistry</groupId>
             <artifactId>dataregistry-core</artifactId>
             <version>${project.version}</version>
-            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>nl.hauntedmc.dataregistry</groupId>
+            <artifactId>dataregistry-platform-common</artifactId>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>nl.hauntedmc.dataprovider</groupId>
@@ -30,9 +38,9 @@
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>nl.hauntedmc.theme</groupId>
+            <groupId>nl.hauntedmc</groupId>
             <artifactId>hauntedmc-theme-palette</artifactId>
-            <version>${hauntedmc-theme.version}</version>
+            <version>${theme.palette.version}</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -46,25 +54,15 @@
             <version>${mockito.version}</version>
             <scope>test</scope>
         </dependency>
-        <!-- Reuse core test fixtures in this platform module. -->
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>dataregistry-core</artifactId>
-            <version>${project.version}</version>
-            <classifier>tests</classifier>
-            <type>test-jar</type>
-            <scope>test</scope>
-        </dependency>
     </dependencies>
+
     <build>
         <plugins>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
+                <version>${maven.compiler.version}</version>
                 <configuration>
-                    <proc>full</proc>
-                    <annotationProcessors>
-                        <annotationProcessor>com.velocitypowered.api.plugin.ap.PluginAnnotationProcessor</annotationProcessor>
-                    </annotationProcessors>
                     <annotationProcessorPaths>
                         <path>
                             <groupId>com.velocitypowered</groupId>
@@ -75,33 +73,43 @@
                 </configuration>
             </plugin>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
-                <configuration>
-                    <createDependencyReducedPom>false</createDependencyReducedPom>
-                    <shadedArtifactAttached>true</shadedArtifactAttached>
-                    <shadedClassifierName>bundled</shadedClassifierName>
-                    <artifactSet>
-                        <includes>
-                            <include>nl.hauntedmc.dataregistry:dataregistry-api</include>
-                            <include>nl.hauntedmc.dataregistry:dataregistry-platform-common</include>
-                            <include>nl.hauntedmc.dataregistry:dataregistry-core</include>
-                            <include>nl.hauntedmc.theme:hauntedmc-theme-palette</include>
-                            <include>org.yaml:snakeyaml</include>
-                        </includes>
-                    </artifactSet>
-                    <relocations>
-                        <relocation>
-                            <pattern>nl.hauntedmc.dataregistry.core</pattern>
-                            <shadedPattern>nl.hauntedmc.dataregistry.platform.internal.core</shadedPattern>
-                        </relocation>
-                    </relocations>
-                </configuration>
+                <version>${maven.shade.version}</version>
                 <executions>
                     <execution>
                         <phase>package</phase>
                         <goals>
                             <goal>shade</goal>
                         </goals>
+                        <configuration>
+                            <shadedArtifactAttached>true</shadedArtifactAttached>
+                            <shadedClassifierName>bundled</shadedClassifierName>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <artifactSet>
+                                <includes>
+                                    <include>nl.hauntedmc.dataregistry:dataregistry-api</include>
+                                    <include>nl.hauntedmc.dataregistry:dataregistry-core</include>
+                                    <include>nl.hauntedmc.dataregistry:dataregistry-platform-common</include>
+                                    <include>nl.hauntedmc:hauntedmc-theme-palette</include>
+                                    <include>org.yaml:snakeyaml</include>
+                                </includes>
+                            </artifactSet>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/MANIFEST.MF</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <relocations>
+                                <relocation>
+                                    <pattern>org.yaml.snakeyaml</pattern>
+                                    <shadedPattern>nl.hauntedmc.dataregistry.lib.snakeyaml</shadedPattern>
+                                </relocation>
+                            </relocations>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
