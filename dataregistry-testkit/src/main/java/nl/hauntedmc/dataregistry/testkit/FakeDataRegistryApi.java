@@ -116,6 +116,21 @@ public final class FakeDataRegistryApi implements DataRegistryApi {
             return this;
         }
 
+        /** Enables every built-in DataRegistry feature for broad integration-style feature tests. */
+        public Builder enableAll() {
+            enabledFeatures.addAll(EnumSet.allOf(DataRegistryFeature.class));
+            return this;
+        }
+
+        /** Disables selected features without rebuilding the complete enabled-feature set. */
+        public Builder disable(DataRegistryFeature... features) {
+            Objects.requireNonNull(features, "features must not be null");
+            for (DataRegistryFeature feature : features) {
+                enabledFeatures.remove(Objects.requireNonNull(feature, "feature must not be null"));
+            }
+            return this;
+        }
+
         public Builder enabledFeatures(Set<DataRegistryFeature> features) {
             enabledFeatures.clear();
             enabledFeatures.addAll(Objects.requireNonNull(features, "features must not be null"));
