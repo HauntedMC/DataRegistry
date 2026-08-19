@@ -45,7 +45,7 @@
         <java.version>25</java.version>
         <maven.compiler.release>${java.version}</maven.compiler.release>
         <!-- Runtime and platform APIs. -->
-        <dataprovider.version>3.1.16</dataprovider.version>
+        <dataprovider.version>3.2.0</dataprovider.version>
         <hauntedmc-theme.version>1.0.0</hauntedmc-theme.version>
         <jakarta.persistence.version>3.2.0</jakarta.persistence.version>
         <snakeyaml.version>2.6</snakeyaml.version>
