@@ -22,7 +22,7 @@ tables and should reference players by the stable scalar `playerId`.
 ## Requirements
 
 - Java 25
-- Maven 3.8.6+
+- Maven Wrapper (`./mvnw`; Maven 3.8.6+ is enforced by the build)
 - Docker, for the container-backed and platform-acceptance suites
 - DataProvider `3.1.16`
 - Velocity `4.1.0-SNAPSHOT` and/or Paper `26.2`
@@ -37,9 +37,13 @@ privacy, playtime/population mapping, retention, service-registry, and platform 
 
 Defaults and comments live in [dataregistry-core/src/main/resources/config.yml](dataregistry-core/src/main/resources/config.yml),
 which is the single documented configuration template. On startup, DataRegistry adds settings that are missing from
-an existing config while preserving operator-provided values and comments. Invalid settings warn and fall back to
-their defaults. Unknown settings are preserved, reported by path, and ignored so configuration typos are visible.
-The startup log also lists the default paths added during an upgrade so operators can review newly introduced settings.
+an existing config while preserving operator-provided values and comments. Before an automatic rewrite, the previous
+file is copied to `config.yml.bak`. Warning-only validation does not rewrite the file or rotate that backup.
+
+Invalid settings warn and fall back to their defaults. Unknown settings are preserved, reported by path, and ignored so
+configuration typos are visible. DataRegistry also reports incompatible YAML structure and unknown fields inside
+`playtime.server-gamemode-rules`. The startup log lists the exact default paths added during an upgrade so operators can
+review newly introduced settings.
 
 The `population` domain is enabled by default. It requires `online-status`, `sessions`, and `session-visits`, which
 provide the canonical presence and visit evidence used by Population. Population does **not** require playtime. It
@@ -54,11 +58,12 @@ The Velocity command `/dataregistry` (alias `/dr`) requires `dataregistry.admin`
 - `/dataregistry features` lists enabled built-in data domains. Feature changes require a Velocity restart.
 - `/dataregistry diagnostics` compares live and durable presence, reports playerbase/lifecycle state, and shows
   service-registry totals. Disabled domains are reported as disabled rather than as misleading zero counts.
-- `/dataregistry players online`, `players recent`, and `players inspect <name-or-uuid>` provide durable playerbase,
-  activity, and profile views. Player lists include usernames and internal IDs and clearly indicate when more than
-  the displayed rows exist.
-- `/dataregistry players delete <name-or-uuid> confirm` permanently removes a fully offline canonical player identity
-  and its DataRegistry-owned dependent rows. It requires the additional `dataregistry.admin.players.delete`
+- `/dataregistry players online`, `players recent`, and `players inspect <name|uuid|#playerId>` provide durable
+  playerbase, activity, and profile views. Player lists include usernames and internal IDs and clearly indicate when
+  more than the displayed rows exist. Inspection distinguishes disabled domains from missing rows and shows stored
+  lifecycle timestamps, per-gamemode playtime, preferences, connection metadata, and recent name history when present.
+- `/dataregistry players delete <name|uuid|#playerId> confirm` permanently removes a fully offline canonical player
+  identity and its DataRegistry-owned dependent rows. It requires the additional `dataregistry.admin.players.delete`
   permission and explicit `confirm`; the player's next join creates a new DataRegistry player ID.
 - `/dataregistry services health` reports effective service/probe health.
 - `/dataregistry presence repair` force-refreshes durable online status from the players connected to this proxy. It
@@ -117,8 +122,9 @@ players.whenReady(uuid).thenAccept(identity -> {
   and query execution. It is an implementation dependency of the platform modules, never a feature dependency.
 - `dataregistry-platform-velocity` owns authoritative proxy lifecycle listeners, including
   `PlayerStatusListener`; `dataregistry-platform-paper` provides the Paper identity bridge.
-- `dataregistry-testkit` supplies `FakeDataRegistryApi`, `FakePopulationData`, immutable player fixtures, temporary
-  IDs, and async failure simulation for feature contract tests.
+- `dataregistry-testkit` supplies complete in-memory `FakePlayerData`, `FakePopulationData`,
+  `FakeFeatureServiceDirectory`, a fluent `FakeDataRegistryApi`, immutable player fixtures, temporary IDs, and async
+  failure helpers for consumer contract tests. See [dataregistry-testkit/README.md](dataregistry-testkit/README.md).
 
 `DataRegistryApiProvider#getDataRegistry()` returns `DataRegistryApi`, not the core runtime. Platform plugins
 implement that provider capability; consumers can depend on `dataregistry-api` alone. There is deliberately no
@@ -136,7 +142,8 @@ initialization for that player, including creation or username update if needed.
 Use lookup-only methods outside lifecycle paths:
 
 - `players.findIdentity(uuid)`, `players.findIdentityByUsername(name)`, and `players.findIdentity(playerId)`
-- `players.findIdentityByIdentifier(identifier)` for command input that may be a UUID or username
+- `players.findIdentityByIdentifier(identifier)` for command/staff input that may be a UUID, username, or explicit
+  `#playerId`
 - `players.findPlayerId(uuid)` and `players.findPlayerIdByIdentifier(identifier)`
 - `players.findIdentities(lookups)` for bulk identity resolution
 - `players.findIdentitiesByUsernamePrefix(prefix, pageRequest)` for cursor-based suggestions and staff tooling
@@ -355,17 +362,24 @@ Authenticated GitHub Packages access may be required for private HauntedMC depen
 
 # Full local release gate: fast checks, MySQL integration, and Paper/Velocity acceptance.
 ./mvnw -B -ntp -Pintegration-tests,platform-acceptance verify
+
+# Shell validation used by CI for the repository maintenance scripts.
+shellcheck update_version.sh dataregistry-platform-acceptance/run-platform-acceptance.sh
+
+# Preview a patch release bump without changing files, committing, or tagging.
+./update_version.sh --dry-run patch
 ```
 
 The integration and platform suites need a reachable Docker daemon. The platform suite additionally needs `curl`,
 `jq`, `sha256sum`, `jar`, and exactly Java 25. Java 26 is intentionally rejected because the currently supported
 DataProvider/Hibernate runtime is qualified against Java 25. The platform suite downloads the configured Paper and
-Velocity runtime builds, checks their SHA-256 values, provisions MySQL 8.4, checks public API
-reads and writes, reloads DataProvider configuration, and requires clean DataRegistry and Hikari shutdown. Set
+Velocity runtime builds, checks their SHA-256 values, provisions MySQL 8.4, checks public API reads and writes, reloads
+DataProvider configuration, and requires clean DataRegistry and Hikari shutdown. Set
 `PLATFORM_ACCEPTANCE_KEEP_WORK_DIRECTORY=true` to retain server logs after a local run.
 
-The tag release workflow runs both profiles against the exact tagged reactor before Maven deployment. This
-keeps the fast checks, MySQL schema compatibility, and real bundled-plugin boot checks in the release gate.
+The tag release workflow runs both profiles against the exact tagged reactor before Maven deployment and independently
+verifies that the `vX.Y.Z` tag matches the Maven project version. This keeps fast checks, MySQL schema compatibility,
+and real bundled-plugin boot checks in the release gate.
 
 Build output:
 
