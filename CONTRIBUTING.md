@@ -11,6 +11,8 @@
   `./mvnw -B -ntp -Pplatform-acceptance verify`
 - Run the full release-equivalent verification with
   `./mvnw -B -ntp -Pintegration-tests,platform-acceptance verify`.
+- Run `shellcheck update_version.sh dataregistry-platform-acceptance/run-platform-acceptance.sh` after changing either
+  repository shell script.
 - Docker is required for the integration and platform gates. The platform gate also requires `curl`, `jq`,
   `sha256sum`, and `jar`.
 - JaCoCo HTML reports are generated during `verify` under each module's `target/site/jacoco` directory. Failsafe
@@ -60,6 +62,28 @@ Database profile policy:
 4. Add a feature toggle in `DataRegistryFeature`, `DataRegistrySettings`, and `DataRegistrySettingsLoader`.
 5. Wire feature-aware behavior in runtime startup (`DataRegistry` and platform module).
 6. Add unit tests for settings parsing, service behavior, and runtime registration.
+
+## Consumer Contract Tests
+
+Use `dataregistry-testkit` for downstream feature tests instead of mocking the entire DataRegistry API surface. The
+module provides `FakeDataRegistryApi`, `FakePlayerData`, `FakePopulationData`, `FakeFeatureServiceDirectory`, fixtures,
+and async failure helpers. Its dedicated [README](dataregistry-testkit/README.md) contains setup examples.
+
+Keep fake behavior aligned with the public API contract. When adding a new API operation, extend the corresponding fake
+and add a contract test in the same change so downstream tests do not need one-off stubs.
+
+## Release Version Helper
+
+Preview the next version without touching the worktree, creating a commit, or creating a tag:
+
+```bash
+./update_version.sh --dry-run patch
+```
+
+Use `major`, `minor`, or `patch` without `--dry-run` only from a clean worktree when preparing the actual release. The
+script updates the Maven revision and Velocity plugin annotation together, verifies the resulting API version, creates
+the local release commit, and creates the matching `vX.Y.Z` tag. The tag workflow independently verifies that the tag
+and Maven project version match before publishing anything.
 
 ## Security Guidelines
 
