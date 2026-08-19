@@ -91,11 +91,10 @@ class RepositoryPlayerDirectoryTest {
         PlayerRepository repository = mock(PlayerRepository.class);
         RepositoryPlayerDirectory directory = directory(repository);
         PlayerIdentity identity = identity(UUID.randomUUID(), 4L);
-        PlayerLookup namedIdentifier = PlayerLookup.identifier("Alice");
         when(repository.findIdentityById(4L)).thenReturn(Optional.of(identity));
         when(repository.findIdentityByUsername("Alice")).thenReturn(Optional.of(identity));
         when(repository.findIdentityByUsernameIgnoreCase("alice")).thenReturn(Optional.of(identity));
-        when(repository.findIdentity(namedIdentifier)).thenReturn(Optional.of(identity));
+        when(repository.findIdentityByIdentifier("Alice")).thenReturn(Optional.of(identity));
 
         assertEquals(Optional.of(identity), directory.findByPlayerId(4L).toCompletableFuture().join());
         assertEquals(Optional.of(identity), directory.findByUsername("Alice").toCompletableFuture().join());
