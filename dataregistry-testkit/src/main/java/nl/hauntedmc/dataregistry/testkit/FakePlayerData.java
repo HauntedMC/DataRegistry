@@ -220,7 +220,7 @@ public final class FakePlayerData implements PlayerData, PlayerDirectory {
 
     @Override
     public boolean supports(DataRegistryFeature feature) {
-        return feature != null && enabledFeatures.contains(feature);
+        return enabledFeatures.contains(Objects.requireNonNull(feature, "feature must not be null"));
     }
 
     @Override
@@ -723,10 +723,6 @@ public final class FakePlayerData implements PlayerData, PlayerDirectory {
     private Optional<PlayerIdentity> resolveIdentifier(String identifier) {
         if (identifier == null || identifier.isBlank()) {
             return Optional.empty();
-        }
-        PlayerLookup lookup = PlayerLookup.identifier(identifier);
-        if (lookup.type() == PlayerLookup.Type.PLAYER_ID) {
-            return Optional.ofNullable(identitiesById.get(lookup.playerId()));
         }
         Optional<UUID> uuid = parseUuid(identifier);
         return uuid.isPresent() ? Optional.ofNullable(identitiesByUuid.get(uuid.get())) : resolveUsername(identifier);
