@@ -39,3 +39,5 @@ jobs:
         run: ./mvnw -U -B -ntp -DskipTests checkstyle:check
       - name: Lint shell scripts
         run: shellcheck update_version.sh dataregistry-platform-acceptance/run-platform-acceptance.sh
+      - name: Smoke test release bump dry run
+        run: ./update_version.sh --dry-run patch
