@@ -99,7 +99,8 @@ public final class FakePlayerData implements PlayerData, PlayerDirectory {
     }
 
     public FakePlayerData putLanguage(PlayerLanguageSettings settings) {
-        languages.put(settings.playerId(), Objects.requireNonNull(settings, "settings must not be null"));
+        Objects.requireNonNull(settings, "settings must not be null");
+        languages.put(settings.playerId(), settings);
         return this;
     }
 
@@ -110,7 +111,8 @@ public final class FakePlayerData implements PlayerData, PlayerDirectory {
     }
 
     public FakePlayerData putConnection(PlayerConnectionSnapshot connection) {
-        connections.put(connection.playerId(), Objects.requireNonNull(connection, "connection must not be null"));
+        Objects.requireNonNull(connection, "connection must not be null");
+        connections.put(connection.playerId(), connection);
         return this;
     }
 
@@ -137,12 +139,14 @@ public final class FakePlayerData implements PlayerData, PlayerDirectory {
     }
 
     public FakePlayerData putOnlineStatus(PlayerOnlineSnapshot status) {
-        onlineStatuses.put(status.playerId(), Objects.requireNonNull(status, "status must not be null"));
+        Objects.requireNonNull(status, "status must not be null");
+        onlineStatuses.put(status.playerId(), status);
         return this;
     }
 
     public FakePlayerData putActivity(PlayerActivitySnapshot activity) {
-        activities.put(activity.playerId(), Objects.requireNonNull(activity, "activity must not be null"));
+        Objects.requireNonNull(activity, "activity must not be null");
+        activities.put(activity.playerId(), activity);
         return this;
     }
 
@@ -168,6 +172,9 @@ public final class FakePlayerData implements PlayerData, PlayerDirectory {
 
     public FakePlayerData putGamemodeActivity(PlayerGamemodeActivitySnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot must not be null");
+        if (snapshot.playerId() == null || snapshot.playerId() <= 0L) {
+            throw new IllegalArgumentException("snapshot playerId must be positive");
+        }
         gamemodeActivities.put(
                 new GamemodeActivityKey(snapshot.playerId(), normalizeGamemodeKey(snapshot.gamemodeKey())),
                 snapshot
@@ -184,6 +191,25 @@ public final class FakePlayerData implements PlayerData, PlayerDirectory {
     public FakePlayerData putTrackedGamemode(TrackedGamemodeSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot must not be null");
         trackedGamemodes.put(normalizeGamemodeKey(snapshot.gamemodeKey()), snapshot);
+        return this;
+    }
+
+    /** Clears all configured in-memory player state while preserving the fake's enabled feature set. */
+    public FakePlayerData clear() {
+        identitiesById.clear();
+        identitiesByUuid.clear();
+        identitiesByUsername.clear();
+        activeIdentities.clear();
+        languages.clear();
+        nicknames.clear();
+        connections.clear();
+        nameHistory.clear();
+        onlineStatuses.clear();
+        activities.clear();
+        playtime.clear();
+        gamemodeActivities.clear();
+        gamemodeStatistics.clear();
+        trackedGamemodes.clear();
         return this;
     }
 
@@ -297,7 +323,9 @@ public final class FakePlayerData implements PlayerData, PlayerDirectory {
 
     @Override
     public CompletionStage<Optional<PlayerLanguageSettings>> findLanguage(UUID uuid) {
-        return findPlayerId(uuid).thenApply(playerId -> playerId.flatMap(id -> Optional.ofNullable(languages.get(id))));
+        return findPlayerId(uuid).thenCompose(playerId -> playerId
+                .map(this::findLanguage)
+                .orElseGet(() -> completed(Optional.empty())));
     }
 
     @Override
@@ -332,7 +360,9 @@ public final class FakePlayerData implements PlayerData, PlayerDirectory {
 
     @Override
     public CompletionStage<Optional<String>> findNickname(UUID uuid) {
-        return findPlayerId(uuid).thenApply(playerId -> playerId.flatMap(id -> Optional.ofNullable(nicknames.get(id))));
+        return findPlayerId(uuid).thenCompose(playerId -> playerId
+                .map(this::findNickname)
+                .orElseGet(() -> completed(Optional.empty())));
     }
 
     @Override
@@ -367,7 +397,9 @@ public final class FakePlayerData implements PlayerData, PlayerDirectory {
 
     @Override
     public CompletionStage<Optional<PlayerConnectionSnapshot>> findConnection(UUID uuid) {
-        return findPlayerId(uuid).thenApply(playerId -> playerId.flatMap(id -> Optional.ofNullable(connections.get(id))));
+        return findPlayerId(uuid).thenCompose(playerId -> playerId
+                .map(this::findConnection)
+                .orElseGet(() -> completed(Optional.empty())));
     }
 
     @Override
@@ -493,6 +525,9 @@ public final class FakePlayerData implements PlayerData, PlayerDirectory {
             PlayerLookup lookup,
             String gamemodeKey
     ) {
+        if (!supports(DataRegistryFeature.PLAYTIME)) {
+            return completed(Optional.empty());
+        }
         String normalizedKey = normalizeGamemodeKey(gamemodeKey);
         return findIdentity(lookup).thenApply(identity -> identity.flatMap(value -> Optional.ofNullable(
                 gamemodeActivities.get(new GamemodeActivityKey(value.playerId(), normalizedKey))
@@ -688,6 +723,10 @@ public final class FakePlayerData implements PlayerData, PlayerDirectory {
     private Optional<PlayerIdentity> resolveIdentifier(String identifier) {
         if (identifier == null || identifier.isBlank()) {
             return Optional.empty();
+        }
+        PlayerLookup lookup = PlayerLookup.identifier(identifier);
+        if (lookup.type() == PlayerLookup.Type.PLAYER_ID) {
+            return Optional.ofNullable(identitiesById.get(lookup.playerId()));
         }
         Optional<UUID> uuid = parseUuid(identifier);
         return uuid.isPresent() ? Optional.ofNullable(identitiesByUuid.get(uuid.get())) : resolveUsername(identifier);
