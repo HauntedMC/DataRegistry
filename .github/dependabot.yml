@@ -26,9 +26,12 @@ updates:
       timezone: "Europe/Amsterdam"
     open-pull-requests-limit: 5
     groups:
-      actions-updates:
+      actions-minor-and-patch:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
     labels:
       - "dependencies"
       - "ci"
