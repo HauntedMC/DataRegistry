@@ -14,10 +14,13 @@ die() {
 
 usage() {
   cat >&2 <<'USAGE'
-Usage: ./update_version.sh <major|minor|patch>
+Usage: ./update_version.sh [--dry-run] <major|minor|patch>
 
 Bumps the Maven project version in pom.xml and keeps release metadata in sync.
 Then creates a local commit and a local git tag vX.Y.Z.
+
+Options:
+  --dry-run   Print the current and next version without changing files, committing, or tagging.
 USAGE
 }
 
@@ -115,6 +118,12 @@ if [[ $# -eq 1 && ( "$1" == "--help" || "$1" == "-h" ) ]]; then
   exit 0
 fi
 
+dry_run=false
+if [[ $# -gt 0 && "$1" == "--dry-run" ]]; then
+  dry_run=true
+  shift
+fi
+
 if [[ $# -ne 1 ]]; then
   usage
   exit 1
@@ -132,7 +141,6 @@ require_file "$API_POM_FILE"
 require_file "$VELOCITY_FILE"
 require_file "$MAVEN_WRAPPER"
 [[ -x "$MAVEN_WRAPPER" ]] || die "Maven wrapper is not executable: ${MAVEN_WRAPPER}"
-require_clean_worktree
 
 bump_type="$1"
 [[ "$bump_type" == "major" || "$bump_type" == "minor" || "$bump_type" == "patch" ]] || {
@@ -144,12 +152,22 @@ current_version="$(resolve_maven_version)"
 new_version="$(bump_semver "$current_version" "$bump_type")"
 new_tag="v${new_version}"
 
+echo "Current version: ${current_version}"
+echo "Bumping to: ${new_version}"
+
+if [[ "$dry_run" == true ]]; then
+  if git rev-parse -q --verify "refs/tags/${new_tag}" >/dev/null 2>&1; then
+    echo "Warning: local tag ${new_tag} already exists." >&2
+  fi
+  echo "Dry run only; no files, commits, or tags were changed."
+  exit 0
+fi
+
+require_clean_worktree
+
 if git rev-parse -q --verify "refs/tags/${new_tag}" >/dev/null 2>&1; then
   die "Tag ${new_tag} already exists."
 fi
-
-echo "Current version: ${current_version}"
-echo "Bumping to: ${new_version}"
 
 # The root POM's revision property is the single source of truth for every module.
 "$MAVEN_WRAPPER" -B -ntp versions:set-property -Dproperty="${VERSION_PROPERTY}" -DnewVersion="${new_version}" \
