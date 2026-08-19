@@ -8,7 +8,7 @@ Why is this needed?
 
 ## Validation
 
-- [ ] `mvn -q verify` (or explain why skipped)
+- [ ] `./mvnw -B -ntp verify` (or explain why skipped)
 - [ ] Manual testing done (if applicable)
 - [ ] Config/API impact reviewed (if applicable)
 

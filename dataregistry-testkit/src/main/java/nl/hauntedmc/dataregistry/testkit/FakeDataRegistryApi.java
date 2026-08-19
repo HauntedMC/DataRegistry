@@ -6,6 +6,7 @@ import nl.hauntedmc.dataregistry.api.player.PlayerData;
 import nl.hauntedmc.dataregistry.api.population.PopulationData;
 import nl.hauntedmc.dataregistry.api.service.FeatureServiceDirectory;
 
+import java.util.EnumSet;
 import java.util.Objects;
 import java.util.Set;
 
@@ -30,6 +31,26 @@ public final class FakeDataRegistryApi implements DataRegistryApi {
         this.featureServices = Objects.requireNonNull(featureServices, "featureServices must not be null");
         this.enabledFeatures = Set.copyOf(Objects.requireNonNull(enabledFeatures, "enabledFeatures must not be null"));
         this.ready = ready;
+    }
+
+    /**
+     * Creates a fake with in-memory Population and feature-service collaborators.
+     */
+    public FakeDataRegistryApi(PlayerData players, Set<DataRegistryFeature> enabledFeatures, boolean ready) {
+        this(
+                players,
+                new FakePopulationData(),
+                new FakeFeatureServiceDirectory(),
+                enabledFeatures,
+                ready
+        );
+    }
+
+    /**
+     * Creates a fluent builder whose default collaborators are all in-memory testkit implementations.
+     */
+    public static Builder builder() {
+        return new Builder();
     }
 
     @Override
@@ -60,5 +81,80 @@ public final class FakeDataRegistryApi implements DataRegistryApi {
     @Override
     public boolean isReady() {
         return ready;
+    }
+
+    public static final class Builder {
+        private PlayerData players;
+        private PopulationData population;
+        private FeatureServiceDirectory featureServices;
+        private final EnumSet<DataRegistryFeature> enabledFeatures = EnumSet.noneOf(DataRegistryFeature.class);
+        private boolean ready = true;
+
+        private Builder() {
+        }
+
+        public Builder players(PlayerData players) {
+            this.players = Objects.requireNonNull(players, "players must not be null");
+            return this;
+        }
+
+        public Builder population(PopulationData population) {
+            this.population = Objects.requireNonNull(population, "population must not be null");
+            return this;
+        }
+
+        public Builder featureServices(FeatureServiceDirectory featureServices) {
+            this.featureServices = Objects.requireNonNull(featureServices, "featureServices must not be null");
+            return this;
+        }
+
+        public Builder enable(DataRegistryFeature... features) {
+            Objects.requireNonNull(features, "features must not be null");
+            for (DataRegistryFeature feature : features) {
+                enabledFeatures.add(Objects.requireNonNull(feature, "feature must not be null"));
+            }
+            return this;
+        }
+
+        /** Enables every built-in DataRegistry feature for broad integration-style feature tests. */
+        public Builder enableAll() {
+            enabledFeatures.addAll(EnumSet.allOf(DataRegistryFeature.class));
+            return this;
+        }
+
+        /** Disables selected features without rebuilding the complete enabled-feature set. */
+        public Builder disable(DataRegistryFeature... features) {
+            Objects.requireNonNull(features, "features must not be null");
+            for (DataRegistryFeature feature : features) {
+                enabledFeatures.remove(Objects.requireNonNull(feature, "feature must not be null"));
+            }
+            return this;
+        }
+
+        public Builder enabledFeatures(Set<DataRegistryFeature> features) {
+            enabledFeatures.clear();
+            enabledFeatures.addAll(Objects.requireNonNull(features, "features must not be null"));
+            return this;
+        }
+
+        public Builder ready(boolean ready) {
+            this.ready = ready;
+            return this;
+        }
+
+        public FakeDataRegistryApi build() {
+            Set<DataRegistryFeature> features = Set.copyOf(enabledFeatures);
+            PlayerData resolvedPlayers = players == null ? new FakePlayerData(features) : players;
+            PopulationData resolvedPopulation = population == null ? new FakePopulationData() : population;
+            FeatureServiceDirectory resolvedServices = featureServices == null
+                    ? new FakeFeatureServiceDirectory() : featureServices;
+            return new FakeDataRegistryApi(
+                    resolvedPlayers,
+                    resolvedPopulation,
+                    resolvedServices,
+                    features,
+                    ready
+            );
+        }
     }
 }

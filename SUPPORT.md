@@ -21,6 +21,10 @@ Please provide:
 - Relevant config section(s)
 - Logs / stack traces
 - Clear reproduction steps
+- On Velocity, `/dr diagnostics` output when the issue involves lifecycle, player state, or service health
+
+Do not include passwords, database credentials, access tokens, or other secrets. Connection metadata should be redacted
+unless it is directly relevant to the issue.
 
 ## Response Notes
 

@@ -8,9 +8,14 @@ import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 class DataRegistryConfigIOTest {
 
@@ -57,5 +62,152 @@ class DataRegistryConfigIOTest {
         DataRegistryConfigIO.ensureConfigFile(temporaryDirectory, resourceLoader, mock(ILoggerAdapter.class));
 
         assertEquals(existing, Files.readString(configPath));
+    }
+
+    @Test
+    void addMissingDefaultsPreservesOperatorChoicesReportsAddedSettingsAndCreatesBackup() throws Exception {
+        Path configPath = temporaryDirectory.resolve(DataRegistryConfigIO.FILE_NAME);
+        String original = """
+                # keep my comment
+                features:
+                  online-status: false
+                playtime:
+                  flush-interval-seconds: 45
+                """;
+        Files.writeString(configPath, original);
+        String template = """
+                features:
+                  online-status: true
+                  population: true
+                playtime:
+                  flush-interval-seconds: 30
+                  resolve-unknown-servers-as-gamemode: true
+                query:
+                  timeout-millis: 3000
+                """;
+        ClassLoader resourceLoader = resourceLoader(template);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+
+        DataRegistryConfigIO.addMissingDefaults(configPath, resourceLoader, logger);
+
+        String updated = Files.readString(configPath);
+        assertTrue(updated.contains("# keep my comment"));
+        assertEquals(original, Files.readString(temporaryDirectory.resolve(DataRegistryConfigIO.BACKUP_FILE_NAME)));
+        Map<?, ?> config = DataRegistryConfigIO.readConfig(configPath, logger);
+        Map<?, ?> features = (Map<?, ?>) config.get("features");
+        Map<?, ?> playtime = (Map<?, ?>) config.get("playtime");
+        Map<?, ?> query = (Map<?, ?>) config.get("query");
+        assertEquals(false, features.get("online-status"));
+        assertEquals(false, features.get("population"));
+        assertEquals(45, playtime.get("flush-interval-seconds"));
+        assertEquals(true, playtime.get("resolve-unknown-servers-as-gamemode"));
+        assertEquals(3000, query.get("timeout-millis"));
+        verify(logger).info("Backed up previous DataRegistry config to "
+                + temporaryDirectory.resolve(DataRegistryConfigIO.BACKUP_FILE_NAME));
+        verify(logger).info("Updated DataRegistry config with 3 missing default settings: "
+                + "features.population, playtime.resolve-unknown-servers-as-gamemode, query.timeout-millis");
+    }
+
+    @Test
+    void addMissingDefaultsReportsUnknownSettingsWithoutRemovingThemOrRewritingConfig() throws Exception {
+        Path configPath = temporaryDirectory.resolve(DataRegistryConfigIO.FILE_NAME);
+        String original = """
+                features:
+                  online-status: true
+                  online-stauts: false
+                custom-section:
+                  custom-value: true
+                """;
+        Files.writeString(configPath, original);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+
+        DataRegistryConfigIO.addMissingDefaults(
+                configPath,
+                resourceLoader("features:\n  online-status: true\n"),
+                logger
+        );
+
+        Map<?, ?> config = DataRegistryConfigIO.readConfig(configPath, logger);
+        assertTrue(config.containsKey("custom-section"));
+        assertEquals(original, Files.readString(configPath));
+        assertFalse(Files.exists(temporaryDirectory.resolve(DataRegistryConfigIO.BACKUP_FILE_NAME)));
+        verify(logger).warn("Unknown DataRegistry config settings are ignored: custom-section, features.online-stauts");
+    }
+
+    @Test
+    void addMissingDefaultsReportsWrongSectionStructureWithoutRewritingConfig() throws Exception {
+        Path configPath = temporaryDirectory.resolve(DataRegistryConfigIO.FILE_NAME);
+        String original = """
+                query: 3000
+                features:
+                  online-status: true
+                """;
+        Files.writeString(configPath, original);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        String template = """
+                query:
+                  timeout-millis: 3000
+                features:
+                  online-status: true
+                """;
+
+        DataRegistryConfigIO.addMissingDefaults(configPath, resourceLoader(template), logger);
+
+        assertEquals(original, Files.readString(configPath));
+        assertFalse(Files.exists(temporaryDirectory.resolve(DataRegistryConfigIO.BACKUP_FILE_NAME)));
+        verify(logger).warn("DataRegistry config settings have incompatible YAML structure and may use defaults: query");
+    }
+
+    @Test
+    void addMissingDefaultsReportsUnknownFieldsInsideServerGamemodeRules() throws Exception {
+        Path configPath = temporaryDirectory.resolve(DataRegistryConfigIO.FILE_NAME);
+        String original = """
+                playtime:
+                  server-gamemode-rules:
+                    - match: "survival-*"
+                      gamemode: survival
+                      gamemdoe: typo
+                """;
+        Files.writeString(configPath, original);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        String template = """
+                playtime:
+                  server-gamemode-rules: []
+                """;
+
+        DataRegistryConfigIO.addMissingDefaults(configPath, resourceLoader(template), logger);
+
+        assertEquals(original, Files.readString(configPath));
+        verify(logger).warn("Unknown DataRegistry config settings are ignored: "
+                + "playtime.server-gamemode-rules[0].gamemdoe");
+    }
+
+    @Test
+    void addMissingDefaultsReportsMalformedYamlWithConfigPath() throws Exception {
+        Path configPath = temporaryDirectory.resolve(DataRegistryConfigIO.FILE_NAME);
+        Files.writeString(configPath, "features: [\n");
+
+        IllegalStateException failure = assertThrows(
+                IllegalStateException.class,
+                () -> DataRegistryConfigIO.addMissingDefaults(
+                        configPath,
+                        resourceLoader("features:\n  online-status: true\n"),
+                        mock(ILoggerAdapter.class)
+                )
+        );
+
+        assertTrue(failure.getMessage().contains(configPath.toString()));
+        assertFalse(Files.exists(temporaryDirectory.resolve(DataRegistryConfigIO.BACKUP_FILE_NAME)));
+    }
+
+    private static ClassLoader resourceLoader(String template) {
+        return new ClassLoader() {
+            @Override
+            public java.io.InputStream getResourceAsStream(String name) {
+                return DataRegistryConfigIO.FILE_NAME.equals(name)
+                        ? new ByteArrayInputStream(template.getBytes(StandardCharsets.UTF_8))
+                        : null;
+            }
+        };
     }
 }

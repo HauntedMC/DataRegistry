@@ -30,16 +30,25 @@ import java.util.function.Function;
 /** Mutable in-memory population facade for downstream feature contract tests. */
 public final class FakePopulationData implements PopulationData {
 
+    private static final Function<String, PopulationResolvedGamemode> DEFAULT_GAMEMODE_RESOLVER = serverName ->
+            new PopulationResolvedGamemode(serverName, null, false, false);
+
     private final Map<PopulationScope, PopulationSnapshot> snapshots = new ConcurrentHashMap<>();
     private final Map<MembershipKey, PlayerPopulationMembership> memberships = new ConcurrentHashMap<>();
     private final Map<JoinKey, PopulationJoinContext> joinContexts = new ConcurrentHashMap<>();
     private final List<PopulationTransition> transitions = new CopyOnWriteArrayList<>();
-    private volatile Function<String, PopulationResolvedGamemode> gamemodeResolver = serverName ->
-            new PopulationResolvedGamemode(serverName, null, false, false);
+    private volatile Function<String, PopulationResolvedGamemode> gamemodeResolver = DEFAULT_GAMEMODE_RESOLVER;
 
     public FakePopulationData putSnapshot(PopulationSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot must not be null");
         snapshots.put(snapshot.scope(), snapshot);
+        return this;
+    }
+
+    public FakePopulationData removeSnapshot(PopulationScope scope) {
+        if (scope != null) {
+            snapshots.remove(scope);
+        }
         return this;
     }
 
@@ -50,8 +59,22 @@ public final class FakePopulationData implements PopulationData {
         return this;
     }
 
+    public FakePopulationData removeMembership(PlayerLookup lookup, PopulationScope scope) {
+        if (lookup != null && scope != null) {
+            memberships.remove(new MembershipKey(lookup, scope));
+        }
+        return this;
+    }
+
     public FakePopulationData putJoinContext(UUID uuid, String serverName, PopulationJoinContext context) {
         joinContexts.put(new JoinKey(uuid, normalizeServer(serverName)), Objects.requireNonNull(context));
+        return this;
+    }
+
+    public FakePopulationData removeJoinContext(UUID uuid, String serverName) {
+        if (uuid != null) {
+            joinContexts.remove(new JoinKey(uuid, normalizeServer(serverName)));
+        }
         return this;
     }
 
@@ -60,9 +83,29 @@ public final class FakePopulationData implements PopulationData {
         return this;
     }
 
+    public FakePopulationData resetGamemodeResolver() {
+        gamemodeResolver = DEFAULT_GAMEMODE_RESOLVER;
+        return this;
+    }
+
     public FakePopulationData addTransition(PopulationTransition transition) {
         transitions.add(Objects.requireNonNull(transition, "transition must not be null"));
         transitions.sort(Comparator.comparingLong(PopulationTransition::id));
+        return this;
+    }
+
+    public FakePopulationData clearTransitions() {
+        transitions.clear();
+        return this;
+    }
+
+    /** Clears all configured fake data and restores the default gamemode resolver. */
+    public FakePopulationData clear() {
+        snapshots.clear();
+        memberships.clear();
+        joinContexts.clear();
+        transitions.clear();
+        gamemodeResolver = DEFAULT_GAMEMODE_RESOLVER;
         return this;
     }
 

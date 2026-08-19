@@ -66,11 +66,17 @@ public final class RepositoryPlayerDirectory implements PlayerDirectory {
 
     @Override
     public CompletionStage<Optional<PlayerIdentity>> findIdentity(PlayerLookup lookup) {
+        if (lookup == null) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
         return queryExecutor.supply("player.identity.lookup", () -> playerRepository.findIdentity(lookup));
     }
 
     @Override
     public CompletionStage<Map<PlayerLookup, Optional<PlayerIdentity>>> findIdentities(Collection<PlayerLookup> lookups) {
+        if (lookups == null || lookups.isEmpty()) {
+            return CompletableFuture.completedFuture(Map.of());
+        }
         return queryExecutor.supply("player.identity.bulk", () -> playerRepository.findIdentities(lookups));
     }
 
@@ -85,6 +91,9 @@ public final class RepositoryPlayerDirectory implements PlayerDirectory {
 
     @Override
     public CompletionStage<Optional<PlayerIdentity>> findByPlayerId(long playerId) {
+        if (playerId <= 0L) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
         return queryExecutor.supply("player.identity.id", () -> playerRepository.findIdentityById(playerId));
     }
 
@@ -99,11 +108,17 @@ public final class RepositoryPlayerDirectory implements PlayerDirectory {
 
     @Override
     public CompletionStage<Optional<PlayerIdentity>> findByUsername(String username) {
+        if (username == null || username.isBlank()) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
         return queryExecutor.supply("player.identity.username", () -> playerRepository.findIdentityByUsername(username));
     }
 
     @Override
     public CompletionStage<Optional<PlayerIdentity>> findByUsernameIgnoreCase(String username) {
+        if (username == null || username.isBlank()) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
         return queryExecutor.supply(
                 "player.identity.username-ignore-case",
                 () -> playerRepository.findIdentityByUsernameIgnoreCase(username)
@@ -112,6 +127,9 @@ public final class RepositoryPlayerDirectory implements PlayerDirectory {
 
     @Override
     public CompletionStage<Optional<PlayerIdentity>> findByIdentifier(String identifier) {
+        if (identifier == null || identifier.isBlank()) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
         return queryExecutor.supply(
                 "player.identity.identifier",
                 () -> playerRepository.findIdentityByIdentifier(identifier)
@@ -120,6 +138,9 @@ public final class RepositoryPlayerDirectory implements PlayerDirectory {
 
     @Override
     public CompletionStage<List<PlayerIdentity>> findByUsernamePrefix(String prefix, int limit) {
+        if (prefix == null || prefix.isBlank()) {
+            return CompletableFuture.completedFuture(List.of());
+        }
         return queryExecutor.supply(
                 "player.identity.username-prefix",
                 () -> playerRepository.findIdentitiesByUsernamePrefix(prefix, limit)
@@ -128,6 +149,9 @@ public final class RepositoryPlayerDirectory implements PlayerDirectory {
 
     @Override
     public CompletionStage<PlayerPage<PlayerIdentity>> findByUsernamePrefix(String prefix, PlayerPageRequest pageRequest) {
+        if (prefix == null || prefix.isBlank()) {
+            return CompletableFuture.completedFuture(new PlayerPage<>(List.of(), Optional.empty()));
+        }
         return queryExecutor.supply(
                 "player.identity.username-prefix-page",
                 () -> playerRepository.findIdentitiesByUsernamePrefix(prefix, pageRequest)

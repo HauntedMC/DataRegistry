@@ -22,6 +22,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class RepositoryPlayerDirectoryTest {
@@ -71,6 +72,32 @@ class RepositoryPlayerDirectoryTest {
     }
 
     @Test
+    void impossibleLookupsReturnImmediatelyWithoutRepositoryWork() {
+        PlayerRepository repository = mock(PlayerRepository.class);
+        RepositoryPlayerDirectory directory = directory(repository);
+
+        assertTrue(directory.findIdentity(null).toCompletableFuture().join().isEmpty());
+        assertTrue(directory.findIdentities(null).toCompletableFuture().join().isEmpty());
+        assertTrue(directory.findIdentities(List.of()).toCompletableFuture().join().isEmpty());
+        assertTrue(directory.findByPlayerId(0L).toCompletableFuture().join().isEmpty());
+        assertTrue(directory.findByPlayerId(-1L).toCompletableFuture().join().isEmpty());
+        assertTrue(directory.findByUsername(null).toCompletableFuture().join().isEmpty());
+        assertTrue(directory.findByUsername(" ").toCompletableFuture().join().isEmpty());
+        assertTrue(directory.findByUsernameIgnoreCase(null).toCompletableFuture().join().isEmpty());
+        assertTrue(directory.findByUsernameIgnoreCase(" ").toCompletableFuture().join().isEmpty());
+        assertTrue(directory.findByIdentifier(null).toCompletableFuture().join().isEmpty());
+        assertTrue(directory.findByIdentifier(" ").toCompletableFuture().join().isEmpty());
+        assertTrue(directory.findByUsernamePrefix(null, 10).toCompletableFuture().join().isEmpty());
+        assertTrue(directory.findByUsernamePrefix(" ", 10).toCompletableFuture().join().isEmpty());
+        assertTrue(directory.findByUsernamePrefix(null, PlayerPageRequest.firstPage(10))
+                .toCompletableFuture().join().items().isEmpty());
+        assertTrue(directory.findByUsernamePrefix(" ", PlayerPageRequest.firstPage(10))
+                .toCompletableFuture().join().items().isEmpty());
+
+        verifyNoInteractions(repository);
+    }
+
+    @Test
     void uuidLookupsShortCircuitInvalidInputAndDelegateCanonicalValues() {
         PlayerRepository repository = mock(PlayerRepository.class);
         RepositoryPlayerDirectory directory = directory(repository);
@@ -87,7 +114,7 @@ class RepositoryPlayerDirectoryTest {
     }
 
     @Test
-    void namedIdentifierAndIdLookupsDelegateToTheirSpecificRepositoryMethods() {
+    void namedAndIdLookupsDelegateToCanonicalLookupForms() {
         PlayerRepository repository = mock(PlayerRepository.class);
         RepositoryPlayerDirectory directory = directory(repository);
         PlayerIdentity identity = identity(UUID.randomUUID(), 4L);
@@ -100,6 +127,7 @@ class RepositoryPlayerDirectoryTest {
         assertEquals(Optional.of(identity), directory.findByUsername("Alice").toCompletableFuture().join());
         assertEquals(Optional.of(identity), directory.findByUsernameIgnoreCase("alice").toCompletableFuture().join());
         assertEquals(Optional.of(identity), directory.findByIdentifier("Alice").toCompletableFuture().join());
+        assertTrue(directory.findByIdentifier(" ").toCompletableFuture().join().isEmpty());
     }
 
     @Test

@@ -4,6 +4,7 @@ set -euo pipefail
 readonly POM_FILE="pom.xml"
 readonly API_POM_FILE="dataregistry-api/pom.xml"
 readonly VELOCITY_FILE="dataregistry-platform-velocity/src/main/java/nl/hauntedmc/dataregistry/platform/velocity/VelocityDataRegistry.java"
+readonly MAVEN_WRAPPER="./mvnw"
 readonly VERSION_PROPERTY="revision"
 
 die() {
@@ -13,10 +14,13 @@ die() {
 
 usage() {
   cat >&2 <<'USAGE'
-Usage: ./update_version.sh <major|minor|patch>
+Usage: ./update_version.sh [--dry-run] <major|minor|patch>
 
 Bumps the Maven project version in pom.xml and keeps release metadata in sync.
 Then creates a local commit and a local git tag vX.Y.Z.
+
+Options:
+  --dry-run   Print the current and next version without changing files, committing, or tagging.
 USAGE
 }
 
@@ -32,7 +36,7 @@ require_clean_worktree() {
 resolve_maven_version() {
   local version
   version="$(
-    mvn -q -ntp -DforceStdout help:evaluate -Dexpression=project.version \
+    "$MAVEN_WRAPPER" -q -ntp -DforceStdout help:evaluate -Dexpression=project.version \
       | awk '/^[0-9]+\.[0-9]+\.[0-9]+$/ { print; exit }'
   )"
   [[ -n "$version" ]] || die "Unable to resolve a release semantic version from Maven."
@@ -42,7 +46,7 @@ resolve_maven_version() {
 resolve_api_version() {
   local version
   version="$(
-    mvn -q -ntp -pl dataregistry-api -DforceStdout help:evaluate -Dexpression=project.version \
+    "$MAVEN_WRAPPER" -q -ntp -pl dataregistry-api -DforceStdout help:evaluate -Dexpression=project.version \
       | awk '/^[0-9]+\.[0-9]+\.[0-9]+$/ { print; exit }'
   )"
   [[ -n "$version" ]] || die "Unable to resolve a release semantic version for the API module."
@@ -114,6 +118,12 @@ if [[ $# -eq 1 && ( "$1" == "--help" || "$1" == "-h" ) ]]; then
   exit 0
 fi
 
+dry_run=false
+if [[ $# -gt 0 && "$1" == "--dry-run" ]]; then
+  dry_run=true
+  shift
+fi
+
 if [[ $# -ne 1 ]]; then
   usage
   exit 1
@@ -123,15 +133,14 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   die "This script must be run inside a git repository."
 fi
 
-command -v mvn >/dev/null 2>&1 || die "Maven (mvn) is required."
-
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 require_file "$POM_FILE"
 require_file "$API_POM_FILE"
 require_file "$VELOCITY_FILE"
-require_clean_worktree
+require_file "$MAVEN_WRAPPER"
+[[ -x "$MAVEN_WRAPPER" ]] || die "Maven wrapper is not executable: ${MAVEN_WRAPPER}"
 
 bump_type="$1"
 [[ "$bump_type" == "major" || "$bump_type" == "minor" || "$bump_type" == "patch" ]] || {
@@ -143,15 +152,26 @@ current_version="$(resolve_maven_version)"
 new_version="$(bump_semver "$current_version" "$bump_type")"
 new_tag="v${new_version}"
 
+echo "Current version: ${current_version}"
+echo "Bumping to: ${new_version}"
+
+if [[ "$dry_run" == true ]]; then
+  if git rev-parse -q --verify "refs/tags/${new_tag}" >/dev/null 2>&1; then
+    echo "Warning: local tag ${new_tag} already exists." >&2
+  fi
+  echo "Dry run only; no files, commits, or tags were changed."
+  exit 0
+fi
+
+require_clean_worktree
+
 if git rev-parse -q --verify "refs/tags/${new_tag}" >/dev/null 2>&1; then
   die "Tag ${new_tag} already exists."
 fi
 
-echo "Current version: ${current_version}"
-echo "Bumping to: ${new_version}"
-
 # The root POM's revision property is the single source of truth for every module.
-mvn -B -ntp versions:set-property -Dproperty="${VERSION_PROPERTY}" -DnewVersion="${new_version}" -DgenerateBackupPoms=false
+"$MAVEN_WRAPPER" -B -ntp versions:set-property -Dproperty="${VERSION_PROPERTY}" -DnewVersion="${new_version}" \
+  -DgenerateBackupPoms=false
 
 resolved_after_bump="$(resolve_maven_version)"
 [[ "$resolved_after_bump" == "$new_version" ]] || {

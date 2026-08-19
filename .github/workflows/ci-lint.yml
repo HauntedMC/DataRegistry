@@ -6,10 +6,15 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
-    name: Checkstyle and Acceptance Runner
+    name: Checkstyle and Shell Scripts
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: read
@@ -19,6 +24,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Set up JDK 25
         uses: actions/setup-java@v5
         with:
@@ -30,5 +37,7 @@ jobs:
           server-password: PACKAGES_TOKEN
       - name: Run Checkstyle
         run: ./mvnw -U -B -ntp -DskipTests checkstyle:check
-      - name: Lint platform acceptance runner
-        run: shellcheck dataregistry-platform-acceptance/run-platform-acceptance.sh
+      - name: Lint shell scripts
+        run: shellcheck update_version.sh dataregistry-platform-acceptance/run-platform-acceptance.sh
+      - name: Smoke test release bump dry run
+        run: ./update_version.sh --dry-run patch

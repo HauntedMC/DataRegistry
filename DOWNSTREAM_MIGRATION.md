@@ -39,19 +39,20 @@ exactly in a controlled migration.
 
 ### Configuration upgrade
 
-`config.yml` is the single documented configuration template and DataRegistry does not rewrite an existing operator
-config on startup. Existing pre-1.14 configs therefore remain byte-for-byte intact. Missing settings use runtime
-defaults, invalid configured values warn and fall back, and unknown keys are ignored.
+Current DataRegistry releases reconcile an existing `config.yml` with the packaged template on startup. Missing keys
+are inserted while operator-provided values and YAML comments are preserved. Invalid configured values warn and fall
+back to runtime defaults. Unknown keys are preserved but ignored and are reported by path so configuration typos are
+visible instead of silently taking effect as defaults.
 
 A fresh 1.14 template enables `features.population`. For an older config that does not contain the new Population key,
 DataRegistry preserves an explicit opt-out of any required prerequisite (`online-status`, `sessions`, or
-`session-visits`) by leaving Population disabled. If `features.population: true` is explicitly configured, those
+`session-visits`) by inserting Population as disabled. If `features.population: true` is explicitly configured, those
 required domains are enabled at runtime with a warning when necessary. Omitted
 `retention.population-transition-days` defaults to 90 days.
 
-Use the current packaged `dataregistry-core/src/main/resources/config.yml` as the reference when adding or changing
-settings. Regenerate the file only when you intentionally want a fresh fully documented template; do not expect an
-upgrade to insert new keys into an existing customized file.
+Use the current packaged `dataregistry-core/src/main/resources/config.yml` as the reference when reviewing settings.
+New keys are inserted automatically during an upgrade; regenerate the whole file only when you intentionally want a
+fresh copy of the current template and its ordering/documentation.
 
 ### Existing playtime lifecycle metadata
 

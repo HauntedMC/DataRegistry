@@ -64,7 +64,7 @@ body:
     id: dataprovider_version
     attributes:
       label: DataProvider Version
-      placeholder: 2.0.0
+      placeholder: 3.x.x
     validations:
       required: true
   - type: dropdown
@@ -82,7 +82,7 @@ body:
     id: platform_version
     attributes:
       label: Platform Version
-      placeholder: "Velocity 3.x / Paper 26.1.x"
+      placeholder: "Velocity 4.x / Paper 26.2"
     validations:
       required: true
   - type: input
@@ -100,7 +100,11 @@ body:
         - Player identity
         - Online status
         - Connection info
+        - Activity summary
         - Sessions
+        - Playtime
+        - Population
+        - Language / nicknames
         - Name history
         - Service registry
         - Configuration / startup
@@ -114,6 +118,14 @@ body:
     attributes:
       label: Database Type (Optional)
       placeholder: MYSQL
+    validations:
+      required: false
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Velocity Diagnostics (Optional)
+      description: If relevant, paste the output of `/dr diagnostics` from the affected Velocity proxy.
+      render: shell
     validations:
       required: false
   - type: textarea
