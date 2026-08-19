@@ -11,6 +11,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class FakePlayerDataTest {
@@ -27,6 +28,13 @@ class FakePlayerDataTest {
         assertEquals(identity, players.findProfileByIdentifier("Alice", 0)
                 .toCompletableFuture().join().orElseThrow().identity());
         assertTrue(players.findIdentityByIdentifier("#42").toCompletableFuture().join().isEmpty());
+    }
+
+    @Test
+    void supportsRejectsNullLikeTheRuntimeFacade() {
+        FakePlayerData players = new FakePlayerData();
+
+        assertThrows(NullPointerException.class, () -> players.supports(null));
     }
 
     @Test
