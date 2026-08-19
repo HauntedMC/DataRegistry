@@ -72,31 +72,8 @@ public record PlayerLookup(Type type, Long playerId, UUID uuid, String text) {
         return new PlayerLookup(Type.USERNAME, null, null, username);
     }
 
-    /**
-     * Creates a general-purpose lookup from a username, UUID, or explicit {@code #<playerId>} value.
-     * The {@code #} form is unambiguous with Minecraft usernames and is useful for staff/debugging tools.
-     */
     public static PlayerLookup identifier(String identifier) {
-        String normalized = normalizeText(identifier);
-        if (normalized == null) {
-            return new PlayerLookup(Type.IDENTIFIER, null, null, identifier);
-        }
-        Long explicitPlayerId = parseExplicitPlayerId(normalized);
-        return explicitPlayerId == null
-                ? new PlayerLookup(Type.IDENTIFIER, null, null, normalized)
-                : playerId(explicitPlayerId);
-    }
-
-    private static Long parseExplicitPlayerId(String value) {
-        if (value.length() < 2 || value.charAt(0) != '#') {
-            return null;
-        }
-        try {
-            long parsed = Long.parseLong(value.substring(1));
-            return parsed > 0L ? parsed : null;
-        } catch (NumberFormatException exception) {
-            return null;
-        }
+        return new PlayerLookup(Type.IDENTIFIER, null, null, identifier);
     }
 
     private static String normalizeText(String value) {
