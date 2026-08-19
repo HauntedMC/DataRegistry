@@ -8,8 +8,10 @@ import com.velocitypowered.api.command.CommandSource;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.TextColor;
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
+import nl.hauntedmc.dataregistry.api.player.PlayerNameHistoryEntry;
 import nl.hauntedmc.dataregistry.api.player.PlayerProfile;
 import nl.hauntedmc.dataregistry.api.player.PlayerProfileResult;
+import nl.hauntedmc.dataregistry.api.playtime.PlayerGamemodePlaytimeSnapshot;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlaytimePolicyReconciliationResult;
 import nl.hauntedmc.dataregistry.core.service.PlayerDeletionResult;
 import nl.hauntedmc.dataregistry.core.service.PlayerPresenceRepairResult;
@@ -17,6 +19,7 @@ import nl.hauntedmc.theme.HauntedMcColor;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -32,6 +35,7 @@ public final class DataRegistryBrigadierCommand {
     public static final String PERMISSION = "dataregistry.admin";
     public static final String PLAYER_DELETE_PERMISSION = "dataregistry.admin.players.delete";
     private static final int MAX_ROWS_TO_DISPLAY = 20;
+    private static final int MAX_PROFILE_GAMEMODES_TO_DISPLAY = 5;
     private static final TextColor BRAND = HauntedMcColor.BRAND.textColor();
     private static final TextColor ACCENT = HauntedMcColor.ACCENT.textColor();
     private static final TextColor SUCCESS = HauntedMcColor.SUCCESS.textColor();
@@ -106,8 +110,13 @@ public final class DataRegistryBrigadierCommand {
                         .then(BrigadierCommand.requiredArgumentBuilder("player", StringArgumentType.word())
                                 .executes(context -> {
                                     String identifier = StringArgumentType.getString(context, "player");
-                                    runAsync(context.getSource(), "Loading player profile", handler.playerProfile(identifier),
-                                            DataRegistryBrigadierCommand::sendPlayerProfile);
+                                    Status status = handler.status();
+                                    runAsync(
+                                            context.getSource(),
+                                            "Loading player profile",
+                                            handler.playerProfile(identifier),
+                                            (source, result) -> sendPlayerProfile(source, result, status)
+                                    );
                                     return Command.SINGLE_SUCCESS;
                                 })))
                 .then(BrigadierCommand.literalArgumentBuilder("delete")
@@ -289,33 +298,148 @@ public final class DataRegistryBrigadierCommand {
         sendLimitedRemainder(source, players.size());
     }
 
-    private static void sendPlayerProfile(CommandSource source, PlayerProfileResult result) {
+    private static void sendPlayerProfile(CommandSource source, PlayerProfileResult result, Status status) {
         if (result.profile().isEmpty()) {
-            source.sendMessage(error("No DataRegistry profile was found for " + result.lookup().text() + "."));
+            source.sendMessage(error("No DataRegistry profile was found for " + lookupLabel(result) + "."));
             return;
         }
         PlayerProfile profile = result.profile().get();
         header(source, "Player profile · " + profile.identity().username());
         source.sendMessage(field("Identity", "#" + profile.identity().playerId() + " · " + profile.identity().uuid(), ACCENT));
-        source.sendMessage(field("Online", profile.isOnline() ? "ONLINE · " + serverOrUnknown(profile.currentServer().orElse(null))
-                : "offline", profile.isOnline() ? SUCCESS : MUTED));
-        profile.activity().ifPresent(activity -> source.sendMessage(field(
-                "Activity", "last seen " + formatAge(activity.lastSeenAt()), ACCENT
-        )));
-        profile.playtime().ifPresent(playtime -> source.sendMessage(field(
-                "Playtime", formatDuration(playtime.trackedTotalMillis()) + " tracked · "
-                        + formatDuration(playtime.networkTotalMillis()) + " network", ACCENT
-        )));
-        profile.language().ifPresent(language -> source.sendMessage(field(
-                "Language", language.language() + " · effective " + language.effectiveLanguage(), TEXT
-        )));
-        profile.nickname().ifPresent(nickname -> source.sendMessage(field("Nickname", nickname, TEXT)));
-        profile.connection().ifPresent(connection -> source.sendMessage(field(
-                "Connection", "IP=" + valueOrUnknown(connection.ipAddress()) + " · host="
-                        + valueOrUnknown(connection.virtualHost()), WARNING
-        )));
-        source.sendMessage(field("Name history", profile.nameHistory().isEmpty()
-                ? "none" : profile.nameHistory().size() + " stored entry/entries", MUTED));
+        sendProfileOnline(source, profile, status);
+        sendProfileActivity(source, profile, status);
+        sendProfilePlaytime(source, profile, status);
+        sendProfileLanguage(source, profile, status);
+        sendProfileNickname(source, profile, status);
+        sendProfileConnection(source, profile, status);
+        sendProfileNameHistory(source, profile, status);
+    }
+
+    private static void sendProfileOnline(CommandSource source, PlayerProfile profile, Status status) {
+        if (!isFeatureEnabled(status, DataRegistryFeature.ONLINE_STATUS)) {
+            source.sendMessage(field("Online", "disabled", MUTED));
+            return;
+        }
+        profile.online().ifPresentOrElse(online -> source.sendMessage(field(
+                "Online",
+                online.online() ? "ONLINE · " + serverOrUnknown(online.currentServer()) : "offline",
+                online.online() ? SUCCESS : MUTED
+        )), () -> source.sendMessage(field("Online", "no stored status", MUTED)));
+    }
+
+    private static void sendProfileActivity(CommandSource source, PlayerProfile profile, Status status) {
+        if (!isFeatureEnabled(status, DataRegistryFeature.ACTIVITY_SUMMARY)) {
+            source.sendMessage(field("Activity", "disabled", MUTED));
+            return;
+        }
+        profile.activity().ifPresentOrElse(activity -> {
+            source.sendMessage(field(
+                    "Activity",
+                    "first seen " + formatAge(activity.firstSeenAt()) + " · last seen " + formatAge(activity.lastSeenAt()),
+                    ACCENT
+            ));
+            if (activity.lastLoginAt() != null || activity.lastLogoutAt() != null) {
+                source.sendMessage(field(
+                        "Login / logout",
+                        formatAgeOrNever(activity.lastLoginAt()) + " / " + formatAgeOrNever(activity.lastLogoutAt()),
+                        MUTED
+                ));
+            }
+        }, () -> source.sendMessage(field("Activity", "no stored summary", MUTED)));
+    }
+
+    private static void sendProfilePlaytime(CommandSource source, PlayerProfile profile, Status status) {
+        if (!isFeatureEnabled(status, DataRegistryFeature.PLAYTIME)) {
+            source.sendMessage(field("Playtime", "disabled", MUTED));
+            return;
+        }
+        profile.playtime().ifPresentOrElse(playtime -> {
+            source.sendMessage(field(
+                    "Playtime",
+                    formatDuration(playtime.trackedTotalMillis()) + " tracked · "
+                            + formatDuration(playtime.networkTotalMillis()) + " network",
+                    ACCENT
+            ));
+            List<PlayerGamemodePlaytimeSnapshot> gamemodes = playtime.gamemodes().stream()
+                    .sorted(Comparator.comparingLong(PlayerGamemodePlaytimeSnapshot::trackedMillis).reversed())
+                    .limit(MAX_PROFILE_GAMEMODES_TO_DISPLAY)
+                    .toList();
+            for (PlayerGamemodePlaytimeSnapshot gamemode : gamemodes) {
+                String suffix = gamemode.active()
+                        ? " · active on " + serverOrUnknown(gamemode.activeServerName())
+                        : "";
+                source.sendMessage(field(
+                        "  " + gamemode.gamemodeKey(),
+                        formatDuration(gamemode.trackedMillis()) + suffix,
+                        gamemode.active() ? SUCCESS : MUTED
+                ));
+            }
+            if (playtime.gamemodes().size() > MAX_PROFILE_GAMEMODES_TO_DISPLAY) {
+                source.sendMessage(note("  … " + (playtime.gamemodes().size() - MAX_PROFILE_GAMEMODES_TO_DISPLAY)
+                        + " more tracked gamemode(s)."));
+            }
+        }, () -> source.sendMessage(field("Playtime", "no stored playtime", MUTED)));
+    }
+
+    private static void sendProfileLanguage(CommandSource source, PlayerProfile profile, Status status) {
+        if (!isFeatureEnabled(status, DataRegistryFeature.LANGUAGE)) {
+            source.sendMessage(field("Language", "disabled", MUTED));
+            return;
+        }
+        profile.language().ifPresentOrElse(language -> source.sendMessage(field(
+                "Language",
+                language.language() + " · effective " + valueOrUnknown(language.effectiveLanguage()),
+                TEXT
+        )), () -> source.sendMessage(field("Language", "no stored preference", MUTED)));
+    }
+
+    private static void sendProfileNickname(CommandSource source, PlayerProfile profile, Status status) {
+        if (!isFeatureEnabled(status, DataRegistryFeature.NICKNAMES)) {
+            source.sendMessage(field("Nickname", "disabled", MUTED));
+            return;
+        }
+        source.sendMessage(field("Nickname", profile.nickname().orElse("none"),
+                profile.nickname().isPresent() ? TEXT : MUTED));
+    }
+
+    private static void sendProfileConnection(CommandSource source, PlayerProfile profile, Status status) {
+        if (!isFeatureEnabled(status, DataRegistryFeature.CONNECTION_INFO)) {
+            source.sendMessage(field("Connection", "disabled", MUTED));
+            return;
+        }
+        profile.connection().ifPresentOrElse(connection -> source.sendMessage(field(
+                "Connection",
+                "IP=" + valueOrUnknown(connection.ipAddress()) + " · host=" + valueOrUnknown(connection.virtualHost()),
+                WARNING
+        )), () -> source.sendMessage(field("Connection", "no stored metadata", MUTED)));
+    }
+
+    private static void sendProfileNameHistory(CommandSource source, PlayerProfile profile, Status status) {
+        if (!isFeatureEnabled(status, DataRegistryFeature.NAME_HISTORY)) {
+            source.sendMessage(field("Name history", "disabled", MUTED));
+            return;
+        }
+        if (profile.nameHistory().isEmpty()) {
+            source.sendMessage(field("Name history", "none", MUTED));
+            return;
+        }
+        source.sendMessage(field("Name history", describeNameHistory(profile.nameHistory()), MUTED));
+    }
+
+    private static String describeNameHistory(List<PlayerNameHistoryEntry> entries) {
+        return entries.stream()
+                .map(entry -> entry.username() + " (" + formatAge(entry.lastSeenAt()) + ")")
+                .collect(Collectors.joining(", "));
+    }
+
+    private static String lookupLabel(PlayerProfileResult result) {
+        if (result.lookup().text() != null) {
+            return result.lookup().text();
+        }
+        if (result.lookup().playerId() != null) {
+            return "#" + result.lookup().playerId();
+        }
+        return result.lookup().uuid() == null ? "requested player" : result.lookup().uuid().toString();
     }
 
     private static int sendPlayerDeleteConfirmation(CommandSource source, String identifier) {
@@ -515,6 +639,10 @@ public final class DataRegistryBrigadierCommand {
             return future ? "soon" : "just now";
         }
         return future ? "in " + amount : amount + " ago";
+    }
+
+    private static String formatAgeOrNever(Instant instant) {
+        return instant == null ? "never" : formatAge(instant);
     }
 
     private static String formatDuration(long millis) {
