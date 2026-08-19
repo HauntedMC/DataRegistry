@@ -58,13 +58,13 @@ The Velocity command `/dataregistry` (alias `/dr`) requires `dataregistry.admin`
 - `/dataregistry features` lists enabled built-in data domains. Feature changes require a Velocity restart.
 - `/dataregistry diagnostics` compares live and durable presence, reports playerbase/lifecycle state, and shows
   service-registry totals. Disabled domains are reported as disabled rather than as misleading zero counts.
-- `/dataregistry players online`, `players recent`, and `players inspect <name|uuid|#playerId>` provide durable
-  playerbase, activity, and profile views. Player lists include usernames and internal IDs and clearly indicate when
-  more than the displayed rows exist. Inspection distinguishes disabled domains from missing rows and shows stored
-  lifecycle timestamps, per-gamemode playtime, preferences, connection metadata, and recent name history when present.
-- `/dataregistry players delete <name|uuid|#playerId> confirm` permanently removes a fully offline canonical player
-  identity and its DataRegistry-owned dependent rows. It requires the additional `dataregistry.admin.players.delete`
-  permission and explicit `confirm`; the player's next join creates a new DataRegistry player ID.
+- `/dataregistry players online`, `players recent`, and `players inspect <name|uuid>` provide durable playerbase,
+  activity, and profile views. Player lists include usernames and internal IDs and clearly indicate when more than the
+  displayed rows exist. Inspection distinguishes disabled domains from missing rows and shows stored lifecycle
+  timestamps, per-gamemode playtime, preferences, connection metadata, and recent name history when present.
+- `/dataregistry players delete <name|uuid> confirm` permanently removes a fully offline canonical player identity and
+  its DataRegistry-owned dependent rows. It requires the additional `dataregistry.admin.players.delete` permission and
+  explicit `confirm`; the player's next join creates a new DataRegistry player ID.
 - `/dataregistry services health` reports effective service/probe health.
 - `/dataregistry presence repair` force-refreshes durable online status from the players connected to this proxy. It
   never marks absent players offline, which keeps it safe for a shared multi-proxy database. Population online
@@ -142,8 +142,7 @@ initialization for that player, including creation or username update if needed.
 Use lookup-only methods outside lifecycle paths:
 
 - `players.findIdentity(uuid)`, `players.findIdentityByUsername(name)`, and `players.findIdentity(playerId)`
-- `players.findIdentityByIdentifier(identifier)` for command/staff input that may be a UUID, username, or explicit
-  `#playerId`
+- `players.findIdentityByIdentifier(identifier)` for command input that may be a UUID or username
 - `players.findPlayerId(uuid)` and `players.findPlayerIdByIdentifier(identifier)`
 - `players.findIdentities(lookups)` for bulk identity resolution
 - `players.findIdentitiesByUsernamePrefix(prefix, pageRequest)` for cursor-based suggestions and staff tooling
