@@ -6,6 +6,7 @@ import nl.hauntedmc.dataregistry.api.service.FeatureServiceInfo;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -60,14 +61,13 @@ public final class FakeFeatureServiceDirectory implements FeatureServiceDirector
 
     @Override
     public boolean contains(Class<?> apiType) {
-        return apiType != null && registrations.containsKey(apiType);
+        Objects.requireNonNull(apiType, "apiType must not be null");
+        return registrations.containsKey(apiType);
     }
 
     @Override
     public Optional<FeatureServiceInfo> describe(Class<?> apiType) {
-        if (apiType == null) {
-            return Optional.empty();
-        }
+        Objects.requireNonNull(apiType, "apiType must not be null");
         Registration registration = registrations.get(apiType);
         return registration == null ? Optional.empty() : Optional.of(registration.info);
     }
@@ -76,15 +76,16 @@ public final class FakeFeatureServiceDirectory implements FeatureServiceDirector
     public List<FeatureServiceInfo> list() {
         return registrations.values().stream()
                 .map(registration -> registration.info)
-                .sorted(Comparator.comparing(info -> info.apiType().getName()))
+                .sorted(Comparator.comparing((FeatureServiceInfo info) -> info.ownerPlugin().toLowerCase(Locale.ROOT))
+                        .thenComparing(info -> info.ownerFeature().toLowerCase(Locale.ROOT))
+                        .thenComparing(info -> info.apiType().getName()))
                 .toList();
     }
 
     @Override
     public boolean unregister(Class<?> apiType, Object service) {
-        if (apiType == null || service == null) {
-            return false;
-        }
+        Objects.requireNonNull(apiType, "apiType must not be null");
+        Objects.requireNonNull(service, "service must not be null");
         AtomicBoolean removed = new AtomicBoolean();
         registrations.computeIfPresent(apiType, (ignored, existing) -> {
             if (existing.service != service) {
