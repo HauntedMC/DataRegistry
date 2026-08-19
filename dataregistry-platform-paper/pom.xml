@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0">
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
+
     <parent>
         <groupId>nl.hauntedmc.dataregistry</groupId>
         <artifactId>dataregistry-parent</artifactId>
         <version>${revision}</version>
+        <relativePath>../pom.xml</relativePath>
     </parent>
 
     <artifactId>dataregistry-platform-paper</artifactId>
@@ -12,10 +16,14 @@
 
     <dependencies>
         <dependency>
-            <groupId>${project.groupId}</groupId>
+            <groupId>nl.hauntedmc.dataregistry</groupId>
             <artifactId>dataregistry-core</artifactId>
             <version>${project.version}</version>
-            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>nl.hauntedmc.dataregistry</groupId>
+            <artifactId>dataregistry-platform-common</artifactId>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>nl.hauntedmc.dataprovider</groupId>
@@ -44,43 +52,38 @@
     </dependencies>
 
     <build>
-        <resources>
-            <resource>
-                <directory>src/main/resources</directory>
-                <filtering>true</filtering>
-            </resource>
-        </resources>
         <plugins>
             <plugin>
-                <artifactId>maven-compiler-plugin</artifactId>
-            </plugin>
-            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
-                <configuration>
-                    <createDependencyReducedPom>false</createDependencyReducedPom>
-                    <shadedArtifactAttached>true</shadedArtifactAttached>
-                    <shadedClassifierName>bundled</shadedClassifierName>
-                    <artifactSet>
-                        <includes>
-                            <include>nl.hauntedmc.dataregistry:dataregistry-api</include>
-                            <include>nl.hauntedmc.dataregistry:dataregistry-platform-common</include>
-                            <include>nl.hauntedmc.dataregistry:dataregistry-core</include>
-                            <include>org.yaml:snakeyaml</include>
-                        </includes>
-                    </artifactSet>
-                    <relocations>
-                        <relocation>
-                            <pattern>nl.hauntedmc.dataregistry.core</pattern>
-                            <shadedPattern>nl.hauntedmc.dataregistry.platform.internal.core</shadedPattern>
-                        </relocation>
-                    </relocations>
-                </configuration>
+                <version>${maven.shade.version}</version>
                 <executions>
                     <execution>
                         <phase>package</phase>
                         <goals>
                             <goal>shade</goal>
                         </goals>
+                        <configuration>
+                            <shadedArtifactAttached>true</shadedArtifactAttached>
+                            <shadedClassifierName>bundled</shadedClassifierName>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <artifactSet>
+                                <includes>
+                                    <include>nl.hauntedmc.dataregistry:dataregistry-api</include>
+                                    <include>nl.hauntedmc.dataregistry:dataregistry-core</include>
+                                    <include>nl.hauntedmc.dataregistry:dataregistry-platform-common</include>
+                                    <include>org.yaml:snakeyaml</include>
+                                </includes>
+                            </artifactSet>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/MANIFEST.MF</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
