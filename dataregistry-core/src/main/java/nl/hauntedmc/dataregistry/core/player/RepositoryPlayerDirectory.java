@@ -112,10 +112,10 @@ public final class RepositoryPlayerDirectory implements PlayerDirectory {
 
     @Override
     public CompletionStage<Optional<PlayerIdentity>> findByIdentifier(String identifier) {
-        return queryExecutor.supply(
-                "player.identity.identifier",
-                () -> playerRepository.findIdentityByIdentifier(identifier)
-        );
+        if (identifier == null || identifier.isBlank()) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+        return findIdentity(PlayerLookup.identifier(identifier));
     }
 
     @Override
