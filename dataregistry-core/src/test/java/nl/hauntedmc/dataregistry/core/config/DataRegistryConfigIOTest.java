@@ -135,6 +135,54 @@ class DataRegistryConfigIOTest {
     }
 
     @Test
+    void addMissingDefaultsReportsWrongSectionStructureWithoutRewritingConfig() throws Exception {
+        Path configPath = temporaryDirectory.resolve(DataRegistryConfigIO.FILE_NAME);
+        String original = """
+                query: 3000
+                features:
+                  online-status: true
+                """;
+        Files.writeString(configPath, original);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        String template = """
+                query:
+                  timeout-millis: 3000
+                features:
+                  online-status: true
+                """;
+
+        DataRegistryConfigIO.addMissingDefaults(configPath, resourceLoader(template), logger);
+
+        assertEquals(original, Files.readString(configPath));
+        assertFalse(Files.exists(temporaryDirectory.resolve(DataRegistryConfigIO.BACKUP_FILE_NAME)));
+        verify(logger).warn("DataRegistry config settings have incompatible YAML structure and may use defaults: query");
+    }
+
+    @Test
+    void addMissingDefaultsReportsUnknownFieldsInsideServerGamemodeRules() throws Exception {
+        Path configPath = temporaryDirectory.resolve(DataRegistryConfigIO.FILE_NAME);
+        String original = """
+                playtime:
+                  server-gamemode-rules:
+                    - match: "survival-*"
+                      gamemode: survival
+                      gamemdoe: typo
+                """;
+        Files.writeString(configPath, original);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        String template = """
+                playtime:
+                  server-gamemode-rules: []
+                """;
+
+        DataRegistryConfigIO.addMissingDefaults(configPath, resourceLoader(template), logger);
+
+        assertEquals(original, Files.readString(configPath));
+        verify(logger).warn("Unknown DataRegistry config settings are ignored: "
+                + "playtime.server-gamemode-rules[0].gamemdoe");
+    }
+
+    @Test
     void addMissingDefaultsReportsMalformedYamlWithConfigPath() throws Exception {
         Path configPath = temporaryDirectory.resolve(DataRegistryConfigIO.FILE_NAME);
         Files.writeString(configPath, "features: [\n");
