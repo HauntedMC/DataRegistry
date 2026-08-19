@@ -3,8 +3,6 @@ package nl.hauntedmc.dataregistry.platform.velocity.command;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
-import com.mojang.brigadier.suggestion.Suggestions;
-import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import com.velocitypowered.api.command.BrigadierCommand;
 import com.velocitypowered.api.command.CommandSource;
 import net.kyori.adventure.text.Component;
@@ -38,7 +36,6 @@ public final class DataRegistryBrigadierCommand {
     public static final String PLAYER_DELETE_PERMISSION = "dataregistry.admin.players.delete";
     private static final int MAX_ROWS_TO_DISPLAY = 20;
     private static final int MAX_PROFILE_GAMEMODES_TO_DISPLAY = 5;
-    private static final int MAX_PLAYER_SUGGESTIONS = 10;
     private static final TextColor BRAND = HauntedMcColor.BRAND.textColor();
     private static final TextColor ACCENT = HauntedMcColor.ACCENT.textColor();
     private static final TextColor SUCCESS = HauntedMcColor.SUCCESS.textColor();
@@ -111,7 +108,6 @@ public final class DataRegistryBrigadierCommand {
                         }))
                 .then(BrigadierCommand.literalArgumentBuilder("inspect")
                         .then(BrigadierCommand.requiredArgumentBuilder("player", StringArgumentType.word())
-                                .suggests((context, builder) -> suggestPlayers(handler, builder))
                                 .executes(context -> {
                                     String identifier = StringArgumentType.getString(context, "player");
                                     Status status = handler.status();
@@ -126,7 +122,6 @@ public final class DataRegistryBrigadierCommand {
                 .then(BrigadierCommand.literalArgumentBuilder("delete")
                         .requires(source -> source.hasPermission(PLAYER_DELETE_PERMISSION))
                         .then(BrigadierCommand.requiredArgumentBuilder("player", StringArgumentType.word())
-                                .suggests((context, builder) -> suggestPlayers(handler, builder))
                                 .executes(context -> sendPlayerDeleteConfirmation(
                                         context.getSource(),
                                         StringArgumentType.getString(context, "player")
@@ -549,26 +544,6 @@ public final class DataRegistryBrigadierCommand {
         source.sendMessage(success("Playtime policy reconciled; historic playtime was retained."));
     }
 
-    private static CompletableFuture<Suggestions> suggestPlayers(Handler handler, SuggestionsBuilder builder) {
-        String prefix = builder.getRemaining();
-        if (prefix == null || prefix.isBlank()) {
-            return builder.buildFuture();
-        }
-        return handler.playerSuggestions(prefix)
-                .handle((usernames, failure) -> {
-                    if (failure == null && usernames != null) {
-                        usernames.stream()
-                                .filter(Objects::nonNull)
-                                .filter(username -> !username.isBlank())
-                                .distinct()
-                                .limit(MAX_PLAYER_SUGGESTIONS)
-                                .forEach(builder::suggest);
-                    }
-                    return builder.build();
-                })
-                .toCompletableFuture();
-    }
-
     private static <T> void runAsync(
             CommandSource source,
             String action,
@@ -723,10 +698,6 @@ public final class DataRegistryBrigadierCommand {
 
         default CompletionStage<List<RecentPlayer>> recentPlayers() {
             return CompletableFuture.failedFuture(new UnsupportedOperationException("Recent-player view is unavailable."));
-        }
-
-        default CompletionStage<List<String>> playerSuggestions(String prefix) {
-            return CompletableFuture.completedFuture(List.of());
         }
 
         default CompletionStage<PlayerProfileResult> playerProfile(String identifier) {
