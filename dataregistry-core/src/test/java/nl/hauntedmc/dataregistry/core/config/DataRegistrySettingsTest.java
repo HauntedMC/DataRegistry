@@ -5,6 +5,8 @@ import nl.hauntedmc.dataprovider.database.DatabaseType;
 import org.junit.jupiter.api.Test;
 
 import java.util.EnumSet;
+import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -192,6 +194,54 @@ class DataRegistrySettingsTest {
                 () -> DataRegistrySettings.builder()
                         .enabledFeatures(EnumSet.of(DataRegistryFeature.SESSION_VISITS))
                         .build()
+        );
+    }
+
+    @Test
+    void builderAcceptsExplicitExternalPlayerDataConnections() {
+        DataRegistrySettings settings = DataRegistrySettings.builder()
+                .externalPlayerDataConnections(List.of(new ExternalPlayerDataConnectionSettings(
+                        DatabaseType.MYSQL,
+                        "feature-data-rw",
+                        Set.of("player_id", "owner_player_id")
+                )))
+                .build();
+
+        assertEquals(1, settings.externalPlayerDataConnections().size());
+        ExternalPlayerDataConnectionSettings connection = settings.externalPlayerDataConnections().getFirst();
+        assertEquals(DatabaseType.MYSQL, connection.databaseType());
+        assertEquals("feature-data-rw", connection.connectionId());
+        assertEquals(Set.of("player_id", "owner_player_id"), connection.playerIdColumns());
+    }
+
+    @Test
+    void externalPlayerDataConnectionsRejectUnsafeIdentifiersAndDuplicates() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new ExternalPlayerDataConnectionSettings(DatabaseType.MYSQL, "feature data", Set.of("player_id"))
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new ExternalPlayerDataConnectionSettings(DatabaseType.MYSQL, "feature-data", Set.of("player-id"))
+        );
+        ExternalPlayerDataConnectionSettings connection = new ExternalPlayerDataConnectionSettings(
+                DatabaseType.MYSQL,
+                "feature-data",
+                Set.of("player_id")
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DataRegistrySettings.builder().externalPlayerDataConnections(List.of(connection, connection)).build()
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DataRegistrySettings.builder().externalPlayerDataConnections(List.of(
+                        new ExternalPlayerDataConnectionSettings(
+                                DatabaseType.MYSQL,
+                                "player_data_rw",
+                                Set.of("player_id")
+                        )
+                )).build()
         );
     }
 }

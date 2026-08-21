@@ -445,7 +445,9 @@ public final class DataRegistryBrigadierCommand {
     private static int sendPlayerDeleteConfirmation(CommandSource source, String identifier) {
         header(source, "Delete player identity");
         source.sendMessage(field("Player", identifier, WARNING));
-        source.sendMessage(note("This permanently removes the canonical identity and its dependent player rows."));
+        source.sendMessage(note(
+                "This permanently removes the canonical identity, dependent rows, and configured external player data."
+        ));
         source.sendMessage(command(
                 "/dr players delete " + identifier + " confirm",
                 "confirm permanent deletion; the player must be fully offline"
@@ -471,6 +473,9 @@ public final class DataRegistryBrigadierCommand {
                 result.deletedDependentRows() + " across " + result.deletedTableCount() + " table(s)",
                 ACCENT
         ));
+        if (result.deletedRowsByTable().keySet().stream().anyMatch(table -> table.contains(":"))) {
+            source.sendMessage(note("Configured external DataProvider connection data was included in this deletion."));
+        }
         source.sendMessage(note("The next join will create a new DataRegistry player identity and player ID."));
     }
 

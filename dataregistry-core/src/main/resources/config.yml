@@ -33,6 +33,18 @@ privacy:
   # Persist player virtual host values in connection info.
   persist-virtual-host: false
 
+player-deletion:
+  # Applies to: Velocity administrative deletion command.
+  # Explicitly opt in other DataProvider connections whose player-owned rows should be erased as well.
+  # Each matching table in the connection is scanned for the configured canonical player-ID columns; rows and their
+  # same-schema foreign-key descendants are removed. This is intentionally empty by default.
+  # database-type defaults to database.type when omitted.
+  # Example:
+  # external-connections:
+  #   - connection-id: feature_data_rw
+  #     player-id-columns: [player_id]
+  external-connections: []
+
 features:
   # Applies to: Both.
   # Player lifecycle domains are written on Velocity; Bukkit still needs these toggles for schema/repository availability.

@@ -10,6 +10,7 @@ import nl.hauntedmc.dataprovider.logging.LoggerAdapter;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
+import nl.hauntedmc.dataregistry.core.config.ExternalPlayerDataConnectionSettings;
 import nl.hauntedmc.dataregistry.core.lifecycle.DisconnectCommand;
 import nl.hauntedmc.dataregistry.core.lifecycle.LoginCommand;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerLifecycleWriter;
@@ -30,6 +31,8 @@ import java.sql.Statement;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -51,6 +54,11 @@ class PlayerDeletionServiceMySqlIT {
     private static final String PLAYER_NAME = "DeletionDebugPlayer";
     private static final DataRegistrySettings MYSQL_SETTINGS = DataRegistrySettings.builder()
             .ormSchemaMode("update")
+            .externalPlayerDataConnections(List.of(new ExternalPlayerDataConnectionSettings(
+                    DatabaseType.MYSQL,
+                    "feature_data_rw",
+                    Set.of("player_id")
+            )))
             .build();
 
     @Container
@@ -86,6 +94,7 @@ class PlayerDeletionServiceMySqlIT {
         RelationalDatabaseProvider provider = mock(RelationalDatabaseProvider.class);
         ILoggerAdapter platformLogger = mock(ILoggerAdapter.class);
         when(dataProvider.registerDatabaseOrThrow(DatabaseType.MYSQL, CONNECTION_ID)).thenReturn(provider);
+        when(dataProvider.registerDatabaseOrThrow(DatabaseType.MYSQL, "feature_data_rw")).thenReturn(provider);
         when(provider.isConnected()).thenReturn(true);
         when(provider.getDataSource()).thenReturn(dataSource);
         when(dataProvider.createOrmContext(
@@ -158,9 +167,9 @@ class PlayerDeletionServiceMySqlIT {
 
             assertEquals(originalIdentity, result.deletedIdentity());
             assertTrue(result.deletedDependentRows() > 0);
-            assertEquals(1, result.deletedRowsByTable().get("debug_external_player_settings"));
-            assertEquals(1, result.deletedRowsByTable().get("debug_external_setting_detail"));
-            assertEquals(1, result.deletedRowsByTable().get("debug_external_nullable_settings"));
+            assertEquals(1, result.deletedRowsByTable().get("feature_data_rw:debug_external_player_settings"));
+            assertEquals(1, result.deletedRowsByTable().get("feature_data_rw:debug_external_setting_detail"));
+            assertEquals(1, result.deletedRowsByTable().get("feature_data_rw:debug_external_nullable_settings"));
             assertFalse(registry.players().findIdentity(PLAYER_UUID)
                     .toCompletableFuture().get(10, TimeUnit.SECONDS).isPresent());
             assertEquals(0L, externalReferenceCount(originalIdentity.playerId()));
@@ -205,9 +214,7 @@ class PlayerDeletionServiceMySqlIT {
                     CREATE TABLE debug_external_player_settings (
                         id BIGINT NOT NULL PRIMARY KEY,
                         player_id BIGINT NOT NULL,
-                        enabled BOOLEAN NOT NULL,
-                        CONSTRAINT fk_debug_external_player
-                            FOREIGN KEY (player_id) REFERENCES player_entity(id)
+                        enabled BOOLEAN NOT NULL
                     )
                     """);
             statement.executeUpdate("""

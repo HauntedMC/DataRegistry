@@ -5,7 +5,10 @@ import nl.hauntedmc.dataprovider.database.DatabaseType;
 
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -47,6 +50,7 @@ public final class DataRegistrySettings {
     private final DatabaseType databaseType;
     private final String playerDatabaseConnectionId;
     private final String serviceDatabaseConnectionId;
+    private final List<ExternalPlayerDataConnectionSettings> externalPlayerDataConnections;
     private final String ormSchemaMode;
     private final boolean persistIpAddress;
     private final boolean persistVirtualHost;
@@ -88,6 +92,15 @@ public final class DataRegistrySettings {
                 builder.serviceDatabaseConnectionId,
                 "serviceDatabaseConnectionId"
         );
+        this.externalPlayerDataConnections = normalizeExternalPlayerDataConnections(
+                builder.externalPlayerDataConnections
+        );
+        if (externalPlayerDataConnections.stream().anyMatch(connection -> connection.databaseType() == databaseType
+                && connection.connectionId().equalsIgnoreCase(playerDatabaseConnectionId))) {
+            throw new IllegalArgumentException(
+                    "externalPlayerDataConnections must not include the canonical player database connection."
+            );
+        }
         this.ormSchemaMode = normalizeSchemaMode(builder.ormSchemaMode);
         this.persistIpAddress = builder.persistIpAddress;
         this.persistVirtualHost = builder.persistVirtualHost;
@@ -202,6 +215,10 @@ public final class DataRegistrySettings {
     public DatabaseType databaseType() { return databaseType; }
     public String playerDatabaseConnectionId() { return playerDatabaseConnectionId; }
     public String serviceDatabaseConnectionId() { return serviceDatabaseConnectionId; }
+    /** Connections explicitly included when the administrative player-deletion operation scans external data. */
+    public List<ExternalPlayerDataConnectionSettings> externalPlayerDataConnections() {
+        return externalPlayerDataConnections;
+    }
     public String ormSchemaMode() { return ormSchemaMode; }
     public boolean persistIpAddress() { return persistIpAddress; }
     public boolean persistVirtualHost() { return persistVirtualHost; }
@@ -291,6 +308,26 @@ public final class DataRegistrySettings {
         return normalized;
     }
 
+    private static List<ExternalPlayerDataConnectionSettings> normalizeExternalPlayerDataConnections(
+            List<ExternalPlayerDataConnectionSettings> values
+    ) {
+        Objects.requireNonNull(values, "externalPlayerDataConnections must not be null");
+        Map<String, ExternalPlayerDataConnectionSettings> distinct = new LinkedHashMap<>();
+        for (ExternalPlayerDataConnectionSettings value : values) {
+            ExternalPlayerDataConnectionSettings setting = Objects.requireNonNull(
+                    value,
+                    "externalPlayerDataConnections must not contain null"
+            );
+            String key = setting.databaseType().name() + ":" + setting.connectionId().toLowerCase(Locale.ROOT);
+            if (distinct.putIfAbsent(key, setting) != null) {
+                throw new IllegalArgumentException(
+                        "externalPlayerDataConnections must not contain duplicate database type and connection IDs."
+                );
+            }
+        }
+        return List.copyOf(distinct.values());
+    }
+
     private static String normalizeSchemaMode(String value) {
         if (value == null) { throw new IllegalArgumentException("ormSchemaMode must not be null"); }
         String normalized = value.trim().toLowerCase(Locale.ROOT);
@@ -318,6 +355,7 @@ public final class DataRegistrySettings {
         private DatabaseType databaseType = DatabaseType.MYSQL;
         private String playerDatabaseConnectionId = DEFAULT_PLAYER_CONNECTION_ID;
         private String serviceDatabaseConnectionId = DEFAULT_SERVICE_CONNECTION_ID;
+        private List<ExternalPlayerDataConnectionSettings> externalPlayerDataConnections = List.of();
         private String ormSchemaMode = DEFAULT_ORM_SCHEMA_MODE;
         private boolean persistIpAddress;
         private boolean persistVirtualHost;
@@ -360,6 +398,13 @@ public final class DataRegistrySettings {
         }
         public Builder serviceDatabaseConnectionId(String value) {
             this.serviceDatabaseConnectionId = Objects.requireNonNull(value, "serviceDatabaseConnectionId must not be null");
+            return this;
+        }
+        public Builder externalPlayerDataConnections(List<ExternalPlayerDataConnectionSettings> value) {
+            this.externalPlayerDataConnections = List.copyOf(Objects.requireNonNull(
+                    value,
+                    "externalPlayerDataConnections must not be null"
+            ));
             return this;
         }
         public Builder ormSchemaMode(String value) {

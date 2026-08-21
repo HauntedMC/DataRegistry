@@ -183,6 +183,27 @@ class DataRegistrySettingsLoaderTest {
     }
 
     @Test
+    void parseSkipsInvalidExternalPlayerDataConnectionEntries() {
+        RecordingLogger logger = new RecordingLogger();
+
+        DataRegistrySettings settings = new DataRegistrySettingsLoader().parse(Map.of(
+                "player-deletion", Map.of("external-connections", List.of(
+                        Map.of("connection-id", "feature-data", "player-id-columns", List.of()),
+                        Map.of("connection-id", "bad id", "player-id-columns", List.of("player_id")),
+                        Map.of("connection-id", "valid-data", "database-type", "not-a-db",
+                                "player-id-columns", List.of("player_id")),
+                        Map.of("connection-id", "valid-data", "player-id-columns", List.of("player_id")),
+                        Map.of("connection-id", "VALID-DATA", "player-id-columns", List.of("owner_player_id"))
+                ))
+        ), logger);
+
+        assertEquals(1, settings.externalPlayerDataConnections().size());
+        assertEquals("valid-data", settings.externalPlayerDataConnections().getFirst().connectionId());
+        assertEquals(DatabaseType.MYSQL, settings.externalPlayerDataConnections().getFirst().databaseType());
+        assertTrue(logger.warnMessages.size() >= 4);
+    }
+
+    @Test
     void parseAutomaticallyRestoresPopulationStructuralDependencies() {
         DataRegistrySettings settings = new DataRegistrySettingsLoader().parse(Map.of(
                 "features", Map.of(

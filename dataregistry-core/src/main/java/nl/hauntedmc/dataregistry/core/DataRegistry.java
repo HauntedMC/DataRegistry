@@ -12,6 +12,7 @@ import nl.hauntedmc.dataregistry.api.population.PopulationData;
 import nl.hauntedmc.dataregistry.api.population.PopulationResolvedGamemode;
 import nl.hauntedmc.dataregistry.api.service.FeatureServiceDirectory;
 import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
+import nl.hauntedmc.dataregistry.core.config.ExternalPlayerDataConnectionSettings;
 import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerIdentityInitializationTracker;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerLifecycleWriter;
@@ -77,6 +78,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -117,6 +119,7 @@ public class DataRegistry implements DataRegistryApi {
     private PopulationData populationData;
     private ORMContext ormContext;
     private ORMContext serviceOrmContext;
+    private final Map<String, DataSource> registeredDataSources = new HashMap<>();
 
     public DataRegistry(ILoggerAdapter logger, String pluginName, DataProviderAPI dataProviderAPI) {
         this(logger, pluginName, dataProviderAPI, DataRegistrySettings.defaults(), true);
@@ -170,8 +173,7 @@ public class DataRegistry implements DataRegistryApi {
         }
 
         try {
-            Map<String, DataSource> dataSources = new HashMap<>();
-            DataSource playerDataSource = resolveDataSource(dataSources, settings.playerDatabaseConnectionId());
+            DataSource playerDataSource = resolveDataSource(registeredDataSources, settings.playerDatabaseConnectionId());
             ormContext = newOrmContext(playerDataSource, resolvePlayerOrmEntityClasses());
             serviceOrmContext = null;
             ORMContext queryOrmContext = new DeadlineAwareOrmContext(ormContext);
@@ -265,7 +267,10 @@ public class DataRegistry implements DataRegistryApi {
             this.serviceInstanceRepository = null;
             this.serviceProbeRepository = null;
             if (settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY)) {
-                DataSource serviceDataSource = resolveDataSource(dataSources, settings.serviceDatabaseConnectionId());
+                DataSource serviceDataSource = resolveDataSource(
+                        registeredDataSources,
+                        settings.serviceDatabaseConnectionId()
+                );
                 serviceOrmContext = newServiceOrmContext(serviceDataSource, resolveServiceOrmEntityClasses());
                 this.networkServiceRepository = newNetworkServiceRepository(serviceOrmContext);
                 this.serviceInstanceRepository = newServiceInstanceRepository(serviceOrmContext);
@@ -308,6 +313,7 @@ public class DataRegistry implements DataRegistryApi {
         networkServiceRepository = null;
         serviceInstanceRepository = null;
         serviceProbeRepository = null;
+        registeredDataSources.clear();
         featureServiceDirectory.clear();
 
         if (currentQueryExecutor != null) {
@@ -352,6 +358,23 @@ public class DataRegistry implements DataRegistryApi {
             throw new IllegalStateException("DataRegistry is not initialized.");
         }
         return ormContext;
+    }
+
+    /**
+     * Resolves explicitly configured external DataProvider connections for player deletion.
+     * They are initialized on demand so a Paper bridge does not require command-only database profiles at startup.
+     */
+    public synchronized List<PlayerDeletionExternalDataSource> playerDeletionExternalDataSources() {
+        if (ormContext == null) {
+            throw new IllegalStateException("DataRegistry is not initialized.");
+        }
+        return settings.externalPlayerDataConnections().stream()
+                .map(connection -> new PlayerDeletionExternalDataSource(
+                        connection.connectionId(),
+                        connection.playerIdColumns(),
+                        resolveDataSource(registeredDataSources, connection)
+                ))
+                .toList();
     }
 
     /**
@@ -767,12 +790,28 @@ public class DataRegistry implements DataRegistryApi {
     }
 
     private DataSource resolveDataSource(Map<String, DataSource> dataSourceCache, String connectionId) {
-        DataSource cached = dataSourceCache.get(connectionId);
+        return resolveDataSource(dataSourceCache, settings.databaseType(), connectionId);
+    }
+
+    private DataSource resolveDataSource(
+            Map<String, DataSource> dataSourceCache,
+            ExternalPlayerDataConnectionSettings connection
+    ) {
+        return resolveDataSource(dataSourceCache, connection.databaseType(), connection.connectionId());
+    }
+
+    private DataSource resolveDataSource(
+            Map<String, DataSource> dataSourceCache,
+            nl.hauntedmc.dataprovider.database.DatabaseType databaseType,
+            String connectionId
+    ) {
+        String dataSourceKey = databaseType.name() + ":" + connectionId;
+        DataSource cached = dataSourceCache.get(dataSourceKey);
         if (cached != null) {
             return cached;
         }
 
-        var registeredProvider = dataProviderAPI.registerDatabaseOrThrow(settings.databaseType(), connectionId);
+        var registeredProvider = dataProviderAPI.registerDatabaseOrThrow(databaseType, connectionId);
         if (!(registeredProvider instanceof RelationalDatabaseProvider provider)) {
             throw new IllegalStateException(
                     "Registered database provider '" + connectionId + "' is not relational."
@@ -787,8 +826,21 @@ public class DataRegistry implements DataRegistryApi {
                     "Relational database provider '" + connectionId + "' returned no DataSource."
             );
         }
-        dataSourceCache.put(connectionId, dataSource);
+        dataSourceCache.put(dataSourceKey, dataSource);
         return dataSource;
+    }
+
+    /** A validated, explicitly opted-in external database source used by player-deletion cleanup. */
+    public record PlayerDeletionExternalDataSource(
+            String connectionId,
+            Set<String> playerIdColumns,
+            DataSource dataSource
+    ) {
+        public PlayerDeletionExternalDataSource {
+            Objects.requireNonNull(connectionId, "connectionId must not be null");
+            playerIdColumns = Set.copyOf(Objects.requireNonNull(playerIdColumns, "playerIdColumns must not be null"));
+            Objects.requireNonNull(dataSource, "dataSource must not be null");
+        }
     }
 
     private boolean hasAnyInitializedState() {

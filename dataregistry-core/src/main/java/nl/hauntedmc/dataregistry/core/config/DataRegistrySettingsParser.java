@@ -20,6 +20,7 @@ final class DataRegistrySettingsParser {
     private static final String DATABASE_TYPE_KEY = "database.type";
     private static final String PLAYER_DATABASE_CONNECTION_ID_KEY = "database.profiles.players.connection-id";
     private static final String SERVICE_DATABASE_CONNECTION_ID_KEY = "database.profiles.services.connection-id";
+    private static final String EXTERNAL_PLAYER_DATA_CONNECTIONS_KEY = "player-deletion.external-connections";
     private static final String ORM_SCHEMA_MODE_KEY = "orm.schema-mode";
     private static final String PRIVACY_PERSIST_IP_KEY = "privacy.persist-ip-address";
     private static final String PRIVACY_PERSIST_VHOST_KEY = "privacy.persist-virtual-host";
@@ -77,11 +78,12 @@ final class DataRegistrySettingsParser {
         DataRegistrySettings defaults = DataRegistrySettings.defaults();
         DataRegistrySettings.Builder builder = DataRegistrySettings.builder();
 
-        builder.databaseType(validateWithBuilder(
+        DatabaseType databaseType = validateWithBuilder(
                 DATABASE_TYPE_KEY,
                 parseEnum(configRoot, DATABASE_TYPE_KEY, DatabaseType.class, defaults.databaseType(), logger),
                 defaults.databaseType(), logger, DataRegistrySettings.Builder::databaseType
-        ));
+        );
+        builder.databaseType(databaseType);
         builder.playerDatabaseConnectionId(validateWithBuilder(
                 PLAYER_DATABASE_CONNECTION_ID_KEY,
                 parseString(configRoot, PLAYER_DATABASE_CONNECTION_ID_KEY, defaults.playerDatabaseConnectionId(), logger),
@@ -91,6 +93,11 @@ final class DataRegistrySettingsParser {
                 SERVICE_DATABASE_CONNECTION_ID_KEY,
                 parseString(configRoot, SERVICE_DATABASE_CONNECTION_ID_KEY, defaults.serviceDatabaseConnectionId(), logger),
                 defaults.serviceDatabaseConnectionId(), logger, DataRegistrySettings.Builder::serviceDatabaseConnectionId
+        ));
+        builder.externalPlayerDataConnections(parseExternalPlayerDataConnections(
+                configRoot,
+                databaseType,
+                logger
         ));
         builder.ormSchemaMode(validateWithBuilder(
                 ORM_SCHEMA_MODE_KEY,
@@ -334,6 +341,104 @@ final class DataRegistrySettingsParser {
             return defaultValue;
         }
         return result;
+    }
+
+    private static List<ExternalPlayerDataConnectionSettings> parseExternalPlayerDataConnections(
+            Map<?, ?> configRoot,
+            DatabaseType defaultDatabaseType,
+            ILoggerAdapter logger
+    ) {
+        Object value = getValue(configRoot, EXTERNAL_PLAYER_DATA_CONNECTIONS_KEY);
+        if (value == null) {
+            return List.of();
+        }
+        if (!(value instanceof List<?> entries)) {
+            logger.warn("Invalid list for key '" + EXTERNAL_PLAYER_DATA_CONNECTIONS_KEY + "'. Ignoring entries.");
+            return List.of();
+        }
+
+        List<ExternalPlayerDataConnectionSettings> parsed = new ArrayList<>();
+        Set<String> configuredConnections = new LinkedHashSet<>();
+        for (int index = 0; index < entries.size(); index++) {
+            Object entry = entries.get(index);
+            String entryKey = EXTERNAL_PLAYER_DATA_CONNECTIONS_KEY + "[" + index + "]";
+            if (!(entry instanceof Map<?, ?> entryMap)) {
+                logger.warn("Invalid connection entry for key '" + entryKey + "'. Skipping entry.");
+                continue;
+            }
+            Object connectionIdValue = entryMap.get("connection-id");
+            if (!(connectionIdValue instanceof String connectionId) || connectionId.isBlank()) {
+                logger.warn("Connection entry for key '" + entryKey + "' requires a non-blank connection-id. "
+                        + "Skipping entry.");
+                continue;
+            }
+            DatabaseType databaseType = parseExternalDatabaseType(
+                    entryMap.get("database-type"),
+                    defaultDatabaseType,
+                    entryKey,
+                    logger
+            );
+            if (databaseType == null) {
+                continue;
+            }
+            Set<String> playerIdColumns = parseExternalPlayerIdColumns(entryMap.get("player-id-columns"), entryKey, logger);
+            if (playerIdColumns == null) {
+                continue;
+            }
+            try {
+                ExternalPlayerDataConnectionSettings parsedConnection = new ExternalPlayerDataConnectionSettings(
+                        databaseType,
+                        connectionId,
+                        playerIdColumns
+                );
+                String key = databaseType.name() + ":" + parsedConnection.connectionId().toLowerCase(Locale.ROOT);
+                if (!configuredConnections.add(key)) {
+                    logger.warn("Duplicate connection entry for key '" + entryKey + "'. Skipping entry.");
+                    continue;
+                }
+                parsed.add(parsedConnection);
+            } catch (IllegalArgumentException exception) {
+                logger.warn("Invalid connection entry for key '" + entryKey + "'. Skipping entry: "
+                        + exception.getMessage());
+            }
+        }
+        return List.copyOf(parsed);
+    }
+
+    private static DatabaseType parseExternalDatabaseType(
+            Object value,
+            DatabaseType defaultValue,
+            String entryKey,
+            ILoggerAdapter logger
+    ) {
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return DatabaseType.valueOf(value.toString().trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            logger.warn("Invalid database-type for key '" + entryKey + "': '" + value
+                    + "'. Skipping entry.");
+            return null;
+        }
+    }
+
+    private static Set<String> parseExternalPlayerIdColumns(Object value, String entryKey, ILoggerAdapter logger) {
+        if (!(value instanceof List<?> values) || values.isEmpty()) {
+            logger.warn("Connection entry for key '" + entryKey
+                    + "' requires a non-empty player-id-columns list. Skipping entry.");
+            return null;
+        }
+        LinkedHashSet<String> columns = new LinkedHashSet<>();
+        for (Object column : values) {
+            if (!(column instanceof String columnName) || columnName.isBlank()) {
+                logger.warn("Connection entry for key '" + entryKey
+                        + "' has an invalid player-id-columns value. Skipping entry.");
+                return null;
+            }
+            columns.add(columnName);
+        }
+        return columns;
     }
 
     private static EnumSet<DataRegistryFeature> parseEnabledFeatures(

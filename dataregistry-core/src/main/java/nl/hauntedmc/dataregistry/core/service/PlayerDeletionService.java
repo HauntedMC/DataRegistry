@@ -67,10 +67,32 @@ public final class PlayerDeletionService {
         }
         String uuid = identity.uuid().toString();
         requireInactive(uuid);
+        validateForExternalDeletion(identity);
 
-        PlayerDeletionResult result = dataRegistry.getORM().runInTransaction(session ->
-                session.doReturningWork(connection -> deleteInTransaction(connection, identity))
-        );
+        List<DataRegistry.PlayerDeletionExternalDataSource> externalSources =
+                dataRegistry.playerDeletionExternalDataSources();
+        preflightExternalPlayerData(externalSources);
+        Map<String, Integer> externalDeletedRows = deleteExternalPlayerData(identity.playerId(), externalSources);
+        PlayerDeletionResult result;
+        try {
+            result = dataRegistry.getORM().runInTransaction(session ->
+                    session.doReturningWork(connection -> deleteInTransaction(connection, identity))
+            );
+        } catch (RuntimeException exception) {
+            if (!externalDeletedRows.isEmpty()) {
+                logger.error(
+                        "Configured external player data was removed, but canonical DataRegistry player deletion "
+                                + "failed for player #" + identity.playerId() + ".",
+                        exception
+                );
+            }
+            throw exception;
+        }
+        if (!externalDeletedRows.isEmpty()) {
+            LinkedHashMap<String, Integer> allDeletedRows = new LinkedHashMap<>(result.deletedRowsByTable());
+            externalDeletedRows.forEach((table, count) -> allDeletedRows.merge(table, count, Integer::sum));
+            result = new PlayerDeletionResult(identity, allDeletedRows);
+        }
 
         // Defensive cache eviction after commit. The command requires an offline player, but this prevents an old
         // managed identity from surviving if another internal caller invokes the service after stale cache state.
@@ -82,6 +104,110 @@ public final class PlayerDeletionService {
                         " with " + result.deletedDependentRows() + " explicitly removed dependent row(s)."
         );
         return result;
+    }
+
+    /** Proves the canonical identity is safe to erase before independent external transactions can begin. */
+    private void validateForExternalDeletion(PlayerIdentity identity) {
+        dataRegistry.getORM().runInTransaction(session -> session.doReturningWork(connection -> {
+            DatabaseMetaData metadata = connection.getMetaData();
+            TableRef playerTable = resolveTable(metadata, connection, PLAYER_TABLE);
+            if (playerTable == null) {
+                throw new IllegalStateException("Canonical player table '" + PLAYER_TABLE + "' was not found.");
+            }
+            lockAndValidatePlayer(connection, metadata, playerTable, identity);
+            requireInactive(identity.uuid().toString());
+            requireDurablyOffline(connection, metadata, playerTable, identity.playerId());
+            return Boolean.TRUE;
+        }));
+    }
+
+    /**
+     * Deletes data on every explicitly configured external DataProvider connection.
+     *
+     * <p>Schema/connection validation for every source completes before this method runs. Each source still has its
+     * own JDBC transaction, because DataProvider connections can point at independent databases. A failure rolls back
+     * the source currently being processed and prevents canonical deletion. A later canonical transaction failure is
+     * logged prominently because cross-database atomicity requires XA support, which DataProvider does not expose.</p>
+     */
+    private void preflightExternalPlayerData(List<DataRegistry.PlayerDeletionExternalDataSource> externalSources) {
+        for (DataRegistry.PlayerDeletionExternalDataSource source : externalSources) {
+            try (Connection connection = source.dataSource().getConnection()) {
+                DatabaseMetaData metadata = connection.getMetaData();
+                for (TableRef table : findPlayerIdTables(metadata, connection, source.playerIdColumns())) {
+                    discoverDependencyPaths(metadata, table, table);
+                }
+            } catch (SQLException exception) {
+                throw new IllegalStateException(
+                        "Failed to validate configured external player data on DataProvider connection '"
+                                + source.connectionId() + "'.",
+                        exception
+                );
+            }
+        }
+    }
+
+    private Map<String, Integer> deleteExternalPlayerData(
+            long playerId,
+            List<DataRegistry.PlayerDeletionExternalDataSource> externalSources
+    ) {
+        LinkedHashMap<String, Integer> deletedRows = new LinkedHashMap<>();
+        for (DataRegistry.PlayerDeletionExternalDataSource source : externalSources) {
+            LinkedHashMap<String, Integer> sourceDeletedRows = new LinkedHashMap<>();
+            try (Connection connection = source.dataSource().getConnection()) {
+                boolean autoCommit = connection.getAutoCommit();
+                connection.setAutoCommit(false);
+                try {
+                    DatabaseMetaData metadata = connection.getMetaData();
+                    for (TableRef table : findPlayerIdTables(metadata, connection, source.playerIdColumns())) {
+                        for (String playerIdColumn : resolvePlayerIdColumns(metadata, table, source.playerIdColumns())) {
+                            deleteDependents(connection, metadata, table, table, playerIdColumn, playerId, sourceDeletedRows,
+                                    source.connectionId());
+                            int deleted = deleteByColumn(connection, metadata, table, playerIdColumn, playerId);
+                            mergeDeletedRows(sourceDeletedRows, source.connectionId() + ":" + table.name(), deleted);
+                        }
+                    }
+                    connection.commit();
+                    sourceDeletedRows.forEach((table, count) -> deletedRows.merge(table, count, Integer::sum));
+                } catch (SQLException | RuntimeException exception) {
+                    rollbackExternalConnection(connection, source.connectionId(), exception);
+                    throw exception;
+                } finally {
+                    connection.setAutoCommit(autoCommit);
+                }
+            } catch (SQLException exception) {
+                logExternalPartialFailure(playerId, deletedRows, exception);
+                throw new IllegalStateException(
+                        "Failed to remove configured external player data from DataProvider connection '"
+                                + source.connectionId() + "'.",
+                        exception
+                );
+            } catch (RuntimeException exception) {
+                logExternalPartialFailure(playerId, deletedRows, exception);
+                throw exception;
+            }
+        }
+        return deletedRows;
+    }
+
+    private void logExternalPartialFailure(long playerId, Map<String, Integer> completedDeletedRows, Exception failure) {
+        if (completedDeletedRows.isEmpty()) {
+            return;
+        }
+        logger.error(
+                "Configured external player data was removed from one or more connections, but a later external "
+                        + "cleanup failed for player #" + playerId + "; canonical DataRegistry deletion was not run.",
+                failure
+        );
+    }
+
+    private void rollbackExternalConnection(Connection connection, String connectionId, Exception failure) {
+        try {
+            connection.rollback();
+        } catch (SQLException rollbackFailure) {
+            failure.addSuppressed(rollbackFailure);
+            logger.error("Failed to roll back external player-data deletion for connection '" + connectionId + "'.",
+                    rollbackFailure);
+        }
     }
 
     private PlayerDeletionResult deleteInTransaction(Connection connection, PlayerIdentity identity) throws SQLException {
@@ -207,6 +333,19 @@ public final class PlayerDeletionService {
             long anchorValue,
             Map<String, Integer> deletedRows
     ) throws SQLException {
+        deleteDependents(connection, metadata, namespaceRoot, anchorTable, anchorColumn, anchorValue, deletedRows, null);
+    }
+
+    private static void deleteDependents(
+            Connection connection,
+            DatabaseMetaData metadata,
+            TableRef namespaceRoot,
+            TableRef anchorTable,
+            String anchorColumn,
+            long anchorValue,
+            Map<String, Integer> deletedRows,
+            String tableNamePrefix
+    ) throws SQLException {
         List<DependencyPath> paths = discoverDependencyPaths(metadata, namespaceRoot, anchorTable);
         for (DependencyPath path : paths) {
             int deleted = deleteByDependencyPath(
@@ -216,8 +355,73 @@ public final class PlayerDeletionService {
                     anchorColumn,
                     anchorValue
             );
-            mergeDeletedRows(deletedRows, path.target().name(), deleted);
+            mergeDeletedRows(deletedRows, tableNamePrefix == null
+                    ? path.target().name()
+                    : tableNamePrefix + ":" + path.target().name(), deleted);
         }
+    }
+
+    private static List<TableRef> findPlayerIdTables(
+            DatabaseMetaData metadata,
+            Connection connection,
+            Set<String> playerIdColumns
+    ) throws SQLException {
+        String currentCatalog = connection.getCatalog();
+        String currentSchema = connection.getSchema();
+        Map<String, TableRef> tables = new LinkedHashMap<>();
+        collectTables(metadata, currentCatalog, currentSchema, tables);
+        if (tables.isEmpty() && currentSchema != null) {
+            collectTables(metadata, currentCatalog, null, tables);
+        }
+        List<TableRef> matches = new ArrayList<>();
+        for (TableRef table : tables.values()) {
+            if (!resolvePlayerIdColumns(metadata, table, playerIdColumns).isEmpty()) {
+                matches.add(table);
+            }
+        }
+        matches.sort(Comparator.comparing(TableRef::sortKey));
+        return matches;
+    }
+
+    private static void collectTables(
+            DatabaseMetaData metadata,
+            String catalog,
+            String schema,
+            Map<String, TableRef> tables
+    ) throws SQLException {
+        try (ResultSet resultSet = metadata.getTables(catalog, schema, "%", new String[]{"TABLE"})) {
+            while (resultSet.next()) {
+                String tableName = resultSet.getString("TABLE_NAME");
+                if (tableName == null || tableName.isBlank()) {
+                    continue;
+                }
+                TableRef table = new TableRef(
+                        resultSet.getString("TABLE_CAT"),
+                        resultSet.getString("TABLE_SCHEM"),
+                        tableName
+                );
+                tables.putIfAbsent(table.sortKey(), table);
+            }
+        }
+    }
+
+    private static List<String> resolvePlayerIdColumns(
+            DatabaseMetaData metadata,
+            TableRef table,
+            Set<String> playerIdColumns
+    )
+            throws SQLException {
+        List<String> matchingColumns = new ArrayList<>();
+        try (ResultSet resultSet = metadata.getColumns(table.catalog(), table.schema(), table.name(), "%")) {
+            while (resultSet.next()) {
+                String columnName = resultSet.getString("COLUMN_NAME");
+                if (columnName != null && playerIdColumns.contains(columnName.toLowerCase(java.util.Locale.ROOT))) {
+                    matchingColumns.add(columnName);
+                }
+            }
+        }
+        matchingColumns.sort(String.CASE_INSENSITIVE_ORDER);
+        return matchingColumns;
     }
 
     private static List<DependencyPath> discoverDependencyPaths(

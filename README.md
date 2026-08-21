@@ -64,7 +64,8 @@ The Velocity command `/dataregistry` (alias `/dr`) requires `dataregistry.admin`
   timestamps, per-gamemode playtime, preferences, connection metadata, and recent name history when present.
 - `/dataregistry players delete <name|uuid> confirm` permanently removes a fully offline canonical player identity and
   its DataRegistry-owned dependent rows. It requires the additional `dataregistry.admin.players.delete` permission and
-  explicit `confirm`; the player's next join creates a new DataRegistry player ID.
+  explicit `confirm`; the player's next join creates a new DataRegistry player ID. Configure
+  `player-deletion.external-connections` to include other DataProvider databases in this cleanup.
 - `/dataregistry services health` reports effective service/probe health.
 - `/dataregistry presence repair` force-refreshes durable online status from the players connected to this proxy. It
   never marks absent players offline, which keeps it safe for a shared multi-proxy database. Population online
