@@ -23,6 +23,12 @@ jobs:
   shellcheck:
     name: ShellCheck and release-bump smoke test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    env:
+      PACKAGES_USER: ${{ secrets.HAUNTEDMC_PACKAGES_USERNAME }}
+      PACKAGES_TOKEN: ${{ secrets.HAUNTEDMC_PACKAGES_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
