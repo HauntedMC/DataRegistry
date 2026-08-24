@@ -13,7 +13,7 @@ concurrency:
 jobs:
   maven-policy:
     name: Shared Maven policy
-    uses: HauntedMC/HauntedPlatform/.github/workflows/maven-ci.yml@v1.0.1
+    uses: HauntedMC/HauntedPlatform/.github/workflows/maven-ci.yml@v1.1.0
     with:
       maven-command: ./mvnw -U -B -ntp -DskipTests verify
     secrets:
@@ -30,7 +30,7 @@ jobs:
       PACKAGES_USER: ${{ secrets.HAUNTEDMC_PACKAGES_USERNAME }}
       PACKAGES_TOKEN: ${{ secrets.HAUNTEDMC_PACKAGES_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - run: shellcheck update_version.sh dataregistry-platform-acceptance/run-platform-acceptance.sh
