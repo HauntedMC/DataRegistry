@@ -11,10 +11,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
-    name: Checkstyle and Shell Scripts
+  maven-policy:
+    name: Shared Maven policy
+    uses: HauntedMC/HauntedPlatform/.github/workflows/maven-ci.yml@v1.2.0
+    with:
+      maven-command: ./mvnw -U -B -ntp -DskipTests verify
+    secrets:
+      PACKAGES_USER: ${{ secrets.HAUNTEDMC_PACKAGES_USERNAME }}
+      PACKAGES_TOKEN: ${{ secrets.HAUNTEDMC_PACKAGES_TOKEN }}
+
+  shellcheck:
+    name: ShellCheck and release-bump smoke test
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     permissions:
       contents: read
       packages: read
@@ -22,22 +30,8 @@ jobs:
       PACKAGES_USER: ${{ secrets.HAUNTEDMC_PACKAGES_USERNAME }}
       PACKAGES_TOKEN: ${{ secrets.HAUNTEDMC_PACKAGES_TOKEN }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up JDK 25
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "25"
-          cache: maven
-          server-id: github
-          server-username: PACKAGES_USER
-          server-password: PACKAGES_TOKEN
-      - name: Run Checkstyle
-        run: ./mvnw -U -B -ntp -DskipTests checkstyle:check
-      - name: Lint shell scripts
-        run: shellcheck update_version.sh dataregistry-platform-acceptance/run-platform-acceptance.sh
-      - name: Smoke test release bump dry run
-        run: ./update_version.sh --dry-run patch
+      - run: shellcheck update_version.sh dataregistry-platform-acceptance/run-platform-acceptance.sh
+      - run: ./update_version.sh --dry-run patch

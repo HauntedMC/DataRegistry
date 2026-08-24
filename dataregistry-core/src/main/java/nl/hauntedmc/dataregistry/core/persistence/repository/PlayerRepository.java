@@ -6,7 +6,6 @@ import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.api.player.PlayerLookup;
 import nl.hauntedmc.dataregistry.api.player.PlayerPage;
 import nl.hauntedmc.dataregistry.api.player.PlayerPageRequest;
-import nl.hauntedmc.dataregistry.core.persistence.repository.AbstractRepository;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import org.hibernate.Session;
 
