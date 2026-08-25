@@ -8,6 +8,8 @@ import nl.hauntedmc.dataregistry.api.DataRegistryApi;
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.api.observation.DataRegistryInstrumentation;
 import nl.hauntedmc.dataregistry.api.observation.DataRegistryObservation;
+import nl.hauntedmc.dataregistry.api.observation.DataRegistryObservationRegistration;
+import nl.hauntedmc.dataregistry.api.observation.DataRegistryObserver;
 import nl.hauntedmc.dataregistry.api.observation.DataRegistryOperationOutcome;
 import nl.hauntedmc.dataregistry.api.player.PlayerData;
 import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
@@ -90,7 +92,7 @@ import java.util.Set;
 /**
  * Core backend runtime that wires DataProvider, ORM, repositories and public domain facades.
  */
-public class DataRegistry implements DataRegistryApi {
+public class DataRegistry implements DataRegistryApi, DataRegistryInstrumentation {
 
     private final ILoggerAdapter logger;
     private final DataProviderAPI dataProviderAPI;
@@ -686,6 +688,12 @@ public class DataRegistry implements DataRegistryApi {
     @Override
     public synchronized boolean isReady() {
         return isInitialized();
+    }
+
+    /** Registers one vendor-neutral observer against this runtime instance. */
+    @Override
+    public DataRegistryObservationRegistration registerObserver(DataRegistryObserver observer) {
+        return observations.registerObserver(observer);
     }
 
     /** Returns the vendor-neutral instrumentation capability owned by this runtime instance. */
