@@ -136,7 +136,8 @@ public final class PlayerLifecycleWriter {
                 dataRegistry.isFeatureEnabled(DataRegistryFeature.POPULATION)
         );
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
-        this.observations = dataRegistry.internalObservations();
+        DataRegistryObservations runtimeObservations = dataRegistry.internalObservations();
+        this.observations = runtimeObservations == null ? new DataRegistryObservations() : runtimeObservations;
         if (maxAttempts < 1 || maxAttempts > 10) {
             throw new IllegalArgumentException("maxAttempts must be between 1 and 10.");
         }
@@ -365,6 +366,11 @@ public final class PlayerLifecycleWriter {
                             exception
                     );
                     pauseBeforeRetry(attempt);
+                } catch (Error failure) {
+                    if (observed) {
+                        observations.complete(observation, DataRegistryOperationOutcome.FAILURE, attempt, failure);
+                    }
+                    throw failure;
                 }
             }
             if (observed) {
@@ -380,11 +386,6 @@ public final class PlayerLifecycleWriter {
                     PlayerLifecycleWriteStatus.TRANSIENT_FAILURE,
                     lastFailure
             );
-        } catch (Error failure) {
-            if (observed) {
-                observations.complete(observation, DataRegistryOperationOutcome.FAILURE, 1, failure);
-            }
-            throw failure;
         }
     }
 
