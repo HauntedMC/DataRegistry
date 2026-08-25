@@ -6,6 +6,7 @@ import nl.hauntedmc.dataregistry.api.player.PlayerLookup;
 import nl.hauntedmc.dataregistry.api.player.PlayerPage;
 import nl.hauntedmc.dataregistry.api.player.PlayerPageRequest;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerIdentityInitializationTracker;
+import nl.hauntedmc.dataregistry.core.observation.DataRegistryObservations;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerRepository;
 
 import java.util.Collection;
@@ -25,12 +26,18 @@ public final class RepositoryPlayerDirectory implements PlayerDirectory {
     private final PlayerRepository playerRepository;
     private final PlayerIdentityInitializationTracker identityInitializationTracker;
     private final DataRegistryQueryExecutor queryExecutor;
+    private final DataRegistryObservations observations;
 
     public RepositoryPlayerDirectory(
             PlayerRepository playerRepository,
             PlayerIdentityInitializationTracker identityInitializationTracker
     ) {
-        this(playerRepository, identityInitializationTracker, DataRegistryQueryExecutor.immediateForTesting());
+        this(
+                playerRepository,
+                identityInitializationTracker,
+                DataRegistryQueryExecutor.immediateForTesting(),
+                new DataRegistryObservations()
+        );
     }
 
     public RepositoryPlayerDirectory(
@@ -38,12 +45,22 @@ public final class RepositoryPlayerDirectory implements PlayerDirectory {
             PlayerIdentityInitializationTracker identityInitializationTracker,
             DataRegistryQueryExecutor queryExecutor
     ) {
+        this(playerRepository, identityInitializationTracker, queryExecutor, new DataRegistryObservations());
+    }
+
+    public RepositoryPlayerDirectory(
+            PlayerRepository playerRepository,
+            PlayerIdentityInitializationTracker identityInitializationTracker,
+            DataRegistryQueryExecutor queryExecutor,
+            DataRegistryObservations observations
+    ) {
         this.playerRepository = Objects.requireNonNull(playerRepository, "playerRepository must not be null");
         this.identityInitializationTracker = Objects.requireNonNull(
                 identityInitializationTracker,
                 "identityInitializationTracker must not be null"
         );
         this.queryExecutor = Objects.requireNonNull(queryExecutor, "queryExecutor must not be null");
+        this.observations = Objects.requireNonNull(observations, "observations must not be null");
     }
 
     @Override
@@ -165,7 +182,10 @@ public final class RepositoryPlayerDirectory implements PlayerDirectory {
 
     @Override
     public CompletableFuture<Optional<PlayerIdentity>> whenReady(UUID uuid) {
-        return identityInitializationTracker.whenReady(uuid, () -> findActiveIdentityCached(uuid));
+        return observations.observeFuture(
+                "player.readiness.wait",
+                () -> identityInitializationTracker.whenReady(uuid, () -> findActiveIdentityCached(uuid))
+        );
     }
 
     @Override
