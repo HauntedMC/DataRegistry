@@ -53,7 +53,7 @@ class DataRegistryQueryObservationTest {
             assertEquals(42, result);
             assertEquals(supplierThread.get(), scopeThread.get());
             assertTrue(supplierThread.get().isVirtual());
-            assertEquals(DataRegistryOperationOutcome.SUCCESS, outcome.get());
+            awaitOutcome(outcome, DataRegistryOperationOutcome.SUCCESS);
         } finally {
             executor.close();
         }
@@ -76,7 +76,7 @@ class DataRegistryQueryObservationTest {
                 return "late";
             });
             assertThrows(ExecutionException.class, timedOut::get);
-            assertEquals(DataRegistryOperationOutcome.TIMEOUT, outcome.get());
+            awaitOutcome(outcome, DataRegistryOperationOutcome.TIMEOUT);
 
             CountDownLatch started = new CountDownLatch(1);
             CompletableFuture<String> cancelled = executor.supply("player.identity.bulk", () -> {
@@ -90,7 +90,7 @@ class DataRegistryQueryObservationTest {
             });
             assertTrue(started.await(1, TimeUnit.SECONDS));
             cancelled.cancel(true);
-            assertEquals(DataRegistryOperationOutcome.CANCELLED, outcome.get());
+            awaitOutcome(outcome, DataRegistryOperationOutcome.CANCELLED);
         } finally {
             executor.close();
         }
@@ -123,5 +123,16 @@ class DataRegistryQueryObservationTest {
                 outcome.set(completedOutcome);
             }
         };
+    }
+
+    private static void awaitOutcome(
+            AtomicReference<DataRegistryOperationOutcome> outcome,
+            DataRegistryOperationOutcome expected
+    ) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1L);
+        while (outcome.get() != expected && System.nanoTime() < deadline) {
+            Thread.sleep(5L);
+        }
+        assertEquals(expected, outcome.get());
     }
 }
