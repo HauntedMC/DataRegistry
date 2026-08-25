@@ -1,8 +1,12 @@
 package nl.hauntedmc.dataregistry.core.lifecycle;
 
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
+import nl.hauntedmc.dataregistry.api.observation.DataRegistryObservation;
+import nl.hauntedmc.dataregistry.api.observation.DataRegistryObservationScope;
+import nl.hauntedmc.dataregistry.api.observation.DataRegistryOperationOutcome;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
+import nl.hauntedmc.dataregistry.core.observation.DataRegistryObservations;
 import nl.hauntedmc.dataregistry.core.persistence.RetryableDatabaseFailure;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEntity;
@@ -48,6 +52,7 @@ public final class PlayerLifecycleWriter {
     private final ILoggerAdapter logger;
     private final int maxAttempts;
     private final long retryBaseDelayMillis;
+    private final DataRegistryObservations observations;
 
     public PlayerLifecycleWriter(
             DataRegistry dataRegistry,
@@ -131,6 +136,7 @@ public final class PlayerLifecycleWriter {
                 dataRegistry.isFeatureEnabled(DataRegistryFeature.POPULATION)
         );
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
+        this.observations = dataRegistry.internalObservations();
         if (maxAttempts < 1 || maxAttempts > 10) {
             throw new IllegalArgumentException("maxAttempts must be between 1 and 10.");
         }
@@ -147,7 +153,7 @@ public final class PlayerLifecycleWriter {
      */
     public PlayerLifecycleWriteResult login(LoginCommand command) {
         Objects.requireNonNull(command, "command must not be null");
-        return execute(command.eventId(), () -> dataRegistry.getORM().runInTransaction(session -> {
+        return execute("player.lifecycle.login", command.eventId(), () -> dataRegistry.getORM().runInTransaction(session -> {
             PlayerLifecycleOutboxEntity existingEvent = findOutboxEvent(session, command.eventId());
             if (existingEvent != null) {
                 return duplicateOutcome(
@@ -208,7 +214,7 @@ public final class PlayerLifecycleWriter {
      */
     public PlayerLifecycleWriteResult transfer(TransferCommand command) {
         Objects.requireNonNull(command, "command must not be null");
-        return execute(command.eventId(), () -> dataRegistry.getORM().runInTransaction(session -> {
+        return execute("player.lifecycle.transfer", command.eventId(), () -> dataRegistry.getORM().runInTransaction(session -> {
             PlayerLifecycleOutboxEntity existingEvent = findOutboxEvent(session, command.eventId());
             if (existingEvent != null) {
                 return duplicateOutcome(
@@ -253,80 +259,133 @@ public final class PlayerLifecycleWriter {
      */
     public PlayerLifecycleWriteResult disconnect(DisconnectCommand command) {
         Objects.requireNonNull(command, "command must not be null");
-        return execute(command.eventId(), () -> dataRegistry.getORM().runInTransaction(session -> {
-            PlayerLifecycleOutboxEntity existingEvent = findOutboxEvent(session, command.eventId());
-            if (existingEvent != null) {
-                return duplicateOutcome(
-                        session,
-                        existingEvent,
-                        command.playerUuid(),
-                        PlayerLifecycleOutboxEventType.DISCONNECT,
-                        false
-                );
-            }
+        return execute(
+                "player.lifecycle.disconnect",
+                command.eventId(),
+                () -> dataRegistry.getORM().runInTransaction(session -> {
+                    PlayerLifecycleOutboxEntity existingEvent = findOutboxEvent(session, command.eventId());
+                    if (existingEvent != null) {
+                        return duplicateOutcome(
+                                session,
+                                existingEvent,
+                                command.playerUuid(),
+                                PlayerLifecycleOutboxEventType.DISCONNECT,
+                                false
+                        );
+                    }
 
-            Instant now = command.occurredAt();
-            PlayerEntity player = playerService.getOrCreatePlayer(session, command.playerUuid(), command.username());
-            flushForGeneratedId(session, player);
-            // Population must see the player's final durable backend before status/session state is closed.
-            populationService.onDisconnect(session, player, now);
-            statusService.updateStatusOnQuit(session, player);
-            activitySummaryService.recordDisconnect(session, player, now);
-            connectionService.updateOnDisconnect(session, player, now);
-            playtimeService.closeActivePlaytimeOnDisconnect(session, player, now);
-            sessionService.closeSessionOnDisconnect(session, player, now);
-            persistOutbox(
-                    session,
-                    command.eventId(),
-                    PlayerLifecycleOutboxEventType.DISCONNECT,
-                    player,
-                    null,
-                    now
-            );
-            return new TransactionOutcome(false, false, player);
-        }));
+                    Instant now = command.occurredAt();
+                    PlayerEntity player = playerService.getOrCreatePlayer(
+                            session,
+                            command.playerUuid(),
+                            command.username()
+                    );
+                    flushForGeneratedId(session, player);
+                    // Population must see the player's final durable backend before status/session state is closed.
+                    populationService.onDisconnect(session, player, now);
+                    statusService.updateStatusOnQuit(session, player);
+                    activitySummaryService.recordDisconnect(session, player, now);
+                    connectionService.updateOnDisconnect(session, player, now);
+                    playtimeService.closeActivePlaytimeOnDisconnect(session, player, now);
+                    sessionService.closeSessionOnDisconnect(session, player, now);
+                    persistOutbox(
+                            session,
+                            command.eventId(),
+                            PlayerLifecycleOutboxEventType.DISCONNECT,
+                            player,
+                            null,
+                            now
+                    );
+                    return new TransactionOutcome(false, false, player);
+                })
+        );
     }
 
-    private PlayerLifecycleWriteResult execute(String eventId, LifecycleTransaction transaction) {
-        RuntimeException lastFailure = null;
-        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-            try {
-                TransactionOutcome outcome = transaction.execute();
-                PlayerIdentity identity = outcome.player() == null ? null : PlayerRepository.toIdentity(outcome.player());
-                if (identity != null && outcome.activeAfterCommit()) {
-                    playerService.cacheActivePlayer(outcome.player());
-                }
-                return outcome.duplicate()
-                        ? PlayerLifecycleWriteResult.duplicate(eventId, identity)
-                        : PlayerLifecycleWriteResult.success(eventId, identity);
-            } catch (RuntimeException exception) {
-                lastFailure = exception;
-                boolean transientFailure = RetryableDatabaseFailure.isRetryable(exception);
-                if (!transientFailure || attempt == maxAttempts) {
-                    PlayerLifecycleWriteStatus status = transientFailure
-                            ? PlayerLifecycleWriteStatus.TRANSIENT_FAILURE
-                            : PlayerLifecycleWriteStatus.PERMANENT_FAILURE;
-                    logger.error(
-                            "Failed to durably persist player lifecycle event eventId=" +
-                                    safeForLog(eventId) + " status=" + status,
+    private PlayerLifecycleWriteResult execute(
+            String operation,
+            String eventId,
+            LifecycleTransaction transaction
+    ) {
+        boolean observed = observations.isEnabled();
+        DataRegistryObservation observation = observed ? observations.start(operation) : null;
+        try (DataRegistryObservationScope ignored = observed
+                ? observations.openScope(observation)
+                : DataRegistryObservationScope.noop()) {
+            RuntimeException lastFailure = null;
+            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                try {
+                    TransactionOutcome outcome = transaction.execute();
+                    PlayerIdentity identity = outcome.player() == null
+                            ? null
+                            : PlayerRepository.toIdentity(outcome.player());
+                    if (identity != null && outcome.activeAfterCommit()) {
+                        playerService.cacheActivePlayer(outcome.player());
+                    }
+                    if (observed) {
+                        observations.complete(
+                                observation,
+                                outcome.duplicate()
+                                        ? DataRegistryOperationOutcome.DUPLICATE
+                                        : DataRegistryOperationOutcome.SUCCESS,
+                                attempt,
+                                null
+                        );
+                    }
+                    return outcome.duplicate()
+                            ? PlayerLifecycleWriteResult.duplicate(eventId, identity)
+                            : PlayerLifecycleWriteResult.success(eventId, identity);
+                } catch (RuntimeException exception) {
+                    lastFailure = exception;
+                    boolean transientFailure = RetryableDatabaseFailure.isRetryable(exception);
+                    if (!transientFailure || attempt == maxAttempts) {
+                        PlayerLifecycleWriteStatus status = transientFailure
+                                ? PlayerLifecycleWriteStatus.TRANSIENT_FAILURE
+                                : PlayerLifecycleWriteStatus.PERMANENT_FAILURE;
+                        logger.error(
+                                "Failed to durably persist player lifecycle event eventId=" +
+                                        safeForLog(eventId) + " status=" + status,
+                                exception
+                        );
+                        if (observed) {
+                            observations.complete(
+                                    observation,
+                                    transientFailure
+                                            ? DataRegistryOperationOutcome.TRANSIENT_FAILURE
+                                            : DataRegistryOperationOutcome.PERMANENT_FAILURE,
+                                    attempt,
+                                    exception
+                            );
+                        }
+                        return PlayerLifecycleWriteResult.failure(eventId, status, exception);
+                    }
+                    logger.warn(
+                            "Transient player lifecycle persistence failure for eventId=" +
+                                    safeForLog(eventId) + "; retrying attempt " + (attempt + 1) +
+                                    " of " + maxAttempts + ".",
                             exception
                     );
-                    return PlayerLifecycleWriteResult.failure(eventId, status, exception);
+                    pauseBeforeRetry(attempt);
                 }
-                logger.warn(
-                        "Transient player lifecycle persistence failure for eventId=" +
-                                safeForLog(eventId) + "; retrying attempt " + (attempt + 1) +
-                                " of " + maxAttempts + ".",
-                        exception
-                );
-                pauseBeforeRetry(attempt);
             }
+            if (observed) {
+                observations.complete(
+                        observation,
+                        DataRegistryOperationOutcome.TRANSIENT_FAILURE,
+                        maxAttempts,
+                        lastFailure
+                );
+            }
+            return PlayerLifecycleWriteResult.failure(
+                    eventId,
+                    PlayerLifecycleWriteStatus.TRANSIENT_FAILURE,
+                    lastFailure
+            );
+        } catch (Error failure) {
+            if (observed) {
+                observations.complete(observation, DataRegistryOperationOutcome.FAILURE, 1, failure);
+            }
+            throw failure;
         }
-        return PlayerLifecycleWriteResult.failure(
-                eventId,
-                PlayerLifecycleWriteStatus.TRANSIENT_FAILURE,
-                lastFailure
-        );
     }
 
     private static PlayerLifecycleOutboxEntity findOutboxEvent(Session session, String eventId) {
