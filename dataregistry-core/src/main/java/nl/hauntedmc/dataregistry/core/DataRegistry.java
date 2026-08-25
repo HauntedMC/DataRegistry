@@ -6,6 +6,9 @@ import nl.hauntedmc.dataprovider.database.relational.RelationalDatabaseProvider;
 import nl.hauntedmc.dataprovider.logging.LogLevel;
 import nl.hauntedmc.dataregistry.api.DataRegistryApi;
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
+import nl.hauntedmc.dataregistry.api.observation.DataRegistryInstrumentation;
+import nl.hauntedmc.dataregistry.api.observation.DataRegistryObservation;
+import nl.hauntedmc.dataregistry.api.observation.DataRegistryOperationOutcome;
 import nl.hauntedmc.dataregistry.api.player.PlayerData;
 import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
 import nl.hauntedmc.dataregistry.api.population.PopulationData;
@@ -16,6 +19,7 @@ import nl.hauntedmc.dataregistry.core.config.ExternalPlayerDataConnectionSetting
 import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerIdentityInitializationTracker;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerLifecycleWriter;
+import nl.hauntedmc.dataregistry.core.observation.DataRegistryObservations;
 import nl.hauntedmc.dataregistry.core.persistence.entity.NetworkServiceEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerActivitySummaryEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerConnectionInfoEntity;
@@ -94,6 +98,7 @@ public class DataRegistry implements DataRegistryApi {
     private final boolean lifecycleAuthority;
     private final nl.hauntedmc.dataprovider.logging.LoggerAdapter ormLogger;
     private final FeatureServiceDirectory featureServiceDirectory = new DefaultFeatureServiceDirectory();
+    private final DataRegistryObservations observations = new DataRegistryObservations();
 
     private volatile PlaytimeGamemodeResolver populationGamemodeResolver;
     private PlayerRepository playerRepository;
@@ -163,127 +168,147 @@ public class DataRegistry implements DataRegistryApi {
      * @return {@code true} when initialization completed successfully.
      */
     public synchronized boolean initialize() {
-        if (isRuntimeFullyInitialized()) {
-            logger.warn("DataRegistry is already initialized.");
-            return true;
-        }
-        if (hasAnyInitializedState()) {
-            logger.warn("Detected partially initialized DataRegistry state; forcing cleanup.");
-            shutdown();
-        }
-
-        try {
-            DataSource playerDataSource = resolveDataSource(registeredDataSources, settings.playerDatabaseConnectionId());
-            ormContext = newOrmContext(playerDataSource, resolvePlayerOrmEntityClasses());
-            serviceOrmContext = null;
-            ORMContext queryOrmContext = new DeadlineAwareOrmContext(ormContext);
-
-            this.playerRepository = newPlayerRepository(queryOrmContext);
-            this.playerLifecycleOutboxRepository = newPlayerLifecycleOutboxRepository(queryOrmContext);
-            validatePlayerLifecycleOutbox();
-            this.playerIdentityInitializationTracker = new PlayerIdentityInitializationTracker();
-            this.queryExecutor = newQueryExecutor();
-            this.playerDirectory = new RepositoryPlayerDirectory(
-                    playerRepository,
-                    playerIdentityInitializationTracker,
-                    queryExecutor
-            );
-            this.playerActivitySummaryRepository = settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)
-                    ? newPlayerActivitySummaryRepository(queryOrmContext)
-                    : null;
-            this.playerOnlineStatusRepository = settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)
-                    ? newPlayerOnlineStatusRepository(queryOrmContext)
-                    : null;
-            this.playerConnectionInfoRepository = settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO)
-                    ? newPlayerConnectionInfoRepository(queryOrmContext)
-                    : null;
-            this.playerLanguageRepository = settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE)
-                    ? newPlayerLanguageRepository(queryOrmContext)
-                    : null;
-            this.playerNicknameRepository = settings.isFeatureEnabled(DataRegistryFeature.NICKNAMES)
-                    ? newPlayerNicknameRepository(queryOrmContext)
-                    : null;
-            this.playerNameHistoryRepository = settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY)
-                    ? newPlayerNameHistoryRepository(queryOrmContext)
-                    : null;
-            this.playerSessionRepository = settings.isFeatureEnabled(DataRegistryFeature.SESSIONS)
-                    ? newPlayerSessionRepository(queryOrmContext)
-                    : null;
-            this.playerSessionVisitRepository = settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS)
-                    ? newPlayerSessionVisitRepository(queryOrmContext)
-                    : null;
-            this.playerPlaytimeRepository = settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
-                    ? newPlayerPlaytimeRepository(queryOrmContext)
-                    : null;
-            if (playerPlaytimeRepository != null) {
-                if (lifecycleAuthority) {
-                    playerPlaytimeRepository.initializeMetadata();
-                } else {
-                    playerPlaytimeRepository.initializeReadOnlyMetadata();
-                }
+        DataRegistryObservation observation = observations.start("registry.initialize");
+        try (var ignored = observations.openScope(observation)) {
+            if (isRuntimeFullyInitialized()) {
+                logger.warn("DataRegistry is already initialized.");
+                observations.complete(observation, DataRegistryOperationOutcome.SUCCESS, 1, null);
+                return true;
             }
-            this.playerPlaytimeSegmentRepository = settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
-                    ? newPlayerPlaytimeSegmentRepository(queryOrmContext)
-                    : null;
-            this.populationRepository = settings.isFeatureEnabled(DataRegistryFeature.POPULATION)
-                    ? newPopulationRepository(queryOrmContext)
-                    : null;
-            this.playerData = new RepositoryPlayerData(
-                    playerDirectory,
-                    queryExecutor,
-                    queryOrmContext,
-                    settings.enabledFeatures(),
-                    playerActivitySummaryRepository,
-                    playerOnlineStatusRepository,
-                    playerConnectionInfoRepository,
-                    playerLanguageRepository,
-                    playerNicknameRepository,
-                    playerNameHistoryRepository,
-                    playerPlaytimeRepository,
-                    settings.playtimeTrackingSettings().excludedFromNetworkTotalGamemodes()
-            );
-            this.populationData = populationRepository == null
-                    ? null
-                    : new RepositoryPopulationData(
-                            playerDirectory,
-                            populationRepository,
-                            queryExecutor,
-                            this::resolvePopulationGamemode
-                    );
-
-            if (populationRepository != null && lifecycleAuthority) {
-                PopulationMigrationResult migration = new PopulationMigrationService(this).migrate();
-                if (migration.migrationApplied()) {
-                    logger.info(
-                            "Population migration completed: networkMembershipsAdded=" +
-                                    migration.networkMembershipsAdded() +
-                                    ", gamemodeMembershipsAdded=" + migration.gamemodeMembershipsAdded() +
-                                    ", baseline=" + migration.baselineQuality() + "."
-                    );
-                }
+            if (hasAnyInitializedState()) {
+                logger.warn("Detected partially initialized DataRegistry state; forcing cleanup.");
+                shutdown();
             }
 
-            this.networkServiceRepository = null;
-            this.serviceInstanceRepository = null;
-            this.serviceProbeRepository = null;
-            if (settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY)) {
-                DataSource serviceDataSource = resolveDataSource(
+            try {
+                DataSource playerDataSource = resolveDataSource(
                         registeredDataSources,
-                        settings.serviceDatabaseConnectionId()
+                        settings.playerDatabaseConnectionId()
                 );
-                serviceOrmContext = newServiceOrmContext(serviceDataSource, resolveServiceOrmEntityClasses());
-                this.networkServiceRepository = newNetworkServiceRepository(serviceOrmContext);
-                this.serviceInstanceRepository = newServiceInstanceRepository(serviceOrmContext);
-                this.serviceProbeRepository = newServiceProbeRepository(serviceOrmContext);
+                ormContext = newOrmContext(playerDataSource, resolvePlayerOrmEntityClasses());
+                serviceOrmContext = null;
+                ORMContext queryOrmContext = new DeadlineAwareOrmContext(ormContext);
+
+                this.playerRepository = newPlayerRepository(queryOrmContext);
+                this.playerLifecycleOutboxRepository = newPlayerLifecycleOutboxRepository(queryOrmContext);
+                validatePlayerLifecycleOutbox();
+                this.playerIdentityInitializationTracker = new PlayerIdentityInitializationTracker();
+                this.queryExecutor = newQueryExecutor();
+                this.playerDirectory = new RepositoryPlayerDirectory(
+                        playerRepository,
+                        playerIdentityInitializationTracker,
+                        queryExecutor,
+                        observations
+                );
+                this.playerActivitySummaryRepository = settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)
+                        ? newPlayerActivitySummaryRepository(queryOrmContext)
+                        : null;
+                this.playerOnlineStatusRepository = settings.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)
+                        ? newPlayerOnlineStatusRepository(queryOrmContext)
+                        : null;
+                this.playerConnectionInfoRepository = settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO)
+                        ? newPlayerConnectionInfoRepository(queryOrmContext)
+                        : null;
+                this.playerLanguageRepository = settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE)
+                        ? newPlayerLanguageRepository(queryOrmContext)
+                        : null;
+                this.playerNicknameRepository = settings.isFeatureEnabled(DataRegistryFeature.NICKNAMES)
+                        ? newPlayerNicknameRepository(queryOrmContext)
+                        : null;
+                this.playerNameHistoryRepository = settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY)
+                        ? newPlayerNameHistoryRepository(queryOrmContext)
+                        : null;
+                this.playerSessionRepository = settings.isFeatureEnabled(DataRegistryFeature.SESSIONS)
+                        ? newPlayerSessionRepository(queryOrmContext)
+                        : null;
+                this.playerSessionVisitRepository = settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS)
+                        ? newPlayerSessionVisitRepository(queryOrmContext)
+                        : null;
+                this.playerPlaytimeRepository = settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
+                        ? newPlayerPlaytimeRepository(queryOrmContext)
+                        : null;
+                if (playerPlaytimeRepository != null) {
+                    if (lifecycleAuthority) {
+                        playerPlaytimeRepository.initializeMetadata();
+                    } else {
+                        playerPlaytimeRepository.initializeReadOnlyMetadata();
+                    }
+                }
+                this.playerPlaytimeSegmentRepository = settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
+                        ? newPlayerPlaytimeSegmentRepository(queryOrmContext)
+                        : null;
+                this.populationRepository = settings.isFeatureEnabled(DataRegistryFeature.POPULATION)
+                        ? newPopulationRepository(queryOrmContext)
+                        : null;
+                this.playerData = new RepositoryPlayerData(
+                        playerDirectory,
+                        queryExecutor,
+                        queryOrmContext,
+                        settings.enabledFeatures(),
+                        playerActivitySummaryRepository,
+                        playerOnlineStatusRepository,
+                        playerConnectionInfoRepository,
+                        playerLanguageRepository,
+                        playerNicknameRepository,
+                        playerNameHistoryRepository,
+                        playerPlaytimeRepository,
+                        settings.playtimeTrackingSettings().excludedFromNetworkTotalGamemodes()
+                );
+                this.populationData = populationRepository == null
+                        ? null
+                        : new RepositoryPopulationData(
+                                playerDirectory,
+                                populationRepository,
+                                queryExecutor,
+                                this::resolvePopulationGamemode
+                        );
+
+                if (populationRepository != null && lifecycleAuthority) {
+                    PopulationMigrationResult migration = observations.observe(
+                            "population.migrate",
+                            () -> new PopulationMigrationService(this).migrate()
+                    );
+                    if (migration.migrationApplied()) {
+                        logger.info(
+                                "Population migration completed: networkMembershipsAdded=" +
+                                        migration.networkMembershipsAdded() +
+                                        ", gamemodeMembershipsAdded=" + migration.gamemodeMembershipsAdded() +
+                                        ", baseline=" + migration.baselineQuality() + "."
+                        );
+                    }
+                }
+
+                this.networkServiceRepository = null;
+                this.serviceInstanceRepository = null;
+                this.serviceProbeRepository = null;
+                if (settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY)) {
+                    DataSource serviceDataSource = resolveDataSource(
+                            registeredDataSources,
+                            settings.serviceDatabaseConnectionId()
+                    );
+                    serviceOrmContext = newServiceOrmContext(serviceDataSource, resolveServiceOrmEntityClasses());
+                    this.networkServiceRepository = newNetworkServiceRepository(serviceOrmContext);
+                    this.serviceInstanceRepository = newServiceInstanceRepository(serviceOrmContext);
+                    this.serviceProbeRepository = newServiceProbeRepository(serviceOrmContext);
+                }
+                observations.complete(observation, DataRegistryOperationOutcome.SUCCESS, 1, null);
+                return true;
+            } catch (Exception exception) {
+                observations.complete(observation, DataRegistryOperationOutcome.FAILURE, 1, exception);
+                return failInitialization("Failed to initialize DataRegistry.", exception);
             }
-            return true;
-        } catch (Exception ex) {
-            return failInitialization("Failed to initialize DataRegistry.", ex);
+        } catch (RuntimeException | Error failure) {
+            observations.complete(observation, DataRegistryOperationOutcome.FAILURE, 1, failure);
+            throw failure;
         }
     }
 
     /** Shuts down ORM resources and unregisters plugin-scoped database registrations. */
     public synchronized void shutdown() {
+        observations.observe("registry.shutdown", this::shutdownInternal);
+    }
+
+    private void shutdownInternal() {
         ORMContext currentOrmContext = ormContext;
         ORMContext currentServiceOrmContext = serviceOrmContext;
         ormContext = null;
@@ -384,6 +409,12 @@ public class DataRegistry implements DataRegistryApi {
      */
     public PlaytimePolicyReconciliationResult reconcilePlaytimePolicy(PlaytimeTrackingSettings playtimeSettings) {
         Objects.requireNonNull(playtimeSettings, "playtimeSettings must not be null");
+        return observations.observe("playtime.policy.reconcile", () -> reconcilePlaytimePolicyInternal(playtimeSettings));
+    }
+
+    private PlaytimePolicyReconciliationResult reconcilePlaytimePolicyInternal(
+            PlaytimeTrackingSettings playtimeSettings
+    ) {
         PlayerPlaytimeRepository repository;
         boolean reconcilePopulation;
         synchronized (this) {
@@ -512,7 +543,10 @@ public class DataRegistry implements DataRegistryApi {
         if (!settings.isFeatureEnabled(DataRegistryFeature.POPULATION)) {
             return new PopulationReconciliationResult(0, 0);
         }
-        return new PopulationMaintenanceService(this).reconcileOnlineState();
+        return observations.observe(
+                "population.reconcile",
+                () -> new PopulationMaintenanceService(this).reconcileOnlineState()
+        );
     }
 
     /** Returns administrative population maintenance operations owned by DataRegistry. */
@@ -654,6 +688,16 @@ public class DataRegistry implements DataRegistryApi {
         return isInitialized();
     }
 
+    /** Returns the vendor-neutral instrumentation capability owned by this runtime instance. */
+    public DataRegistryInstrumentation instrumentation() {
+        return observations;
+    }
+
+    /** Internal observation dispatcher shared by core services created from this runtime. */
+    public DataRegistryObservations internalObservations() {
+        return observations;
+    }
+
     ORMContext newOrmContext(DataSource dataSource, Class<?>... entityClasses) {
         return dataProviderAPI.createOrmContext(dataSource, ormLogger, settings.ormSchemaMode(), entityClasses);
     }
@@ -671,7 +715,8 @@ public class DataRegistry implements DataRegistryApi {
                 settings.queryExecutorThreads(),
                 Duration.ofMillis(settings.queryTimeoutMillis()),
                 settings.queryDevelopmentThreadChecks(),
-                logger
+                logger,
+                observations
         );
     }
 
