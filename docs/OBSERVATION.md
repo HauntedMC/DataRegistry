@@ -61,6 +61,7 @@ The initial contract observes meaningful DataRegistry semantic boundaries rather
 - asynchronous player and profile/query operations through the public DataRegistry query executor, using their existing bounded `player.*`, `playtime.*`, and population query operation names;
 - player lifecycle readiness: `player.readiness.wait`;
 - authoritative player lifecycle persistence: `player.lifecycle.login`, `player.lifecycle.transfer`, `player.lifecycle.disconnect`;
+- destructive administrative player cleanup: `player.delete`;
 - population maintenance: `population.migrate`, `population.reconcile`;
 - live playtime policy application: `playtime.policy.reconcile`;
 - service-registry writes and retention: instance refresh/stop, probe recording, and bounded purge operations.
