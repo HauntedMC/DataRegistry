@@ -1,14 +1,17 @@
 package nl.hauntedmc.dataregistry.core.lifecycle;
 
 import jakarta.persistence.PersistenceException;
+import nl.hauntedmc.dataregistry.api.observation.DataRegistryObservation;
+import nl.hauntedmc.dataregistry.api.observation.DataRegistryOperationOutcome;
+import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
+import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
+import nl.hauntedmc.dataregistry.core.observation.DataRegistryObservations;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEventType;
-import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
-import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
-import nl.hauntedmc.dataregistry.core.playtime.PlaytimeGamemodeResolver;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerRepository;
+import nl.hauntedmc.dataregistry.core.playtime.PlaytimeGamemodeResolver;
 import nl.hauntedmc.dataregistry.core.service.PlayerActivitySummaryService;
 import nl.hauntedmc.dataregistry.core.service.PlayerConnectionInfoService;
 import nl.hauntedmc.dataregistry.core.service.PlayerNameHistoryService;
@@ -27,6 +30,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.executeTransactionsWithSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -50,10 +54,29 @@ class PlayerLifecycleWriterTest {
         Session session = mock(Session.class);
         PlayerRepository playerRepository = mock(PlayerRepository.class);
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        DataRegistryObservations observations = new DataRegistryObservations();
+        AtomicReference<String> observedOperation = new AtomicReference<>();
+        AtomicReference<DataRegistryOperationOutcome> observedOutcome = new AtomicReference<>();
+        AtomicInteger observedAttempts = new AtomicInteger();
+        observations.registerObserver(context -> {
+            observedOperation.set(context.operation());
+            return new DataRegistryObservation() {
+                @Override
+                public void completed(
+                        DataRegistryOperationOutcome outcome,
+                        int attempts,
+                        Throwable failure
+                ) {
+                    observedOutcome.set(outcome);
+                    observedAttempts.set(attempts);
+                }
+            };
+        });
         @SuppressWarnings("unchecked")
         Query<PlayerLifecycleOutboxEntity> outboxQuery = mock(Query.class);
 
         when(dataRegistry.getORM()).thenReturn(ormContext);
+        when(dataRegistry.internalObservations()).thenReturn(observations);
         when(session.createQuery(anyString(), eq(PlayerLifecycleOutboxEntity.class))).thenReturn(outboxQuery);
         when(outboxQuery.setParameter(anyString(), any())).thenReturn(outboxQuery);
         when(outboxQuery.setMaxResults(1)).thenReturn(outboxQuery);
@@ -143,6 +166,9 @@ class PlayerLifecycleWriterTest {
         assertEquals(7L, identity.playerId());
         assertEquals(UUID.fromString(uuid), identity.uuid());
         assertEquals("Alice", identity.username());
+        assertEquals("player.lifecycle.login", observedOperation.get());
+        assertEquals(DataRegistryOperationOutcome.SUCCESS, observedOutcome.get());
+        assertEquals(2, observedAttempts.get());
         verify(ormContext, times(2)).runInTransaction(any());
         verify(logger).warn(anyString(), any(RuntimeException.class));
     }

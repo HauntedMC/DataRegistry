@@ -24,7 +24,7 @@ tables and should reference players by the stable scalar `playerId`.
 - Java 25
 - Maven Wrapper (`./mvnw`; Maven 3.8.6+ is enforced by the build)
 - Docker, for the container-backed and platform-acceptance suites
-- DataProvider `3.1.16`
+- DataProvider `3.3.0`
 - Velocity `4.1.0-SNAPSHOT` and/or Paper `26.2`
 
 Configure both the shell `JAVA_HOME` and the IDE Maven runner/importer to Java 25. The build deliberately rejects
@@ -94,7 +94,7 @@ Depend only on `dataregistry-api` as `provided` (replace the version with the re
 <dependency>
   <groupId>nl.hauntedmc.dataregistry</groupId>
   <artifactId>dataregistry-api</artifactId>
-  <version>1.14.2</version>
+  <version>1.14.4</version>
   <scope>provided</scope>
 </dependency>
 ```
@@ -118,7 +118,7 @@ players.whenReady(uuid).thenAccept(identity -> {
 ### Artifact boundaries
 
 - `dataregistry-api` is the only dependency for ProxyFeatures, ServerFeatures, and other consumers. It has no
-  DataProvider, Hibernate/Jakarta Persistence, Velocity, or Paper dependency.
+  DataProvider, Hibernate/Jakarta Persistence, Velocity, Paper, OpenTelemetry, or HauntedObservability dependency.
 - `dataregistry-core` owns entities, repositories, ORM wiring, lifecycle writers, recovery, population reconciliation,
   and query execution. It is an implementation dependency of the platform modules, never a feature dependency.
 - `dataregistry-platform-velocity` owns authoritative proxy lifecycle listeners, including
@@ -130,6 +130,11 @@ players.whenReady(uuid).thenAccept(identity -> {
 `DataRegistryApiProvider#getDataRegistry()` returns `DataRegistryApi`, not the core runtime. Platform plugins
 implement that provider capability; consumers can depend on `dataregistry-api` alone. There is deliberately no
 public path from that type to an ORM context, entity, repository, lifecycle writer, or DataProvider handle.
+
+`DataRegistryApiProvider#getDataRegistryInstrumentation()` separately exposes the optional vendor-neutral observation
+capability of the active runtime. It does not add telemetry dependencies to DataRegistry or to normal API consumers.
+See [docs/OBSERVATION.md](docs/OBSERVATION.md) for attachment, completion, context-propagation, privacy/cardinality, and
+DataRegistry-versus-DataProvider instrumentation rules.
 
 Feature maintainers migrating from an older DataRegistry API should follow
 [DOWNSTREAM_MIGRATION.md](DOWNSTREAM_MIGRATION.md). DataRegistry 1.14.0 intentionally makes the Population facade part

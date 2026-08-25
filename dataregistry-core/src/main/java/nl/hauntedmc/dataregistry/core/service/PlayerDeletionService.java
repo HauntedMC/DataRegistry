@@ -3,6 +3,7 @@ package nl.hauntedmc.dataregistry.core.service;
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
+import nl.hauntedmc.dataregistry.core.observation.DataRegistryObservations;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 
 import java.sql.Connection;
@@ -43,11 +44,14 @@ public final class PlayerDeletionService {
     private final DataRegistry dataRegistry;
     private final PlayerService playerService;
     private final ILoggerAdapter logger;
+    private final DataRegistryObservations observations;
 
     public PlayerDeletionService(DataRegistry dataRegistry, PlayerService playerService, ILoggerAdapter logger) {
         this.dataRegistry = Objects.requireNonNull(dataRegistry, "dataRegistry must not be null");
         this.playerService = Objects.requireNonNull(playerService, "playerService must not be null");
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
+        DataRegistryObservations runtimeObservations = dataRegistry.internalObservations();
+        this.observations = runtimeObservations == null ? new DataRegistryObservations() : runtimeObservations;
     }
 
     /**
@@ -60,6 +64,10 @@ public final class PlayerDeletionService {
      */
     public PlayerDeletionResult delete(PlayerIdentity identity) {
         Objects.requireNonNull(identity, "identity must not be null");
+        return observations.observe("player.delete", () -> deleteInternal(identity));
+    }
+
+    private PlayerDeletionResult deleteInternal(PlayerIdentity identity) {
         if (!dataRegistry.isFeatureEnabled(DataRegistryFeature.ONLINE_STATUS)) {
             throw new IllegalStateException(
                     "Online-status tracking must be enabled to safely prove a player is offline before deletion."

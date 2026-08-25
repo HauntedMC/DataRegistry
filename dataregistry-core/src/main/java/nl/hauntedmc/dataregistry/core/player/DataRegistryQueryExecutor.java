@@ -1,27 +1,32 @@
 package nl.hauntedmc.dataregistry.core.player;
 
+import nl.hauntedmc.dataregistry.api.observation.DataRegistryObservation;
+import nl.hauntedmc.dataregistry.api.observation.DataRegistryObservationScope;
+import nl.hauntedmc.dataregistry.api.observation.DataRegistryOperationOutcome;
+import nl.hauntedmc.dataregistry.core.observation.DataRegistryObservations;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import org.hibernate.Session;
 
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.Semaphore;
 import java.util.function.Supplier;
-import java.util.Set;
 
 /**
  * Owns public DataRegistry query execution, deadlines, and cancellation plumbing.
@@ -39,12 +44,23 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
     private final ILoggerAdapter logger;
     private final boolean immediate;
     private final AtomicBoolean closed;
+    private final DataRegistryObservations observations;
 
     public DataRegistryQueryExecutor(
             int workerThreads,
             Duration timeout,
             boolean developmentThreadChecks,
             ILoggerAdapter logger
+    ) {
+        this(workerThreads, timeout, developmentThreadChecks, logger, new DataRegistryObservations());
+    }
+
+    public DataRegistryQueryExecutor(
+            int workerThreads,
+            Duration timeout,
+            boolean developmentThreadChecks,
+            ILoggerAdapter logger,
+            DataRegistryObservations observations
     ) {
         if (workerThreads < 1) {
             throw new IllegalArgumentException("workerThreads must be positive.");
@@ -55,6 +71,7 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
         }
         this.developmentThreadChecks = developmentThreadChecks;
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
+        this.observations = Objects.requireNonNull(observations, "observations must not be null");
         this.immediate = false;
         this.queryExecutor = Executors.newThreadPerTaskExecutor(
                 Thread.ofVirtual().name("DataRegistry-query-", 0).factory()
@@ -75,6 +92,7 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
         this.logger = new NoopLogger();
         this.immediate = true;
         this.closed = new AtomicBoolean();
+        this.observations = new DataRegistryObservations();
     }
 
     public static DataRegistryQueryExecutor immediateForTesting() {
@@ -84,16 +102,38 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
     public <T> CompletableFuture<T> supply(String operation, Supplier<T> supplier) {
         Objects.requireNonNull(operation, "operation must not be null");
         Objects.requireNonNull(supplier, "supplier must not be null");
+        boolean observed = observations.isEnabled();
+        DataRegistryObservation observation = observed ? observations.start(operation) : null;
         if (closed.get()) {
-            return closedFuture();
+            CompletableFuture<T> result = closedFuture();
+            if (observed) {
+                observations.complete(
+                        observation,
+                        DataRegistryOperationOutcome.CLOSED,
+                        1,
+                        new DataRegistryQueryExecutorClosedException()
+                );
+            }
+            return result;
         }
         if (immediate) {
-            try {
-                return CompletableFuture.completedFuture(supplier.get());
-            } catch (Throwable throwable) {
-                CompletableFuture<T> failed = new CompletableFuture<>();
-                failed.completeExceptionally(throwable);
-                return failed;
+            try (DataRegistryObservationScope ignored = observed
+                    ? observations.openScope(observation)
+                    : DataRegistryObservationScope.noop()) {
+                try {
+                    T result = supplier.get();
+                    if (observed) {
+                        observations.complete(observation, DataRegistryOperationOutcome.SUCCESS, 1, null);
+                    }
+                    return CompletableFuture.completedFuture(result);
+                } catch (Throwable throwable) {
+                    if (observed) {
+                        observations.complete(observation, DataRegistryOperationOutcome.FAILURE, 1, throwable);
+                    }
+                    CompletableFuture<T> failed = new CompletableFuture<>();
+                    failed.completeExceptionally(throwable);
+                    return failed;
+                }
             }
         }
         warnIfLikelyServerEventThread(
@@ -107,6 +147,9 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
                 logger,
                 new QueryCancellation()
         );
+        if (observed) {
+            result.whenComplete((value, failure) -> completeQueryObservation(observation, failure));
+        }
         activeQueries.add(result);
         if (closed.get()) {
             closeFuture(result);
@@ -117,30 +160,34 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
         Future<?> worker;
         try {
             worker = queryExecutor.submit(() -> {
-            boolean acquiredSlot = false;
-            try {
-                querySlots.acquire();
-                acquiredSlot = true;
-                if (result.isDone()) {
-                    return;
+                boolean acquiredSlot = false;
+                try (DataRegistryObservationScope ignored = observed
+                        ? observations.openScope(observation)
+                        : DataRegistryObservationScope.noop()) {
+                    try {
+                        querySlots.acquire();
+                        acquiredSlot = true;
+                        if (result.isDone()) {
+                            return;
+                        }
+                        CURRENT_CANCELLATION.set(result.cancellation());
+                        result.complete(supplier.get());
+                    } catch (InterruptedException interruptedException) {
+                        Thread.currentThread().interrupt();
+                        if (!result.isDone() && !result.cancellation().isCancelled()) {
+                            result.completeExceptionally(interruptedException);
+                        }
+                    } catch (Throwable throwable) {
+                        result.completeExceptionally(throwable);
+                    } finally {
+                        CURRENT_CANCELLATION.remove();
+                        result.cancellation().clearSessions();
+                        activeQueries.remove(result);
+                        if (acquiredSlot) {
+                            querySlots.release();
+                        }
+                    }
                 }
-                CURRENT_CANCELLATION.set(result.cancellation());
-                result.complete(supplier.get());
-            } catch (InterruptedException interruptedException) {
-                Thread.currentThread().interrupt();
-                if (!result.isDone() && !result.cancellation().isCancelled()) {
-                    result.completeExceptionally(interruptedException);
-                }
-            } catch (Throwable throwable) {
-                result.completeExceptionally(throwable);
-            } finally {
-                CURRENT_CANCELLATION.remove();
-                result.cancellation().clearSessions();
-                activeQueries.remove(result);
-                if (acquiredSlot) {
-                    querySlots.release();
-                }
-            }
             });
         } catch (RejectedExecutionException exception) {
             failSubmission(result, exception, null);
@@ -191,6 +238,33 @@ public final class DataRegistryQueryExecutor implements AutoCloseable {
         timeoutExecutor.shutdownNow();
         awaitTermination(queryExecutor);
         awaitTermination(timeoutExecutor);
+    }
+
+    private void completeQueryObservation(DataRegistryObservation observation, Throwable failure) {
+        Throwable terminalFailure = unwrap(failure);
+        if (terminalFailure == null) {
+            observations.complete(observation, DataRegistryOperationOutcome.SUCCESS, 1, null);
+        } else if (terminalFailure instanceof CancellationException) {
+            observations.complete(observation, DataRegistryOperationOutcome.CANCELLED, 1, terminalFailure);
+        } else if (terminalFailure instanceof TimeoutException) {
+            observations.complete(observation, DataRegistryOperationOutcome.TIMEOUT, 1, terminalFailure);
+        } else if (terminalFailure instanceof DataRegistryQueryExecutorClosedException) {
+            observations.complete(observation, DataRegistryOperationOutcome.CLOSED, 1, terminalFailure);
+        } else if (terminalFailure instanceof RejectedExecutionException) {
+            observations.complete(observation, DataRegistryOperationOutcome.REJECTED, 1, terminalFailure);
+        } else {
+            observations.complete(observation, DataRegistryOperationOutcome.FAILURE, 1, terminalFailure);
+        }
+    }
+
+    private static Throwable unwrap(Throwable failure) {
+        Throwable current = failure;
+        while ((current instanceof java.util.concurrent.CompletionException
+                || current instanceof ExecutionException)
+                && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
     }
 
     private void warnIfLikelyServerEventThread(String operation, String message) {
