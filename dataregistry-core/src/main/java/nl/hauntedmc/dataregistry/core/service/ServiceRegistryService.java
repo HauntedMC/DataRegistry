@@ -1,6 +1,10 @@
 package nl.hauntedmc.dataregistry.core.service;
 
+import nl.hauntedmc.dataregistry.api.observation.DataRegistryObservation;
+import nl.hauntedmc.dataregistry.api.observation.DataRegistryObservationScope;
+import nl.hauntedmc.dataregistry.api.observation.DataRegistryOperationOutcome;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
+import nl.hauntedmc.dataregistry.core.observation.DataRegistryObservations;
 import nl.hauntedmc.dataregistry.core.persistence.entity.NetworkServiceEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceInstanceEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceInstanceStatus;
@@ -32,6 +36,7 @@ public final class ServiceRegistryService {
     private final DataRegistry dataRegistry;
     private final ILoggerAdapter logger;
     private final boolean featureEnabled;
+    private final DataRegistryObservations observations;
 
     /**
      * Creates a feature-aware service registry facade for both writes (heartbeats/state updates) and reads.
@@ -40,6 +45,8 @@ public final class ServiceRegistryService {
         this.dataRegistry = Objects.requireNonNull(dataRegistry, "dataRegistry must not be null");
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
         this.featureEnabled = featureEnabled;
+        DataRegistryObservations runtimeObservations = dataRegistry.internalObservations();
+        this.observations = runtimeObservations == null ? new DataRegistryObservations() : runtimeObservations;
     }
 
     public boolean isFeatureEnabled() {
@@ -73,67 +80,79 @@ public final class ServiceRegistryService {
             return;
         }
         String normalizedHost = Sanitization.trimToLengthOrNull(host, HOST_MAX_LENGTH);
+        boolean observed = observations.isEnabled();
+        DataRegistryObservation observation = observed ? observations.start("service_registry.refresh_instance") : null;
 
-        try {
-            dataRegistry.getServiceORM().runInTransaction(session -> {
-                Instant now = Instant.now();
+        try (DataRegistryObservationScope ignored = observed
+                ? observations.openScope(observation)
+                : DataRegistryObservationScope.noop()) {
+            try {
+                dataRegistry.getServiceORM().runInTransaction(session -> {
+                    Instant now = Instant.now();
 
-                NetworkServiceEntity service = session.createQuery(
-                                "SELECT s FROM NetworkServiceEntity s " +
-                                        "WHERE s.serviceKind = :kind AND s.serviceName = :name",
-                                NetworkServiceEntity.class
-                        )
-                        .setParameter("kind", serviceKind)
-                        .setParameter("name", normalizedServiceName)
-                        .setMaxResults(1)
-                        .uniqueResult();
+                    NetworkServiceEntity service = session.createQuery(
+                                    "SELECT s FROM NetworkServiceEntity s " +
+                                            "WHERE s.serviceKind = :kind AND s.serviceName = :name",
+                                    NetworkServiceEntity.class
+                            )
+                            .setParameter("kind", serviceKind)
+                            .setParameter("name", normalizedServiceName)
+                            .setMaxResults(1)
+                            .uniqueResult();
 
-                if (service == null) {
-                    service = new NetworkServiceEntity();
-                    service.setServiceKind(serviceKind);
-                    service.setServiceName(normalizedServiceName);
-                    service.setPlatform(normalizedPlatform);
-                    service.setFirstSeenAt(now);
-                    service.setLastSeenAt(now);
-                    session.persist(service);
-                } else {
-                    service.setPlatform(normalizedPlatform);
-                    service.setLastSeenAt(now);
-                }
+                    if (service == null) {
+                        service = new NetworkServiceEntity();
+                        service.setServiceKind(serviceKind);
+                        service.setServiceName(normalizedServiceName);
+                        service.setPlatform(normalizedPlatform);
+                        service.setFirstSeenAt(now);
+                        service.setLastSeenAt(now);
+                        session.persist(service);
+                    } else {
+                        service.setPlatform(normalizedPlatform);
+                        service.setLastSeenAt(now);
+                    }
 
-                ServiceInstanceEntity instance = session.createQuery(
-                                "SELECT i FROM ServiceInstanceEntity i WHERE i.instanceId = :instanceId",
-                                ServiceInstanceEntity.class
-                        )
-                        .setParameter("instanceId", normalizedInstanceId)
-                        .setMaxResults(1)
-                        .uniqueResult();
+                    ServiceInstanceEntity instance = session.createQuery(
+                                    "SELECT i FROM ServiceInstanceEntity i WHERE i.instanceId = :instanceId",
+                                    ServiceInstanceEntity.class
+                            )
+                            .setParameter("instanceId", normalizedInstanceId)
+                            .setMaxResults(1)
+                            .uniqueResult();
 
-                if (instance == null) {
-                    instance = new ServiceInstanceEntity();
-                    instance.setService(service);
-                    instance.setInstanceId(normalizedInstanceId);
+                    if (instance == null) {
+                        instance = new ServiceInstanceEntity();
+                        instance.setService(service);
+                        instance.setInstanceId(normalizedInstanceId);
+                        instance.setStatus(ServiceInstanceStatus.RUNNING);
+                        instance.setStartedAt(now);
+                        instance.setLastSeenAt(now);
+                        instance.setHost(normalizedHost);
+                        instance.setPort(normalizePort(port));
+                        session.persist(instance);
+                        return null;
+                    }
+
                     instance.setStatus(ServiceInstanceStatus.RUNNING);
-                    instance.setStartedAt(now);
                     instance.setLastSeenAt(now);
+                    instance.setStoppedAt(null);
                     instance.setHost(normalizedHost);
                     instance.setPort(normalizePort(port));
-                    session.persist(instance);
                     return null;
+                });
+                if (observed) {
+                    observations.complete(observation, DataRegistryOperationOutcome.SUCCESS, 1, null);
                 }
-
-                instance.setStatus(ServiceInstanceStatus.RUNNING);
-                instance.setLastSeenAt(now);
-                instance.setStoppedAt(null);
-                instance.setHost(normalizedHost);
-                instance.setPort(normalizePort(port));
-                return null;
-            });
-        } catch (RuntimeException exception) {
-            logger.error(
-                    "Failed to refresh service instance '" + Sanitization.safeForLog(normalizedInstanceId) + "'.",
-                    exception
-            );
+            } catch (RuntimeException exception) {
+                if (observed) {
+                    observations.complete(observation, DataRegistryOperationOutcome.FAILURE, 1, exception);
+                }
+                logger.error(
+                        "Failed to refresh service instance '" + Sanitization.safeForLog(normalizedInstanceId) + "'.",
+                        exception
+                );
+            }
         }
     }
 
@@ -148,29 +167,41 @@ public final class ServiceRegistryService {
         if (normalizedInstanceId == null) {
             return;
         }
-        try {
-            dataRegistry.getServiceORM().runInTransaction(session -> {
-                ServiceInstanceEntity instance = session.createQuery(
-                                "SELECT i FROM ServiceInstanceEntity i WHERE i.instanceId = :instanceId",
-                                ServiceInstanceEntity.class
-                        )
-                        .setParameter("instanceId", normalizedInstanceId)
-                        .setMaxResults(1)
-                        .uniqueResult();
-                if (instance == null) {
+        boolean observed = observations.isEnabled();
+        DataRegistryObservation observation = observed ? observations.start("service_registry.mark_stopped") : null;
+        try (DataRegistryObservationScope ignored = observed
+                ? observations.openScope(observation)
+                : DataRegistryObservationScope.noop()) {
+            try {
+                dataRegistry.getServiceORM().runInTransaction(session -> {
+                    ServiceInstanceEntity instance = session.createQuery(
+                                    "SELECT i FROM ServiceInstanceEntity i WHERE i.instanceId = :instanceId",
+                                    ServiceInstanceEntity.class
+                            )
+                            .setParameter("instanceId", normalizedInstanceId)
+                            .setMaxResults(1)
+                            .uniqueResult();
+                    if (instance == null) {
+                        return null;
+                    }
+                    Instant now = Instant.now();
+                    instance.setStatus(ServiceInstanceStatus.STOPPED);
+                    instance.setStoppedAt(now);
+                    instance.setLastSeenAt(now);
                     return null;
+                });
+                if (observed) {
+                    observations.complete(observation, DataRegistryOperationOutcome.SUCCESS, 1, null);
                 }
-                Instant now = Instant.now();
-                instance.setStatus(ServiceInstanceStatus.STOPPED);
-                instance.setStoppedAt(now);
-                instance.setLastSeenAt(now);
-                return null;
-            });
-        } catch (RuntimeException exception) {
-            logger.error(
-                    "Failed to mark service instance '" + Sanitization.safeForLog(normalizedInstanceId) + "' as stopped.",
-                    exception
-            );
+            } catch (RuntimeException exception) {
+                if (observed) {
+                    observations.complete(observation, DataRegistryOperationOutcome.FAILURE, 1, exception);
+                }
+                logger.error(
+                        "Failed to mark service instance '" + Sanitization.safeForLog(normalizedInstanceId) + "' as stopped.",
+                        exception
+                );
+            }
         }
     }
 
@@ -188,12 +219,25 @@ public final class ServiceRegistryService {
         if (!featureEnabled) {
             return 0;
         }
-        try {
-            Instant cutoff = Instant.now().minus(retentionWindow);
-            return dataRegistry.getServiceInstanceRepository().deleteStoppedBefore(cutoff, batchSize);
-        } catch (RuntimeException exception) {
-            logger.error("Failed to purge stopped service-instance history.", exception);
-            return 0;
+        boolean observed = observations.isEnabled();
+        DataRegistryObservation observation = observed ? observations.start("service_registry.purge") : null;
+        try (DataRegistryObservationScope ignored = observed
+                ? observations.openScope(observation)
+                : DataRegistryObservationScope.noop()) {
+            try {
+                Instant cutoff = Instant.now().minus(retentionWindow);
+                int deleted = dataRegistry.getServiceInstanceRepository().deleteStoppedBefore(cutoff, batchSize);
+                if (observed) {
+                    observations.complete(observation, DataRegistryOperationOutcome.SUCCESS, 1, null);
+                }
+                return deleted;
+            } catch (RuntimeException exception) {
+                if (observed) {
+                    observations.complete(observation, DataRegistryOperationOutcome.FAILURE, 1, exception);
+                }
+                logger.error("Failed to purge stopped service-instance history.", exception);
+                return 0;
+            }
         }
     }
 
@@ -234,54 +278,66 @@ public final class ServiceRegistryService {
         String normalizedErrorDetail = Sanitization.trimToLengthOrNull(errorDetail, PROBE_ERROR_DETAIL_MAX_LENGTH);
         Integer normalizedPort = normalizePort(targetPort);
         Long normalizedLatencyMillis = normalizeLatencyMillis(latencyMillis);
+        boolean observed = observations.isEnabled();
+        DataRegistryObservation observation = observed ? observations.start("service_registry.record_probe") : null;
 
-        try {
-            dataRegistry.getServiceORM().runInTransaction(session -> {
-                Instant now = Instant.now();
+        try (DataRegistryObservationScope ignored = observed
+                ? observations.openScope(observation)
+                : DataRegistryObservationScope.noop()) {
+            try {
+                dataRegistry.getServiceORM().runInTransaction(session -> {
+                    Instant now = Instant.now();
 
-                NetworkServiceEntity service = session.createQuery(
-                                "SELECT s FROM NetworkServiceEntity s " +
-                                        "WHERE s.serviceKind = :kind AND s.serviceName = :name",
-                                NetworkServiceEntity.class
-                        )
-                        .setParameter("kind", serviceKind)
-                        .setParameter("name", normalizedServiceName)
-                        .setMaxResults(1)
-                        .uniqueResult();
+                    NetworkServiceEntity service = session.createQuery(
+                                    "SELECT s FROM NetworkServiceEntity s " +
+                                            "WHERE s.serviceKind = :kind AND s.serviceName = :name",
+                                    NetworkServiceEntity.class
+                            )
+                            .setParameter("kind", serviceKind)
+                            .setParameter("name", normalizedServiceName)
+                            .setMaxResults(1)
+                            .uniqueResult();
 
-                if (service == null) {
-                    service = new NetworkServiceEntity();
-                    service.setServiceKind(serviceKind);
-                    service.setServiceName(normalizedServiceName);
-                    service.setPlatform(normalizedPlatform);
-                    service.setFirstSeenAt(now);
-                    service.setLastSeenAt(now);
-                    session.persist(service);
-                } else {
-                    service.setPlatform(normalizedPlatform);
-                    service.setLastSeenAt(now);
+                    if (service == null) {
+                        service = new NetworkServiceEntity();
+                        service.setServiceKind(serviceKind);
+                        service.setServiceName(normalizedServiceName);
+                        service.setPlatform(normalizedPlatform);
+                        service.setFirstSeenAt(now);
+                        service.setLastSeenAt(now);
+                        session.persist(service);
+                    } else {
+                        service.setPlatform(normalizedPlatform);
+                        service.setLastSeenAt(now);
+                    }
+
+                    ServiceProbeEntity probe = new ServiceProbeEntity();
+                    probe.setService(service);
+                    probe.setObserverInstanceId(normalizedObserverInstanceId);
+                    probe.setStatus(status);
+                    probe.setTargetHost(normalizedTargetHost);
+                    probe.setTargetPort(normalizedPort);
+                    probe.setTargetInstanceId(normalizedTargetInstanceId);
+                    probe.setLatencyMillis(normalizedLatencyMillis);
+                    probe.setErrorCode(normalizedErrorCode);
+                    probe.setErrorDetail(normalizedErrorDetail);
+                    probe.setCheckedAt(now);
+                    session.persist(probe);
+                    return null;
+                });
+                if (observed) {
+                    observations.complete(observation, DataRegistryOperationOutcome.SUCCESS, 1, null);
                 }
-
-                ServiceProbeEntity probe = new ServiceProbeEntity();
-                probe.setService(service);
-                probe.setObserverInstanceId(normalizedObserverInstanceId);
-                probe.setStatus(status);
-                probe.setTargetHost(normalizedTargetHost);
-                probe.setTargetPort(normalizedPort);
-                probe.setTargetInstanceId(normalizedTargetInstanceId);
-                probe.setLatencyMillis(normalizedLatencyMillis);
-                probe.setErrorCode(normalizedErrorCode);
-                probe.setErrorDetail(normalizedErrorDetail);
-                probe.setCheckedAt(now);
-                session.persist(probe);
-                return null;
-            });
-        } catch (RuntimeException exception) {
-            logger.error(
-                    "Failed to record service probe for '" +
-                            Sanitization.safeForLog(serviceKind.name() + ":" + normalizedServiceName) + "'.",
-                    exception
-            );
+            } catch (RuntimeException exception) {
+                if (observed) {
+                    observations.complete(observation, DataRegistryOperationOutcome.FAILURE, 1, exception);
+                }
+                logger.error(
+                        "Failed to record service probe for '" +
+                                Sanitization.safeForLog(serviceKind.name() + ":" + normalizedServiceName) + "'.",
+                        exception
+                );
+            }
         }
     }
 
@@ -323,9 +379,7 @@ public final class ServiceRegistryService {
         }
     }
 
-    /**
-     * Finds a logical service by kind + name.
-     */
+    /** Finds a logical service by kind + name. */
     public Optional<ServiceView> findService(ServiceKind serviceKind, String serviceName) {
         if (!featureEnabled || serviceKind == null) {
             return Optional.empty();
@@ -348,9 +402,7 @@ public final class ServiceRegistryService {
         }
     }
 
-    /**
-     * Returns all known instances across all service kinds.
-     */
+    /** Returns all known instances across all service kinds. */
     public List<ServiceInstanceView> listInstances() {
         if (!featureEnabled) {
             return List.of();
@@ -367,9 +419,7 @@ public final class ServiceRegistryService {
         }
     }
 
-    /**
-     * Returns all currently running service instances.
-     */
+    /** Returns all currently running service instances. */
     public List<ServiceInstanceView> listRunningInstances() {
         if (!featureEnabled) {
             return List.of();
@@ -386,9 +436,7 @@ public final class ServiceRegistryService {
         }
     }
 
-    /**
-     * Returns all known instances for a logical service.
-     */
+    /** Returns all known instances for a logical service. */
     public List<ServiceInstanceView> listInstances(ServiceKind serviceKind, String serviceName) {
         if (!featureEnabled || serviceKind == null) {
             return List.of();
@@ -413,9 +461,7 @@ public final class ServiceRegistryService {
         }
     }
 
-    /**
-     * Finds a specific instance by its stable runtime ID.
-     */
+    /** Finds a specific instance by its stable runtime ID. */
     public Optional<ServiceInstanceView> findInstance(String instanceId) {
         if (!featureEnabled) {
             return Optional.empty();
@@ -437,9 +483,7 @@ public final class ServiceRegistryService {
         }
     }
 
-    /**
-     * Finds the most recently seen running instance for a logical service.
-     */
+    /** Finds the most recently seen running instance for a logical service. */
     public Optional<ServiceInstanceView> findMostRecentRunningInstance(ServiceKind serviceKind, String serviceName) {
         if (!featureEnabled || serviceKind == null) {
             return Optional.empty();
@@ -462,9 +506,7 @@ public final class ServiceRegistryService {
         }
     }
 
-    /**
-     * Finds the most recently seen running instance for a kind + endpoint.
-     */
+    /** Finds the most recently seen running instance for a kind + endpoint. */
     public Optional<ServiceInstanceView> findMostRecentRunningInstanceByEndpoint(
             ServiceKind serviceKind,
             String host,
@@ -492,9 +534,7 @@ public final class ServiceRegistryService {
         }
     }
 
-    /**
-     * Finds the most recently seen running instance for a kind + endpoint that is fresh within {@code maxAge}.
-     */
+    /** Finds the most recently seen running instance for a kind + endpoint that is fresh within {@code maxAge}. */
     public Optional<ServiceInstanceView> findMostRecentRunningInstanceByEndpointWithin(
             ServiceKind serviceKind,
             String host,
@@ -510,17 +550,13 @@ public final class ServiceRegistryService {
                 .filter(instance -> instance.lastSeenAt() != null && !instance.lastSeenAt().isBefore(cutoff));
     }
 
-    /**
-     * Resolves the freshest running endpoint for a logical service as {@code host:port}.
-     */
+    /** Resolves the freshest running endpoint for a logical service as {@code host:port}. */
     public Optional<String> resolveEndpoint(ServiceKind serviceKind, String serviceName) {
         return findMostRecentRunningInstance(serviceKind, serviceName)
                 .flatMap(ServiceInstanceView::endpoint);
     }
 
-    /**
-     * Returns whether a running instance has been seen within the given freshness window.
-     */
+    /** Returns whether a running instance has been seen within the given freshness window. */
     public boolean isInstanceActiveWithin(String instanceId, Duration maxAge) {
         Objects.requireNonNull(maxAge, "maxAge must not be null");
         if (maxAge.isNegative()) {
@@ -537,9 +573,7 @@ public final class ServiceRegistryService {
                 .isPresent();
     }
 
-    /**
-     * Returns running instances that are stale based on heartbeat age.
-     */
+    /** Returns running instances that are stale based on heartbeat age. */
     public List<ServiceInstanceView> listStaleRunningInstances(Duration staleAfter) {
         Objects.requireNonNull(staleAfter, "staleAfter must not be null");
         if (staleAfter.isNegative()) {
@@ -561,9 +595,7 @@ public final class ServiceRegistryService {
         }
     }
 
-    /**
-     * Returns the most recent probe for one logical service.
-     */
+    /** Returns the most recent probe for one logical service. */
     public Optional<ServiceProbeView> findMostRecentProbe(ServiceKind serviceKind, String serviceName) {
         if (!featureEnabled || serviceKind == null) {
             return Optional.empty();
@@ -586,9 +618,7 @@ public final class ServiceRegistryService {
         }
     }
 
-    /**
-     * Returns recent probes for one logical service, newest first.
-     */
+    /** Returns recent probes for one logical service, newest first. */
     public List<ServiceProbeView> listRecentProbes(ServiceKind serviceKind, String serviceName, int limit) {
         if (!featureEnabled || serviceKind == null) {
             return List.of();
@@ -613,9 +643,7 @@ public final class ServiceRegistryService {
         }
     }
 
-    /**
-     * Returns recent probes emitted by one observer instance.
-     */
+    /** Returns recent probes emitted by one observer instance. */
     public List<ServiceProbeView> listRecentProbesByObserver(String observerInstanceId, int limit) {
         if (!featureEnabled) {
             return List.of();
@@ -641,9 +669,7 @@ public final class ServiceRegistryService {
         }
     }
 
-    /**
-     * Deletes stale probes older than {@code retentionWindow} in bounded batches.
-     */
+    /** Deletes stale probes older than {@code retentionWindow} in bounded batches. */
     public int purgeProbesOlderThan(Duration retentionWindow, int batchSize) {
         Objects.requireNonNull(retentionWindow, "retentionWindow must not be null");
         if (retentionWindow.isNegative()) {
@@ -652,18 +678,29 @@ public final class ServiceRegistryService {
         if (!featureEnabled) {
             return 0;
         }
-        Instant cutoff = Instant.now().minus(retentionWindow);
-        try {
-            return dataRegistry.getServiceProbeRepository().deleteCheckedBefore(cutoff, Math.max(1, batchSize));
-        } catch (RuntimeException exception) {
-            logger.error("Failed to purge stale service probes.", exception);
-            return 0;
+        boolean observed = observations.isEnabled();
+        DataRegistryObservation observation = observed ? observations.start("service_registry.purge") : null;
+        try (DataRegistryObservationScope ignored = observed
+                ? observations.openScope(observation)
+                : DataRegistryObservationScope.noop()) {
+            Instant cutoff = Instant.now().minus(retentionWindow);
+            try {
+                int deleted = dataRegistry.getServiceProbeRepository().deleteCheckedBefore(cutoff, Math.max(1, batchSize));
+                if (observed) {
+                    observations.complete(observation, DataRegistryOperationOutcome.SUCCESS, 1, null);
+                }
+                return deleted;
+            } catch (RuntimeException exception) {
+                if (observed) {
+                    observations.complete(observation, DataRegistryOperationOutcome.FAILURE, 1, exception);
+                }
+                logger.error("Failed to purge stale service probes.", exception);
+                return 0;
+            }
         }
     }
 
-    /**
-     * Returns counts of probe rows grouped by status.
-     */
+    /** Returns counts of probe rows grouped by status. */
     public Map<ServiceProbeStatus, Long> countProbesByStatus() {
         EnumMap<ServiceProbeStatus, Long> counts = new EnumMap<>(ServiceProbeStatus.class);
         for (ServiceProbeStatus probeStatus : ServiceProbeStatus.values()) {
@@ -686,9 +723,7 @@ public final class ServiceRegistryService {
         return Map.copyOf(counts);
     }
 
-    /**
-     * Returns count of running instances grouped by service kind.
-     */
+    /** Returns count of running instances grouped by service kind. */
     public Map<ServiceKind, Long> countRunningInstancesByKind() {
         EnumMap<ServiceKind, Long> counts = new EnumMap<>(ServiceKind.class);
         for (ServiceKind serviceKind : ServiceKind.values()) {
@@ -706,9 +741,7 @@ public final class ServiceRegistryService {
         return Map.copyOf(counts);
     }
 
-    /**
-     * Returns aggregated per-service health information including instance counts.
-     */
+    /** Returns aggregated per-service health information including instance counts. */
     public List<ServiceHealthView> listServiceHealth() {
         if (!featureEnabled) {
             return List.of();
@@ -765,9 +798,7 @@ public final class ServiceRegistryService {
         return result;
     }
 
-    /**
-     * Returns effective health per service by combining heartbeat freshness and probe freshness.
-     */
+    /** Returns effective health per service by combining heartbeat freshness and probe freshness. */
     public List<ServiceEffectiveHealthView> listServiceEffectiveHealth(
             Duration heartbeatFreshnessWindow,
             Duration probeFreshnessWindow
@@ -802,9 +833,7 @@ public final class ServiceRegistryService {
         return result;
     }
 
-    /**
-     * Returns effective health for one logical service by combining heartbeats and probes.
-     */
+    /** Returns effective health for one logical service by combining heartbeats and probes. */
     public Optional<ServiceEffectiveHealthView> findServiceEffectiveHealth(
             ServiceKind serviceKind,
             String serviceName,
@@ -992,9 +1021,7 @@ public final class ServiceRegistryService {
         }
     }
 
-    /**
-     * Immutable service-level projection used by API consumers.
-     */
+    /** Immutable service-level projection used by API consumers. */
     public record ServiceView(
             ServiceKind serviceKind,
             String serviceName,
@@ -1004,9 +1031,7 @@ public final class ServiceRegistryService {
     ) {
     }
 
-    /**
-     * Immutable instance-level projection used by API consumers.
-     */
+    /** Immutable instance-level projection used by API consumers. */
     public record ServiceInstanceView(
             String instanceId,
             ServiceKind serviceKind,
@@ -1027,9 +1052,7 @@ public final class ServiceRegistryService {
         }
     }
 
-    /**
-     * Immutable probe projection used by API consumers.
-     */
+    /** Immutable probe projection used by API consumers. */
     public record ServiceProbeView(
             ServiceKind serviceKind,
             String serviceName,
@@ -1046,9 +1069,7 @@ public final class ServiceRegistryService {
     ) {
     }
 
-    /**
-     * Immutable aggregate projection for quick service health checks.
-     */
+    /** Immutable aggregate projection for quick service health checks. */
     public record ServiceHealthView(
             ServiceKind serviceKind,
             String serviceName,
@@ -1061,9 +1082,7 @@ public final class ServiceRegistryService {
     ) {
     }
 
-    /**
-     * Effective service health classification from heartbeat + probe signals.
-     */
+    /** Effective service health classification from heartbeat + probe signals. */
     public enum EffectiveServiceHealthStatus {
         HEALTHY,
         DEGRADED,
@@ -1071,9 +1090,7 @@ public final class ServiceRegistryService {
         UNKNOWN
     }
 
-    /**
-     * Immutable projection combining service heartbeat and probe freshness.
-     */
+    /** Immutable projection combining service heartbeat and probe freshness. */
     public record ServiceEffectiveHealthView(
             ServiceKind serviceKind,
             String serviceName,
