@@ -46,7 +46,7 @@
 
     <properties>
         <!-- Project identity and compiler configuration. -->
-        <revision>1.14.4</revision>
+        <revision>1.15.0</revision>
         <!-- Runtime and platform APIs. -->
         <dataprovider.version>3.3.0</dataprovider.version>
         <hauntedmc-theme.version>1.0.0</hauntedmc-theme.version>
