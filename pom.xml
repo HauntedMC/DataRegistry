@@ -51,7 +51,7 @@
         <dataprovider.version>3.3.0</dataprovider.version>
         <hauntedmc-theme.version>1.0.0</hauntedmc-theme.version>
         <jakarta.persistence.version>${haunted.jpa.version}</jakarta.persistence.version>
-        <paper.version>26.2.build.112-stable</paper.version>
+        <paper.version>26.2.build.119-stable</paper.version>
         <paper.runtime.version>26.2</paper.runtime.version>
         <paper.runtime.build>65</paper.runtime.build>
         <paper.runtime.sha256>d290ee2a3ae92fea10afb0c74f797023d74cfd72cbcee44314e0c50d5551f2c6</paper.runtime.sha256>
