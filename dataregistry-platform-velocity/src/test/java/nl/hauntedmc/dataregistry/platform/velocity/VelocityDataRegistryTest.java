@@ -35,6 +35,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
@@ -245,6 +246,7 @@ class VelocityDataRegistryTest {
                 );
         when(proxyServer.getEventManager()).thenReturn(eventManager);
         when(registry.newPlayerService(any())).thenReturn(playerService);
+        when(registry.sessions()).thenReturn(mock(nl.hauntedmc.dataregistry.core.session.DistributedNetworkSessionApi.class));
 
         VelocityDataRegistry plugin = new TestVelocityListenerRegistrationPlugin(proxyServer, logger, registry);
 
@@ -264,6 +266,8 @@ class VelocityDataRegistryTest {
         when(proxyServer.getPluginManager()).thenReturn(pluginManager);
         when(pluginManager.fromInstance(any())).thenReturn(Optional.empty());
         when(registry.initialize()).thenReturn(true);
+        when(registry.installDistributedSessionAuthority(anyString(), any(UUID.class)))
+                .thenReturn(mock(nl.hauntedmc.dataregistry.core.session.DistributedNetworkSessionApi.class));
 
         TestVelocityDataRegistry plugin = new TestVelocityDataRegistry(proxyServer, logger, api, registry);
 
@@ -537,6 +541,7 @@ class VelocityDataRegistryTest {
                 DataRegistry registry
         ) {
             super(proxyServer, logger, TEST_DATA_DIRECTORY);
+            ensureTestConfig();
             this.resolvedApi = resolvedApi;
             this.registry = registry;
         }
@@ -556,6 +561,21 @@ class VelocityDataRegistryTest {
         void registerPlayerStatusListener() {
             startupSteps.add("register-listener");
             this.listenerRegistered = true;
+        }
+
+        @Override
+        void installNetworkSessionAuthority() {
+            // Distributed session wiring is covered independently from this startup fixture.
+        }
+
+        @Override
+        void startNetworkSessionLeaseLifecycle() {
+            // Distributed session wiring is covered independently from this startup fixture.
+        }
+
+        @Override
+        void stopNetworkSessionLeaseLifecycle() {
+            // Distributed session wiring is covered independently from this startup fixture.
         }
 
         @Override
@@ -618,9 +638,41 @@ class VelocityDataRegistryTest {
     private static void writeTestConfig(String configContent) {
         try {
             Files.createDirectories(TEST_DATA_DIRECTORY);
-            Files.writeString(TEST_DATA_DIRECTORY.resolve("config.yml"), configContent);
+            Files.writeString(TEST_DATA_DIRECTORY.resolve("config.yml"), requiredTestConfig() + configContent);
         } catch (Exception exception) {
             throw new IllegalStateException(exception);
         }
+    }
+
+    private static void ensureTestConfig() {
+        try {
+            Path config = TEST_DATA_DIRECTORY.resolve("config.yml");
+            if (!Files.exists(config) || !Files.readString(config).contains("namespace: test-network")) {
+                writeTestConfig("");
+            }
+        } catch (Exception exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    private static String requiredTestConfig() {
+        return """
+                database:
+                  profiles:
+                    sessions:
+                      connection-id: sessions-main
+                sessions:
+                  namespace: test-network
+                  lease-ttl-seconds: 15
+                  renewal-interval-seconds: 3
+                  expiry-safety-margin-millis: 500
+                  directory-freshness-seconds: 10
+                  redis-outage-behavior: PRESERVE_UNTIL_EXPIRY
+                orm:
+                  schema-mode: validate
+                platform:
+                  velocity:
+                    service-name: proxy-test-01
+                """;
     }
 }

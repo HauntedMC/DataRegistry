@@ -17,6 +17,12 @@ public final class DataRegistrySettings {
 
     private static final String DEFAULT_PLAYER_CONNECTION_ID = "player_data_rw";
     private static final String DEFAULT_SERVICE_CONNECTION_ID = "player_data_rw";
+    private static final String DEFAULT_SESSION_CONNECTION_ID = "network_sessions";
+    private static final String DEFAULT_SESSION_NAMESPACE = "network";
+    private static final int DEFAULT_SESSION_LEASE_TTL_SECONDS = 15;
+    private static final int DEFAULT_SESSION_RENEWAL_INTERVAL_SECONDS = 3;
+    private static final int DEFAULT_SESSION_EXPIRY_SAFETY_MARGIN_MILLIS = 500;
+    private static final int DEFAULT_SESSION_DIRECTORY_FRESHNESS_SECONDS = 10;
     private static final int DEFAULT_SERVICE_HEARTBEAT_INTERVAL_SECONDS = 30;
     private static final int DEFAULT_SERVICE_PROBE_INTERVAL_SECONDS = 15;
     private static final int DEFAULT_SERVICE_PROBE_TIMEOUT_MILLIS = 1500;
@@ -31,11 +37,11 @@ public final class DataRegistrySettings {
     private static final int DEFAULT_SERVICE_INSTANCE_PURGE_INTERVAL_HOURS = 24;
     private static final int DEFAULT_LIFECYCLE_WRITE_MAX_ATTEMPTS = 3;
     private static final int DEFAULT_LIFECYCLE_RETRY_BASE_DELAY_MILLIS = 25;
-    private static final String DEFAULT_ORM_SCHEMA_MODE = "update";
+    private static final String DEFAULT_ORM_SCHEMA_MODE = "validate";
     private static final int DEFAULT_BUKKIT_JOIN_DELAY_TICKS = 4;
     private static final boolean DEFAULT_BUKKIT_REGISTER_SERVICE_INSTANCE = false;
     private static final String DEFAULT_BUKKIT_SERVICE_NAME = "auto";
-    private static final String DEFAULT_VELOCITY_SERVICE_NAME = "auto";
+    private static final String DEFAULT_VELOCITY_SERVICE_NAME = "test-proxy";
     private static final int DEFAULT_QUERY_EXECUTOR_THREADS = 2;
     private static final int DEFAULT_QUERY_TIMEOUT_MILLIS = 3000;
     private static final boolean DEFAULT_QUERY_DEVELOPMENT_THREAD_CHECKS = false;
@@ -50,6 +56,13 @@ public final class DataRegistrySettings {
     private final DatabaseType databaseType;
     private final String playerDatabaseConnectionId;
     private final String serviceDatabaseConnectionId;
+    private final String sessionDatabaseConnectionId;
+    private final String sessionNamespace;
+    private final int sessionLeaseTtlSeconds;
+    private final int sessionRenewalIntervalSeconds;
+    private final int sessionExpirySafetyMarginMillis;
+    private final int sessionDirectoryFreshnessSeconds;
+    private final SessionRedisOutageBehavior sessionRedisOutageBehavior;
     private final List<ExternalPlayerDataConnectionSettings> externalPlayerDataConnections;
     private final String ormSchemaMode;
     private final boolean persistIpAddress;
@@ -92,6 +105,27 @@ public final class DataRegistrySettings {
                 builder.serviceDatabaseConnectionId,
                 "serviceDatabaseConnectionId"
         );
+        this.sessionDatabaseConnectionId = normalizeConnectionId(
+                builder.sessionDatabaseConnectionId,
+                "sessionDatabaseConnectionId"
+        );
+        this.sessionNamespace = normalizeNamespace(builder.sessionNamespace);
+        this.sessionLeaseTtlSeconds = validateRange(
+                builder.sessionLeaseTtlSeconds, "sessionLeaseTtlSeconds", 5, 300);
+        this.sessionRenewalIntervalSeconds = validateRange(
+                builder.sessionRenewalIntervalSeconds, "sessionRenewalIntervalSeconds", 1, 60);
+        this.sessionExpirySafetyMarginMillis = validateRange(
+                builder.sessionExpirySafetyMarginMillis, "sessionExpirySafetyMarginMillis", 0, 30_000);
+        this.sessionDirectoryFreshnessSeconds = validateRange(
+                builder.sessionDirectoryFreshnessSeconds, "sessionDirectoryFreshnessSeconds", 1, 300);
+        this.sessionRedisOutageBehavior = Objects.requireNonNull(
+                builder.sessionRedisOutageBehavior, "sessionRedisOutageBehavior must not be null");
+        if (sessionRenewalIntervalSeconds >= sessionLeaseTtlSeconds) {
+            throw new IllegalArgumentException("sessionRenewalIntervalSeconds must be less than sessionLeaseTtlSeconds");
+        }
+        if (sessionExpirySafetyMarginMillis >= sessionLeaseTtlSeconds * 1_000L) {
+            throw new IllegalArgumentException("sessionExpirySafetyMarginMillis must be less than the lease TTL");
+        }
         this.externalPlayerDataConnections = normalizeExternalPlayerDataConnections(
                 builder.externalPlayerDataConnections
         );
@@ -215,6 +249,13 @@ public final class DataRegistrySettings {
     public DatabaseType databaseType() { return databaseType; }
     public String playerDatabaseConnectionId() { return playerDatabaseConnectionId; }
     public String serviceDatabaseConnectionId() { return serviceDatabaseConnectionId; }
+    public String sessionDatabaseConnectionId() { return sessionDatabaseConnectionId; }
+    public String sessionNamespace() { return sessionNamespace; }
+    public int sessionLeaseTtlSeconds() { return sessionLeaseTtlSeconds; }
+    public int sessionRenewalIntervalSeconds() { return sessionRenewalIntervalSeconds; }
+    public int sessionExpirySafetyMarginMillis() { return sessionExpirySafetyMarginMillis; }
+    public int sessionDirectoryFreshnessSeconds() { return sessionDirectoryFreshnessSeconds; }
+    public SessionRedisOutageBehavior sessionRedisOutageBehavior() { return sessionRedisOutageBehavior; }
     /** Connections explicitly included when the administrative player-deletion operation scans external data. */
     public List<ExternalPlayerDataConnectionSettings> externalPlayerDataConnections() {
         return externalPlayerDataConnections;
@@ -227,7 +268,6 @@ public final class DataRegistrySettings {
     public String bukkitServiceName() { return bukkitServiceName; }
     public boolean isBukkitServiceNameAuto() { return "auto".equalsIgnoreCase(bukkitServiceName); }
     public String velocityServiceName() { return velocityServiceName; }
-    public boolean isVelocityServiceNameAuto() { return "auto".equalsIgnoreCase(velocityServiceName); }
     public int queryExecutorThreads() { return queryExecutorThreads; }
     public int queryTimeoutMillis() { return queryTimeoutMillis; }
     public boolean queryDevelopmentThreadChecks() { return queryDevelopmentThreadChecks; }
@@ -308,6 +348,13 @@ public final class DataRegistrySettings {
         return normalized;
     }
 
+    private static String normalizeNamespace(String value) {
+        if (value == null || !value.trim().matches("[a-z0-9._-]{1,64}")) {
+            throw new IllegalArgumentException("sessionNamespace must match [a-z0-9._-]{1,64}");
+        }
+        return value.trim();
+    }
+
     private static List<ExternalPlayerDataConnectionSettings> normalizeExternalPlayerDataConnections(
             List<ExternalPlayerDataConnectionSettings> values
     ) {
@@ -355,6 +402,14 @@ public final class DataRegistrySettings {
         private DatabaseType databaseType = DatabaseType.MYSQL;
         private String playerDatabaseConnectionId = DEFAULT_PLAYER_CONNECTION_ID;
         private String serviceDatabaseConnectionId = DEFAULT_SERVICE_CONNECTION_ID;
+        private String sessionDatabaseConnectionId = DEFAULT_SESSION_CONNECTION_ID;
+        private String sessionNamespace = DEFAULT_SESSION_NAMESPACE;
+        private int sessionLeaseTtlSeconds = DEFAULT_SESSION_LEASE_TTL_SECONDS;
+        private int sessionRenewalIntervalSeconds = DEFAULT_SESSION_RENEWAL_INTERVAL_SECONDS;
+        private int sessionExpirySafetyMarginMillis = DEFAULT_SESSION_EXPIRY_SAFETY_MARGIN_MILLIS;
+        private int sessionDirectoryFreshnessSeconds = DEFAULT_SESSION_DIRECTORY_FRESHNESS_SECONDS;
+        private SessionRedisOutageBehavior sessionRedisOutageBehavior =
+                SessionRedisOutageBehavior.PRESERVE_UNTIL_EXPIRY;
         private List<ExternalPlayerDataConnectionSettings> externalPlayerDataConnections = List.of();
         private String ormSchemaMode = DEFAULT_ORM_SCHEMA_MODE;
         private boolean persistIpAddress;
@@ -398,6 +453,29 @@ public final class DataRegistrySettings {
         }
         public Builder serviceDatabaseConnectionId(String value) {
             this.serviceDatabaseConnectionId = Objects.requireNonNull(value, "serviceDatabaseConnectionId must not be null");
+            return this;
+        }
+        public Builder sessionDatabaseConnectionId(String value) {
+            this.sessionDatabaseConnectionId = Objects.requireNonNull(
+                    value, "sessionDatabaseConnectionId must not be null");
+            return this;
+        }
+        public Builder sessionNamespace(String value) {
+            this.sessionNamespace = Objects.requireNonNull(value, "sessionNamespace must not be null"); return this;
+        }
+        public Builder sessionLeaseTtlSeconds(int value) { this.sessionLeaseTtlSeconds = value; return this; }
+        public Builder sessionRenewalIntervalSeconds(int value) {
+            this.sessionRenewalIntervalSeconds = value; return this;
+        }
+        public Builder sessionExpirySafetyMarginMillis(int value) {
+            this.sessionExpirySafetyMarginMillis = value; return this;
+        }
+        public Builder sessionDirectoryFreshnessSeconds(int value) {
+            this.sessionDirectoryFreshnessSeconds = value; return this;
+        }
+        public Builder sessionRedisOutageBehavior(SessionRedisOutageBehavior value) {
+            this.sessionRedisOutageBehavior = Objects.requireNonNull(
+                    value, "sessionRedisOutageBehavior must not be null");
             return this;
         }
         public Builder externalPlayerDataConnections(List<ExternalPlayerDataConnectionSettings> value) {

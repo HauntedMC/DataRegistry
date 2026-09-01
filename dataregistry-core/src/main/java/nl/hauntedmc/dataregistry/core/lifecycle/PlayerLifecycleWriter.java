@@ -10,6 +10,7 @@ import nl.hauntedmc.dataregistry.core.observation.DataRegistryObservations;
 import nl.hauntedmc.dataregistry.core.persistence.RetryableDatabaseFailure;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleAuthorityEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEventType;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.core.population.PlayerPopulationService;
@@ -22,6 +23,7 @@ import nl.hauntedmc.dataregistry.core.service.PlayerSessionService;
 import nl.hauntedmc.dataregistry.core.service.PlayerStatusService;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import org.hibernate.Session;
+import jakarta.persistence.LockModeType;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -170,6 +172,10 @@ public final class PlayerLifecycleWriter {
             Optional<String> previousUsername = playerService.findKnownUsername(session, command.playerUuid());
             PlayerEntity player = playerService.getOrCreatePlayer(session, command.playerUuid(), command.username());
             flushForGeneratedId(session, player);
+            claimLifecycleAuthority(session, player, command.sessionFence(), now, command.playerUuid());
+            if (!statusService.mayClaim(session, player, command.sessionFence())) {
+                throw new StaleSessionLifecycleException("login", command.playerUuid());
+            }
 
             nameHistoryService.recordUsernameChange(
                     session,
@@ -192,11 +198,12 @@ public final class PlayerLifecycleWriter {
                     player,
                     sessionService.sanitizeIpAddress(command.ipAddress()),
                     sessionService.sanitizeVirtualHost(command.virtualHost()),
-                    now
+                    now,
+                    command.sessionFence()
             );
             // Population observes the previous durable status, then login marks this proxy connection online.
             populationService.onLogin(session, player, command.eventId(), now);
-            statusService.updateStatusOnLogin(session, player);
+            statusService.updateStatusOnLogin(session, player, command.sessionFence());
             persistOutbox(
                     session,
                     command.eventId(),
@@ -234,14 +241,19 @@ public final class PlayerLifecycleWriter {
             }
             PlayerEntity player = playerService.getOrCreatePlayer(session, command.playerUuid(), command.username());
             flushForGeneratedId(session, player);
+            requireCurrentLifecycleAuthority(session, player, command.sessionFence(), command.playerUuid());
+            if (!statusService.isCurrent(session, player, command.sessionFence())
+                    || !sessionService.isCurrent(session, player, command.sessionFence())) {
+                throw new StaleSessionLifecycleException("transfer", command.playerUuid());
+            }
             activitySummaryService.recordSeen(session, player, now);
             // Every lifecycle domain observes the same canonical persisted backend name.
             playtimeService.onServerSwitch(session, player, serverName, now);
             // Open/update the new durable visit before population records firstVisitId for exact join correlation.
-            sessionService.updateServerOnSwitch(session, player, serverName, now);
+            sessionService.updateServerOnSwitch(session, player, serverName, now, command.sessionFence());
             // Population intentionally runs before status replacement so it can see the previous logical gamemode.
             populationService.onTransfer(session, player, serverName, command.eventId(), now);
-            statusService.updateStatus(session, player, serverName);
+            statusService.updateStatus(session, player, serverName, command.sessionFence());
             persistOutbox(
                     session,
                     command.eventId(),
@@ -282,13 +294,20 @@ public final class PlayerLifecycleWriter {
                             command.username()
                     );
                     flushForGeneratedId(session, player);
+                    PlayerLifecycleAuthorityEntity authority = requireCurrentLifecycleAuthority(
+                            session, player, command.sessionFence(), command.playerUuid());
+                    if (!statusService.isCurrent(session, player, command.sessionFence())
+                            || !sessionService.isCurrent(session, player, command.sessionFence())) {
+                        throw new StaleSessionLifecycleException("disconnect", command.playerUuid());
+                    }
                     // Population must see the player's final durable backend before status/session state is closed.
                     populationService.onDisconnect(session, player, now);
-                    statusService.updateStatusOnQuit(session, player);
+                    statusService.updateStatusOnQuit(session, player, command.sessionFence());
                     activitySummaryService.recordDisconnect(session, player, now);
                     connectionService.updateOnDisconnect(session, player, now);
                     playtimeService.closeActivePlaytimeOnDisconnect(session, player, now);
-                    sessionService.closeSessionOnDisconnect(session, player, now);
+                    sessionService.closeSessionOnDisconnect(session, player, now, command.sessionFence());
+                    authority.deactivate(command.sessionFence(), now);
                     persistOutbox(
                             session,
                             command.eventId(),
@@ -300,6 +319,39 @@ public final class PlayerLifecycleWriter {
                     return new TransactionOutcome(false, false, player);
                 })
         );
+    }
+
+    private static void claimLifecycleAuthority(
+            Session session,
+            PlayerEntity player,
+            nl.hauntedmc.dataregistry.api.session.SessionFence fence,
+            Instant now,
+            String playerUuid
+    ) {
+        PlayerLifecycleAuthorityEntity authority = session.find(
+                PlayerLifecycleAuthorityEntity.class, player.getId(), LockModeType.PESSIMISTIC_WRITE);
+        if (authority == null) {
+            authority = new PlayerLifecycleAuthorityEntity();
+            authority.setPlayer(player);
+            if (!authority.claim(fence, now)) throw new IllegalStateException("initial lifecycle fence was rejected");
+            session.persist(authority);
+            return;
+        }
+        if (!authority.claim(fence, now)) throw new StaleSessionLifecycleException("login", playerUuid);
+    }
+
+    private static PlayerLifecycleAuthorityEntity requireCurrentLifecycleAuthority(
+            Session session,
+            PlayerEntity player,
+            nl.hauntedmc.dataregistry.api.session.SessionFence fence,
+            String playerUuid
+    ) {
+        PlayerLifecycleAuthorityEntity authority = session.find(
+                PlayerLifecycleAuthorityEntity.class, player.getId(), LockModeType.PESSIMISTIC_WRITE);
+        if (authority == null || !authority.isActive() || !authority.matches(fence)) {
+            throw new StaleSessionLifecycleException("mutation", playerUuid);
+        }
+        return authority;
     }
 
     private PlayerLifecycleWriteResult execute(

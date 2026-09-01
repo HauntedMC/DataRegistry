@@ -184,7 +184,8 @@ class PopulationGapRecoveryMySqlIT {
         try {
             assertTrue(disabled.initialize());
             assertTrue(disabled.newPlayerLifecycleWriter(mock(ILoggerAdapter.class))
-                    .login(LoginCommand.create(uuid.toString(), "Existing", null, null)).succeeded());
+                    .login(LoginCommand.create(uuid.toString(), "Existing", null, null,
+                            TestSessionFences.forPlayer(uuid, 2L))).succeeded());
         } finally {
             disabled.shutdown();
         }
@@ -267,7 +268,7 @@ class PopulationGapRecoveryMySqlIT {
             assertTrue(initial.gamemodeFirstJoinThisVisit());
 
             assertTrue(writer.transfer(TransferCommand.create(
-                    uuid.toString(), "FirstVisit", "survival-2"
+                    uuid.toString(), "FirstVisit", "survival-2", TestSessionFences.forPlayer(uuid)
             )).succeeded());
 
             var switched = registry.population().findJoinContext(uuid, "survival-2")
@@ -280,8 +281,10 @@ class PopulationGapRecoveryMySqlIT {
     }
 
     private static void writeJoin(PlayerLifecycleWriter writer, UUID uuid, String username, String serverName) {
-        assertTrue(writer.login(LoginCommand.create(uuid.toString(), username, null, null)).succeeded());
-        assertTrue(writer.transfer(TransferCommand.create(uuid.toString(), username, serverName)).succeeded());
+        assertTrue(writer.login(LoginCommand.create(uuid.toString(), username, null, null,
+                TestSessionFences.forPlayer(uuid))).succeeded());
+        assertTrue(writer.transfer(TransferCommand.create(uuid.toString(), username, serverName,
+                TestSessionFences.forPlayer(uuid))).succeeded());
     }
 
     private DataRegistry newRegistry(DataRegistrySettings settings) {

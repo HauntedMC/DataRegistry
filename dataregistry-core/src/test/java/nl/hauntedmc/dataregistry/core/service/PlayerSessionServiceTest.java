@@ -1,6 +1,7 @@
 package nl.hauntedmc.dataregistry.core.service;
 
 import nl.hauntedmc.dataregistry.core.DataRegistry;
+import nl.hauntedmc.dataregistry.core.TestSessionFences;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionVisitEntity;
@@ -68,7 +69,7 @@ class PlayerSessionServiceTest {
         when(mutationQuery.setParameter(any(String.class), any())).thenReturn(mutationQuery);
         when(mutationQuery.executeUpdate()).thenReturn(1);
 
-        service.openSessionOnLogin(player, "  192.168.0.123  ", "example.net");
+        service.openSessionOnLogin(player, "  192.168.0.123  ", "example.net", TestSessionFences.current());
 
         ArgumentCaptor<PlayerSessionEntity> captor = ArgumentCaptor.forClass(PlayerSessionEntity.class);
         verify(session).persist(captor.capture());
@@ -97,6 +98,7 @@ class PlayerSessionServiceTest {
         PlayerSessionEntity openSession = new PlayerSessionEntity();
         openSession.setId(5L);
         openSession.setPlayer(player);
+        openSession.setSessionFence(TestSessionFences.current());
 
         when(registry.getORM()).thenReturn(ormContext);
         executeTransactionsWithSession(ormContext, session);
@@ -115,7 +117,7 @@ class PlayerSessionServiceTest {
         when(visitQuery.setMaxResults(1)).thenReturn(visitQuery);
         when(visitQuery.uniqueResultOptional()).thenReturn(Optional.empty());
 
-        service.updateServerOnSwitch(player, "  minigames-01  ");
+        service.updateServerOnSwitch(player, "  minigames-01  ", TestSessionFences.current());
 
         assertEquals("minigame", openSession.getFirstServer());
         assertEquals("minigame", openSession.getLastServer());
@@ -140,6 +142,7 @@ class PlayerSessionServiceTest {
         );
         PlayerEntity player = persistedPlayer();
         PlayerSessionEntity openSession = new PlayerSessionEntity();
+        openSession.setSessionFence(TestSessionFences.current());
         PlayerSessionVisitEntity openVisit = new PlayerSessionVisitEntity();
         openVisit.setEnteredAt(java.time.Instant.now().minusSeconds(3L));
 
@@ -160,7 +163,7 @@ class PlayerSessionServiceTest {
         when(query.setMaxResults(1)).thenReturn(query);
         when(query.uniqueResultOptional()).thenReturn(Optional.of(openSession));
 
-        service.closeSessionOnDisconnect(player);
+        service.closeSessionOnDisconnect(player, TestSessionFences.current());
 
         assertNotNull(openSession.getEndedAt());
         assertNotNull(openVisit.getLeftAt());
@@ -176,9 +179,9 @@ class PlayerSessionServiceTest {
                 registry, logger, true, true, 45, 255, 64
         );
 
-        service.openSessionOnLogin(new PlayerEntity(), "1.1.1.1", "host");
-        service.updateServerOnSwitch(new PlayerEntity(), "lobby");
-        service.closeSessionOnDisconnect(new PlayerEntity());
+        service.openSessionOnLogin(new PlayerEntity(), "1.1.1.1", "host", TestSessionFences.current());
+        service.updateServerOnSwitch(new PlayerEntity(), "lobby", TestSessionFences.current());
+        service.closeSessionOnDisconnect(new PlayerEntity(), TestSessionFences.current());
 
         verify(logger).warn("openSessionOnLogin called with an invalid player entity.");
         verify(logger).warn("updateServerOnSwitch called with an invalid player entity.");
@@ -189,9 +192,9 @@ class PlayerSessionServiceTest {
         PlayerEntity player = persistedPlayer();
         player.setUuid("uuid\nvalue");
 
-        service.openSessionOnLogin(player, "1.1.1.1", "host");
-        service.updateServerOnSwitch(player, "lobby");
-        service.closeSessionOnDisconnect(player);
+        service.openSessionOnLogin(player, "1.1.1.1", "host", TestSessionFences.current());
+        service.updateServerOnSwitch(player, "lobby", TestSessionFences.current());
+        service.closeSessionOnDisconnect(player, TestSessionFences.current());
 
         verify(logger, times(3)).error(contains("uuid_value"), any(RuntimeException.class));
     }
@@ -206,7 +209,7 @@ class PlayerSessionServiceTest {
         );
 
         when(registry.getORM()).thenReturn(ormContext);
-        service.updateServerOnSwitch(persistedPlayer(), "   ");
+        service.updateServerOnSwitch(persistedPlayer(), "   ", TestSessionFences.current());
 
         verify(ormContext, never()).runInTransaction(any());
     }
@@ -227,9 +230,9 @@ class PlayerSessionServiceTest {
         );
         PlayerEntity player = persistedPlayer();
 
-        service.openSessionOnLogin(player, "127.0.0.1", "mc.example.org");
-        service.updateServerOnSwitch(player, "lobby-1");
-        service.closeSessionOnDisconnect(player);
+        service.openSessionOnLogin(player, "127.0.0.1", "mc.example.org", TestSessionFences.current());
+        service.updateServerOnSwitch(player, "lobby-1", TestSessionFences.current());
+        service.closeSessionOnDisconnect(player, TestSessionFences.current());
 
         verify(registry, never()).getORM();
         verify(logger, never()).warn(any());

@@ -5,6 +5,7 @@ import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.api.player.PlayerData;
 import nl.hauntedmc.dataregistry.api.population.PopulationData;
 import nl.hauntedmc.dataregistry.api.service.FeatureServiceDirectory;
+import nl.hauntedmc.dataregistry.api.session.NetworkSessionApi;
 
 import java.util.EnumSet;
 import java.util.Objects;
@@ -15,6 +16,7 @@ public final class FakeDataRegistryApi implements DataRegistryApi {
 
     private final PlayerData players;
     private final PopulationData population;
+    private final NetworkSessionApi sessions;
     private final FeatureServiceDirectory featureServices;
     private final Set<DataRegistryFeature> enabledFeatures;
     private final boolean ready;
@@ -22,12 +24,14 @@ public final class FakeDataRegistryApi implements DataRegistryApi {
     public FakeDataRegistryApi(
             PlayerData players,
             PopulationData population,
+            NetworkSessionApi sessions,
             FeatureServiceDirectory featureServices,
             Set<DataRegistryFeature> enabledFeatures,
             boolean ready
     ) {
         this.players = Objects.requireNonNull(players, "players must not be null");
         this.population = Objects.requireNonNull(population, "population must not be null");
+        this.sessions = Objects.requireNonNull(sessions, "sessions must not be null");
         this.featureServices = Objects.requireNonNull(featureServices, "featureServices must not be null");
         this.enabledFeatures = Set.copyOf(Objects.requireNonNull(enabledFeatures, "enabledFeatures must not be null"));
         this.ready = ready;
@@ -40,6 +44,7 @@ public final class FakeDataRegistryApi implements DataRegistryApi {
         this(
                 players,
                 new FakePopulationData(),
+                new FakeNetworkSessionApi(),
                 new FakeFeatureServiceDirectory(),
                 enabledFeatures,
                 ready
@@ -61,6 +66,11 @@ public final class FakeDataRegistryApi implements DataRegistryApi {
     @Override
     public PopulationData population() {
         return population;
+    }
+
+    @Override
+    public NetworkSessionApi sessions() {
+        return sessions;
     }
 
     @Override
@@ -86,6 +96,7 @@ public final class FakeDataRegistryApi implements DataRegistryApi {
     public static final class Builder {
         private PlayerData players;
         private PopulationData population;
+        private NetworkSessionApi sessions;
         private FeatureServiceDirectory featureServices;
         private final EnumSet<DataRegistryFeature> enabledFeatures = EnumSet.noneOf(DataRegistryFeature.class);
         private boolean ready = true;
@@ -100,6 +111,11 @@ public final class FakeDataRegistryApi implements DataRegistryApi {
 
         public Builder population(PopulationData population) {
             this.population = Objects.requireNonNull(population, "population must not be null");
+            return this;
+        }
+
+        public Builder sessions(NetworkSessionApi sessions) {
+            this.sessions = Objects.requireNonNull(sessions, "sessions must not be null");
             return this;
         }
 
@@ -146,11 +162,13 @@ public final class FakeDataRegistryApi implements DataRegistryApi {
             Set<DataRegistryFeature> features = Set.copyOf(enabledFeatures);
             PlayerData resolvedPlayers = players == null ? new FakePlayerData(features) : players;
             PopulationData resolvedPopulation = population == null ? new FakePopulationData() : population;
+            NetworkSessionApi resolvedSessions = sessions == null ? new FakeNetworkSessionApi() : sessions;
             FeatureServiceDirectory resolvedServices = featureServices == null
                     ? new FakeFeatureServiceDirectory() : featureServices;
             return new FakeDataRegistryApi(
                     resolvedPlayers,
                     resolvedPopulation,
+                    resolvedSessions,
                     resolvedServices,
                     features,
                     ready

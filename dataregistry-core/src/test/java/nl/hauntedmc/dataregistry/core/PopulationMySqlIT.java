@@ -181,13 +181,15 @@ class PopulationMySqlIT {
             assertEquals("survival", joinContext.gamemodeKey().orElseThrow());
 
             assertTrue(writer.transfer(new TransferCommand(
-                    "transfer:population:1b", firstUuid.toString(), "PopulationOne", "survival-2", base.plusSeconds(10)
+                    "transfer:population:1b", firstUuid.toString(), "PopulationOne", "survival-2", base.plusSeconds(10),
+                    TestSessionFences.forPlayer(firstUuid)
             )).succeeded());
             assertEquals(2L, registry.population().findSnapshot(PopulationScope.gamemode("survival"))
                     .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow().currentOnline());
 
             assertTrue(writer.transfer(new TransferCommand(
-                    "transfer:population:1c", firstUuid.toString(), "PopulationOne", "creative-1", base.plusSeconds(20)
+                    "transfer:population:1c", firstUuid.toString(), "PopulationOne", "creative-1", base.plusSeconds(20),
+                    TestSessionFences.forPlayer(firstUuid)
             )).succeeded());
             assertEquals(1L, registry.population().findSnapshot(PopulationScope.gamemode("survival"))
                     .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow().currentOnline());
@@ -203,14 +205,16 @@ class PopulationMySqlIT {
                             firstUuid.toString(),
                             "PopulationOne",
                             "creative-1",
-                            base.plusSeconds(20)
+                            base.plusSeconds(20),
+                            TestSessionFences.forPlayer(firstUuid)
                     )).status()
             );
             assertEquals(beforeDuplicate, registry.population().findSnapshot(PopulationScope.gamemode("creative"))
                     .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow().uniquePlayerCount());
 
             assertTrue(writer.disconnect(new DisconnectCommand(
-                    "disconnect:population:1", firstUuid.toString(), "PopulationOne", base.plusSeconds(30)
+                    "disconnect:population:1", firstUuid.toString(), "PopulationOne", base.plusSeconds(30),
+                    TestSessionFences.forPlayer(firstUuid)
             )).succeeded());
             assertEquals(1L, registry.population().findNetworkSnapshot().toCompletableFuture()
                     .get(10, TimeUnit.SECONDS).orElseThrow().currentOnline());
@@ -394,14 +398,16 @@ class PopulationMySqlIT {
                 username,
                 "203.0.113." + suffix,
                 "population.test",
-                occurredAt
+                occurredAt,
+                TestSessionFences.forPlayer(uuid)
         )).succeeded());
         assertTrue(writer.transfer(new TransferCommand(
                 "transfer:population:" + suffix,
                 uuid.toString(),
                 username,
                 server,
-                occurredAt.plusSeconds(1)
+                occurredAt.plusSeconds(1),
+                TestSessionFences.forPlayer(uuid)
         )).succeeded());
     }
 

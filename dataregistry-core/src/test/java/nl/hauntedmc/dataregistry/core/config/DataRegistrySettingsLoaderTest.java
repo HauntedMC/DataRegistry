@@ -233,6 +233,20 @@ class DataRegistrySettingsLoaderTest {
                       connection-id: players-main
                     services:
                       connection-id: services-main
+                    sessions:
+                      connection-id: sessions-main
+                sessions:
+                  namespace: test-network
+                  lease-ttl-seconds: 15
+                  renewal-interval-seconds: 3
+                  expiry-safety-margin-millis: 500
+                  directory-freshness-seconds: 10
+                  redis-outage-behavior: PRESERVE_UNTIL_EXPIRY
+                orm:
+                  schema-mode: validate
+                platform:
+                  velocity:
+                    service-name: proxy-test-01
                 features:
                   sessions: false
                   population: false
@@ -272,7 +286,7 @@ class DataRegistrySettingsLoaderTest {
     }
 
     @Test
-    void shippedConfigIsTheSingleDocumentedDefaultTemplate() throws Exception {
+    void shippedConfigIsAManualCutoverTemplateThatFailsUntilIdentitiesAreSupplied() throws Exception {
         DataRegistrySettingsLoader loader = new DataRegistrySettingsLoader();
         RecordingLogger logger = new RecordingLogger();
         ClassLoader classLoader = getClass().getClassLoader();
@@ -281,12 +295,14 @@ class DataRegistrySettingsLoaderTest {
             packaged = new String(input.readAllBytes(), StandardCharsets.UTF_8);
         }
 
-        DataRegistrySettings settings = loader.load(temporaryDirectory, classLoader, logger);
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> loader.load(temporaryDirectory, classLoader, logger)
+        );
         String generated = Files.readString(temporaryDirectory.resolve("config.yml"));
 
         assertEquals(packaged, generated);
-        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.POPULATION));
-        assertEquals(90, settings.populationTransitionRetentionDays());
+        assertTrue(exception.getMessage().contains("sessions.namespace"));
         assertTrue(generated.contains("# Schema mode controls ORM DDL behavior:"));
         assertTrue(generated.contains("# Ordered first-match server mapping rules."));
         assertTrue(generated.contains("population: true"));
@@ -294,7 +310,7 @@ class DataRegistrySettingsLoaderTest {
     }
 
     @Test
-    void loadAddsMissingPackagedDefaultsWithoutOverwritingExistingValues() throws Exception {
+    void loadDoesNotAddMissingSettingsOrRewriteLegacyConfiguration() throws Exception {
         Path configFile = temporaryDirectory.resolve("config.yml");
         String existing = """
                 # custom operator comment must survive
@@ -313,51 +329,66 @@ class DataRegistrySettingsLoaderTest {
         Files.writeString(configFile, existing);
         RecordingLogger logger = new RecordingLogger();
 
-        DataRegistrySettings settings = new DataRegistrySettingsLoader().load(
-                temporaryDirectory,
-                getClass().getClassLoader(),
-                logger
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> new DataRegistrySettingsLoader().load(
+                        temporaryDirectory,
+                        getClass().getClassLoader(),
+                        logger
+                )
         );
 
         String updated = Files.readString(configFile);
+        assertEquals(existing, updated);
         assertTrue(updated.contains("# custom operator comment must survive"));
         assertTrue(updated.contains("connection-id: players-main"));
         assertTrue(updated.contains("old-or-plugin-specific-section:"));
         assertTrue(updated.contains("keep-me: true"));
-        assertTrue(updated.contains("services:"));
-        assertTrue(updated.contains("lifecycle:"));
-        assertTrue(updated.contains("write-max-attempts: 3"));
-        assertEquals("players-main", settings.playerDatabaseConnectionId());
-        assertEquals(DataRegistrySettings.defaults().serviceDatabaseConnectionId(), settings.serviceDatabaseConnectionId());
-        assertFalse(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
-        assertFalse(settings.isFeatureEnabled(DataRegistryFeature.POPULATION));
-        assertFalse(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME));
-        assertTrue(logger.infoMessages.stream().anyMatch(message -> message.contains("Updated DataRegistry config")));
+        assertTrue(exception.getMessage().contains("database.profiles.sessions.connection-id"));
     }
 
     @Test
-    void invalidYamlRootUsesRuntimeDefaultsWithoutTouchingFile() throws Exception {
+    void invalidYamlRootFailsWithoutTouchingFile() throws Exception {
         Path configFile = temporaryDirectory.resolve("config.yml");
         String existing = "just-a-scalar-value";
         Files.writeString(configFile, existing);
         RecordingLogger logger = new RecordingLogger();
 
-        DataRegistrySettings settings = new DataRegistrySettingsLoader().load(
-                temporaryDirectory,
-                getClass().getClassLoader(),
-                logger
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> new DataRegistrySettingsLoader().load(
+                        temporaryDirectory,
+                        getClass().getClassLoader(),
+                        logger
+                )
         );
 
         assertEquals(existing, Files.readString(configFile));
-        assertEquals(DataRegistrySettings.defaults().playerDatabaseConnectionId(), settings.playerDatabaseConnectionId());
+        assertTrue(exception.getMessage().contains("database.profiles.sessions.connection-id"));
         assertTrue(logger.warnMessages.stream().anyMatch(message -> message.contains("Invalid root YAML node")));
     }
 
     @Test
-    void configuredPlaytimeCollectionsRemainStableAfterConfigUpgrade() throws Exception {
+    void configuredPlaytimeCollectionsRemainStableAcrossLoads() throws Exception {
         Path configFile = temporaryDirectory.resolve("config.yml");
         String existing = """
                 # preserve formatting too
+                database:
+                  profiles:
+                    sessions:
+                      connection-id: sessions-main
+                sessions:
+                  namespace: test-network
+                  lease-ttl-seconds: 15
+                  renewal-interval-seconds: 3
+                  expiry-safety-margin-millis: 500
+                  directory-freshness-seconds: 10
+                  redis-outage-behavior: PRESERVE_UNTIL_EXPIRY
+                orm:
+                  schema-mode: validate
+                platform:
+                  velocity:
+                    service-name: proxy-test-01
                 playtime:
                   ignored-gamemodes: [dev, demo, event, limbo]
                   excluded-from-network-total-gamemodes: [lobby, bouwserver]

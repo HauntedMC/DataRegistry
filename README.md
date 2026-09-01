@@ -24,7 +24,7 @@ tables and should reference players by the stable scalar `playerId`.
 - Java 25
 - Maven Wrapper (`./mvnw`; Maven 3.8.6+ is enforced by the build)
 - Docker, for the container-backed and platform-acceptance suites
-- DataProvider `3.3.0`
+- DataProvider `3.4.0`
 - Velocity `4.1.0-SNAPSHOT` and/or Paper `26.2`
 
 Configure both the shell `JAVA_HOME` and the IDE Maven runner/importer to Java 25. The build deliberately rejects

@@ -11,3 +11,14 @@ services:
       interval: 2s
       timeout: 5s
       retries: 30
+
+  redis:
+    image: redis:8.10.0-alpine@sha256:978f0e01593e65eed801f2402944efcd936d43b5027e4908a7897baf88ed6241
+    command: ["redis-server", "--requirepass", "acceptance-redis"]
+    ports:
+      - "127.0.0.1::6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a acceptance-redis ping | grep PONG"]
+      interval: 2s
+      timeout: 5s
+      retries: 30

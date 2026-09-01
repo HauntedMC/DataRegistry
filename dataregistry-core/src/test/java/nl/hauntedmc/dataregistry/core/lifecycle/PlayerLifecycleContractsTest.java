@@ -1,6 +1,7 @@
 package nl.hauntedmc.dataregistry.core.lifecycle;
 
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
+import nl.hauntedmc.dataregistry.core.TestSessionFences;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -27,7 +28,8 @@ class PlayerLifecycleContractsTest {
                 "  Alice  ",
                 "1.2.3.4",
                 "play.example.net",
-                occurredAt
+                occurredAt,
+                TestSessionFences.current()
         );
 
         assertEquals("event-1", command.eventId());
@@ -42,9 +44,9 @@ class PlayerLifecycleContractsTest {
     void lifecycleCommandsDefaultMissingTimestamp() {
         UUID uuid = UUID.randomUUID();
 
-        assertNotNull(new LoginCommand("login", uuid.toString(), "Alice", null, null, null).occurredAt());
-        assertNotNull(new TransferCommand("transfer", uuid.toString(), "Alice", "hub", null).occurredAt());
-        assertNotNull(new DisconnectCommand("disconnect", uuid.toString(), "Alice", null).occurredAt());
+        assertNotNull(new LoginCommand("login", uuid.toString(), "Alice", null, null, null, TestSessionFences.current()).occurredAt());
+        assertNotNull(new TransferCommand("transfer", uuid.toString(), "Alice", "hub", null, TestSessionFences.current()).occurredAt());
+        assertNotNull(new DisconnectCommand("disconnect", uuid.toString(), "Alice", null, TestSessionFences.current()).occurredAt());
     }
 
     @Test
@@ -56,13 +58,15 @@ class PlayerLifecycleContractsTest {
                 uuid.toString(),
                 " Alice ",
                 " Survival-01 ",
-                Instant.EPOCH
+                Instant.EPOCH,
+                TestSessionFences.current()
         );
         DisconnectCommand disconnect = new DisconnectCommand(
                 " disconnect ",
                 uuid.toString(),
                 " Alice ",
-                Instant.EPOCH
+                Instant.EPOCH,
+                TestSessionFences.current()
         );
 
         assertEquals("transfer", transfer.eventId());
@@ -76,13 +80,13 @@ class PlayerLifecycleContractsTest {
     void lifecycleCommandsRejectInvalidIdentifiersAndRequiredText() {
         UUID uuid = UUID.randomUUID();
 
-        assertThrows(NullPointerException.class, () -> new LoginCommand(null, uuid.toString(), "Alice", null, null, null));
-        assertThrows(IllegalArgumentException.class, () -> new LoginCommand(" ", uuid.toString(), "Alice", null, null, null));
-        assertThrows(IllegalArgumentException.class, () -> new LoginCommand("x".repeat(97), uuid.toString(), "Alice", null, null, null));
-        assertThrows(IllegalArgumentException.class, () -> new LoginCommand("event", "bad-uuid", "Alice", null, null, null));
-        assertThrows(IllegalArgumentException.class, () -> new LoginCommand("event", uuid.toString(), " ", null, null, null));
-        assertThrows(IllegalArgumentException.class, () -> new TransferCommand("event", uuid.toString(), "Alice", " ", null));
-        assertThrows(NullPointerException.class, () -> new DisconnectCommand("event", uuid.toString(), null, null));
+        assertThrows(NullPointerException.class, () -> new LoginCommand(null, uuid.toString(), "Alice", null, null, null, TestSessionFences.current()));
+        assertThrows(IllegalArgumentException.class, () -> new LoginCommand(" ", uuid.toString(), "Alice", null, null, null, TestSessionFences.current()));
+        assertThrows(IllegalArgumentException.class, () -> new LoginCommand("x".repeat(97), uuid.toString(), "Alice", null, null, null, TestSessionFences.current()));
+        assertThrows(IllegalArgumentException.class, () -> new LoginCommand("event", "bad-uuid", "Alice", null, null, null, TestSessionFences.current()));
+        assertThrows(IllegalArgumentException.class, () -> new LoginCommand("event", uuid.toString(), " ", null, null, null, TestSessionFences.current()));
+        assertThrows(IllegalArgumentException.class, () -> new TransferCommand("event", uuid.toString(), "Alice", " ", null, TestSessionFences.current()));
+        assertThrows(NullPointerException.class, () -> new DisconnectCommand("event", uuid.toString(), null, null, TestSessionFences.current()));
     }
 
     @Test
@@ -90,17 +94,17 @@ class PlayerLifecycleContractsTest {
         UUID uuid = UUID.randomUUID();
         String boundary = "x".repeat(96);
 
-        assertEquals(boundary, new DisconnectCommand(boundary, uuid.toString(), "Alice", Instant.EPOCH).eventId());
+        assertEquals(boundary, new DisconnectCommand(boundary, uuid.toString(), "Alice", Instant.EPOCH, TestSessionFences.current()).eventId());
     }
 
     @Test
     void factoryMethodsGenerateCanonicalUniqueTypedEventIds() {
         UUID uuid = UUID.randomUUID();
 
-        LoginCommand firstLogin = LoginCommand.create(uuid.toString(), "Alice", null, null);
-        LoginCommand secondLogin = LoginCommand.create(uuid.toString(), "Alice", null, null);
-        TransferCommand transfer = TransferCommand.create(uuid.toString(), "Alice", "hub");
-        DisconnectCommand disconnect = DisconnectCommand.create(uuid.toString(), "Alice");
+        LoginCommand firstLogin = LoginCommand.create(uuid.toString(), "Alice", null, null, TestSessionFences.current());
+        LoginCommand secondLogin = LoginCommand.create(uuid.toString(), "Alice", null, null, TestSessionFences.current());
+        TransferCommand transfer = TransferCommand.create(uuid.toString(), "Alice", "hub", TestSessionFences.current());
+        DisconnectCommand disconnect = DisconnectCommand.create(uuid.toString(), "Alice", TestSessionFences.current());
 
         assertTrue(firstLogin.eventId().startsWith("login:" + uuid + ":"));
         assertTrue(transfer.eventId().startsWith("transfer:" + uuid + ":"));

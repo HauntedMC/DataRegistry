@@ -1,8 +1,9 @@
 package nl.hauntedmc.dataregistry.platform.velocity.listener;
 
 import com.velocitypowered.api.event.Subscribe;
+import com.velocitypowered.api.event.EventTask;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
-import com.velocitypowered.api.event.connection.PostLoginEvent;
+import com.velocitypowered.api.event.connection.LoginEvent;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.proxy.Player;
 import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
@@ -18,6 +19,10 @@ import nl.hauntedmc.dataregistry.core.service.PlayerNameHistoryService;
 import nl.hauntedmc.dataregistry.core.service.PlayerPlaytimeService;
 import nl.hauntedmc.dataregistry.core.service.PlayerService;
 import nl.hauntedmc.dataregistry.core.service.PlayerSessionService;
+import nl.hauntedmc.dataregistry.core.session.DistributedNetworkSessionApi;
+import nl.hauntedmc.dataregistry.core.session.PendingSessionClaim;
+import nl.hauntedmc.dataregistry.api.session.NetworkSession;
+import net.kyori.adventure.text.Component;
 import nl.hauntedmc.dataregistry.core.service.PlayerStatusService;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 
@@ -66,11 +71,13 @@ public class PlayerStatusListener {
     private final PlayerService playerService;
     private final PlayerLifecycleWriter lifecycleWriter;
     private final PlayerPlaytimeService playtimeService;
+    private final DistributedNetworkSessionApi networkSessions;
     private final ILoggerAdapter logger;
     private final Executor eventExecutor;
     private final RetainedPlayerLifecycleCommandQueue retainedCommands;
     private final PlayerWriteCoordinator playerWriteCoordinator = new PlayerWriteCoordinator();
     private final ConcurrentMap<String, CompletableFuture<Void>> playerEventPipelines = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, PendingSessionClaim> pendingSessionClaims = new ConcurrentHashMap<>();
     private final Set<String> disconnectsAwaitingReconciliation = ConcurrentHashMap.newKeySet();
     private final ReentrantReadWriteLock playtimePolicyLock = new ReentrantReadWriteLock(true);
     /**
@@ -91,7 +98,8 @@ public class PlayerStatusListener {
             PlayerSessionService sessionService,
             PlayerPlaytimeService playtimeService,
             ILoggerAdapter logger,
-            Executor eventExecutor
+            Executor eventExecutor,
+            DistributedNetworkSessionApi networkSessions
     ) {
         this(
                 playerService,
@@ -111,7 +119,8 @@ public class PlayerStatusListener {
                 eventExecutor,
                 DEFAULT_RETRY_SCHEDULER,
                 () -> {
-                }
+                },
+                networkSessions
         );
     }
 
@@ -120,7 +129,8 @@ public class PlayerStatusListener {
             PlayerLifecycleWriter lifecycleWriter,
             PlayerPlaytimeService playtimeService,
             ILoggerAdapter logger,
-            Executor eventExecutor
+            Executor eventExecutor,
+            DistributedNetworkSessionApi networkSessions
     ) {
         this(
                 playerService,
@@ -130,7 +140,8 @@ public class PlayerStatusListener {
                 eventExecutor,
                 DEFAULT_RETRY_SCHEDULER,
                 () -> {
-                }
+                },
+                networkSessions
         );
     }
 
@@ -141,11 +152,13 @@ public class PlayerStatusListener {
             ILoggerAdapter logger,
             Executor eventExecutor,
             ScheduledExecutorService retryScheduler,
-            Runnable backendRecoveredCallback
+            Runnable backendRecoveredCallback,
+            DistributedNetworkSessionApi networkSessions
     ) {
         this.playerService = Objects.requireNonNull(playerService, "playerService must not be null");
         this.lifecycleWriter = Objects.requireNonNull(lifecycleWriter, "lifecycleWriter must not be null");
         this.playtimeService = Objects.requireNonNull(playtimeService, "playtimeService must not be null");
+        this.networkSessions = Objects.requireNonNull(networkSessions, "networkSessions must not be null");
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
         this.eventExecutor = Objects.requireNonNull(eventExecutor, "eventExecutor must not be null");
         this.retainedCommands = new RetainedPlayerLifecycleCommandQueue(
@@ -157,34 +170,36 @@ public class PlayerStatusListener {
     }
 
     @Subscribe(priority = PLAYER_LIFECYCLE_EVENT_PRIORITY)
-    public void onPlayerJoin(PostLoginEvent event) {
+    public EventTask onPlayerLogin(LoginEvent event) {
         Player player = event.getPlayer();
         String uuid = player.getUniqueId().toString();
         String username = player.getUsername();
         String ip = extractIp(player);
         String vhost = extractVirtualHost(player);
         if (!acceptingEvents.get()) {
-            return;
+            event.setResult(LoginEvent.ComponentResult.denied(
+                    Component.text("Network session service is shutting down.")));
+            return EventTask.resumeWhenComplete(CompletableFuture.completedFuture(null));
         }
 
         currentPlayerConnections.put(uuid, player);
-        PlayerIdentityInitialization initialization = playerService.beginIdentityInitialization(player.getUniqueId());
-        LoginCommand command = LoginCommand.create(uuid, username, ip, vhost);
-        retainedCommands.submit(
-                uuid,
-                command.eventId(),
-                () -> executePlayerWrite(uuid, () -> lifecycleWriter.login(command)),
-                result -> result.identityOptional().ifPresentOrElse(
-                        identity -> playerService.completeIdentityInitialization(initialization, identity),
-                        () -> playerService.failIdentityInitialization(
-                                initialization,
-                                new IllegalStateException("Lifecycle login completed without an identity.")
-                        )
-                ),
-                ignored -> {
-                },
-                failure -> playerService.failIdentityInitialization(initialization, failure)
-        );
+        int protocolVersion = player.getProtocolVersion() == null ? -1 : player.getProtocolVersion().getProtocol();
+        CompletableFuture<Void> gate = networkSessions.claimOwnership(player.getUniqueId(), protocolVersion)
+                .thenCompose(claim -> {
+                    pendingSessionClaims.put(uuid, claim);
+                    return initializeLogin(player, uuid, username, ip, vhost, claim);
+                })
+                .toCompletableFuture()
+                .orTimeout(10L, TimeUnit.SECONDS)
+                .exceptionally(failure -> {
+                    currentPlayerConnections.remove(uuid, player);
+                    event.setResult(LoginEvent.ComponentResult.denied(
+                            Component.text("Network session initialization failed.")));
+                    logger.error("Could not initialize fenced network session for uuid=" + safeForLog(uuid), failure);
+                    return null;
+                });
+        trackPipeline(uuid, gate);
+        return EventTask.resumeWhenComplete(gate);
     }
 
     @Subscribe(priority = PLAYER_LIFECYCLE_EVENT_PRIORITY)
@@ -197,11 +212,23 @@ public class PlayerStatusListener {
             return;
         }
 
-        TransferCommand command = TransferCommand.create(uuid, username, serverName);
+        NetworkSession session = networkSessions.cached(player.getUniqueId()).orElse(null);
+        if (session == null) {
+            player.disconnect(Component.text("Network session ownership was lost."));
+            return;
+        }
+        TransferCommand command = TransferCommand.create(uuid, username, serverName, session.fence());
         retainedCommands.submit(
                 uuid,
                 command.eventId(),
-                () -> executePlayerWrite(uuid, () -> lifecycleWriter.transfer(command)),
+                () -> executePlayerWrite(uuid, () -> {
+                    var result = lifecycleWriter.transfer(command);
+                    if (!networkSessions.changeBackend(player.getUniqueId(), session.fence(), serverName)
+                            .toCompletableFuture().join()) {
+                        throw new IllegalStateException("Network session was fenced during backend transfer");
+                    }
+                    return result;
+                }),
                 ignored -> {
                 },
                 ignored -> {
@@ -220,18 +247,89 @@ public class PlayerStatusListener {
             return;
         }
 
-        DisconnectCommand command = DisconnectCommand.create(uuid, username);
+        NetworkSession session = networkSessions.cached(player.getUniqueId()).orElse(null);
+        if (session == null) {
+            PendingSessionClaim pending = pendingSessionClaims.remove(uuid);
+            if (pending != null) networkSessions.abandon(pending);
+            return;
+        }
+        DisconnectCommand command = DisconnectCommand.create(uuid, username, session.fence());
         retainedCommands.submit(
                 uuid,
                 command.eventId(),
-                () -> executePlayerWrite(uuid, () -> lifecycleWriter.disconnect(command)),
+                () -> executePlayerWrite(uuid, () -> {
+                    var result = lifecycleWriter.disconnect(command);
+                    if (session != null) {
+                        networkSessions.end(player.getUniqueId(), session.fence()).toCompletableFuture().join();
+                    }
+                    return result;
+                }),
                 ignored -> {
                     disconnectsAwaitingReconciliation.remove(uuid);
                     playerService.onPlayerQuit(username, uuid);
                 },
                 ignored -> disconnectsAwaitingReconciliation.add(uuid),
-                ignored -> disconnectsAwaitingReconciliation.remove(uuid)
+                ignored -> {
+                    disconnectsAwaitingReconciliation.remove(uuid);
+                    if (session != null) networkSessions.end(player.getUniqueId(), session.fence());
+                }
         );
+    }
+
+    private CompletableFuture<Void> initializeLogin(
+            Player player,
+            String uuid,
+            String username,
+            String ip,
+            String vhost,
+            PendingSessionClaim claim
+    ) {
+        PlayerIdentityInitialization initialization = playerService.beginIdentityInitialization(player.getUniqueId());
+        LoginCommand command = LoginCommand.create(uuid, username, ip, vhost, claim.fence());
+        CompletableFuture<nl.hauntedmc.dataregistry.core.lifecycle.PlayerLifecycleWriteResult> loginWrite;
+        try {
+            loginWrite = CompletableFuture.supplyAsync(
+                    () -> executePlayerWrite(uuid, () -> {
+                        var result = lifecycleWriter.login(command);
+                        var identity = result.identityOptional().orElseThrow(() ->
+                                new IllegalStateException("Lifecycle login completed without an identity."));
+                        try {
+                            if (!isCurrentConnection(uuid, player)) {
+                                throw new IllegalStateException("Player disconnected before session admission completed.");
+                            }
+                            networkSessions.open(claim, identity.playerId(), identity.username())
+                                    .toCompletableFuture().join();
+                        } catch (RuntimeException openFailure) {
+                            try {
+                                lifecycleWriter.disconnect(DisconnectCommand.create(uuid, username, claim.fence()));
+                                playerService.onPlayerQuit(username, uuid);
+                            } catch (RuntimeException compensationFailure) {
+                                openFailure.addSuppressed(compensationFailure);
+                            }
+                            throw openFailure;
+                        }
+                        return result;
+                    }), eventExecutor
+            );
+        } catch (RuntimeException schedulingFailure) {
+            networkSessions.abandon(claim);
+            playerService.failIdentityInitialization(initialization, schedulingFailure);
+            return CompletableFuture.failedFuture(schedulingFailure);
+        }
+        return loginWrite.thenAccept(result -> result.identityOptional().ifPresentOrElse(
+                        identity -> playerService.completeIdentityInitialization(initialization, identity),
+                        () -> playerService.failIdentityInitialization(initialization,
+                                new IllegalStateException("Lifecycle login completed without an identity."))
+                )).exceptionallyCompose(failure -> {
+                    networkSessions.abandon(claim);
+                    playerService.failIdentityInitialization(initialization, failure);
+                    return CompletableFuture.failedFuture(failure);
+                }).whenComplete((ignored, failure) -> pendingSessionClaims.remove(uuid, claim));
+    }
+
+    private void trackPipeline(String uuid, CompletableFuture<Void> pipeline) {
+        playerEventPipelines.put(uuid, pipeline);
+        pipeline.whenComplete((ignored, failure) -> playerEventPipelines.remove(uuid, pipeline));
     }
 
     private boolean isCurrentConnection(String uuid, Player player) {
@@ -423,7 +521,17 @@ public class PlayerStatusListener {
             if (retainedCommands.hasPendingCommand(uuid)) {
                 continue;
             }
-            DisconnectCommand command = DisconnectCommand.create(uuid, player.getUsername());
+            NetworkSession networkSession;
+            try {
+                networkSession = networkSessions.cached(java.util.UUID.fromString(uuid)).orElse(null);
+            } catch (IllegalArgumentException invalidUuid) {
+                continue;
+            }
+            if (networkSession == null) {
+                continue;
+            }
+            DisconnectCommand command = DisconnectCommand.create(
+                    uuid, player.getUsername(), networkSession.fence());
             retainedCommands.submit(
                     uuid,
                     command.eventId(),

@@ -1,5 +1,7 @@
 package nl.hauntedmc.dataregistry.core.lifecycle;
 
+import nl.hauntedmc.dataregistry.api.session.SessionFence;
+
 import java.time.Instant;
 
 /**
@@ -14,7 +16,8 @@ public record DisconnectCommand(
         String eventId,
         String playerUuid,
         String username,
-        Instant occurredAt
+        Instant occurredAt,
+        SessionFence sessionFence
 ) {
 
     public DisconnectCommand {
@@ -22,14 +25,16 @@ public record DisconnectCommand(
         playerUuid = LoginCommand.requireUuid(playerUuid);
         username = LoginCommand.requireText(username, "username");
         occurredAt = occurredAt == null ? Instant.now() : occurredAt;
+        java.util.Objects.requireNonNull(sessionFence, "sessionFence");
     }
 
-    public static DisconnectCommand create(String playerUuid, String username) {
+    public static DisconnectCommand create(String playerUuid, String username, SessionFence sessionFence) {
         return new DisconnectCommand(
                 LoginCommand.newEventId("disconnect", playerUuid),
                 playerUuid,
                 username,
-                Instant.now()
+                Instant.now(),
+                sessionFence
         );
     }
 }

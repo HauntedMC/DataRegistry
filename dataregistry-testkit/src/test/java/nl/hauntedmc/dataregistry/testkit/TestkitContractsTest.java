@@ -204,6 +204,7 @@ class TestkitContractsTest {
         FakeDataRegistryApi api = new FakeDataRegistryApi(
                 players,
                 population,
+                new FakeNetworkSessionApi(),
                 services,
                 EnumSet.of(DataRegistryFeature.POPULATION, DataRegistryFeature.PLAYTIME, DataRegistryFeature.SESSIONS),
                 true
@@ -224,6 +225,7 @@ class TestkitContractsTest {
         FakeDataRegistryApi api = new FakeDataRegistryApi(
                 mock(PlayerData.class),
                 new FakePopulationData(),
+                new FakeNetworkSessionApi(),
                 mock(FeatureServiceDirectory.class),
                 features,
                 false
@@ -238,23 +240,28 @@ class TestkitContractsTest {
     void fakeApiRejectsMissingRequiredDependencies() {
         PlayerData players = mock(PlayerData.class);
         PopulationData population = new FakePopulationData();
+        FakeNetworkSessionApi sessions = new FakeNetworkSessionApi();
         FeatureServiceDirectory services = mock(FeatureServiceDirectory.class);
 
         assertThrows(
                 NullPointerException.class,
-                () -> new FakeDataRegistryApi(null, population, services, Set.of(), false)
+                () -> new FakeDataRegistryApi(null, population, sessions, services, Set.of(), false)
         );
         assertThrows(
                 NullPointerException.class,
-                () -> new FakeDataRegistryApi(players, null, services, Set.of(), false)
+                () -> new FakeDataRegistryApi(players, null, sessions, services, Set.of(), false)
         );
         assertThrows(
                 NullPointerException.class,
-                () -> new FakeDataRegistryApi(players, population, null, Set.of(), false)
+                () -> new FakeDataRegistryApi(players, population, null, services, Set.of(), false)
         );
         assertThrows(
                 NullPointerException.class,
-                () -> new FakeDataRegistryApi(players, population, services, null, false)
+                () -> new FakeDataRegistryApi(players, population, sessions, null, Set.of(), false)
+        );
+        assertThrows(
+                NullPointerException.class,
+                () -> new FakeDataRegistryApi(players, population, sessions, services, null, false)
         );
     }
 }

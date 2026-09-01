@@ -1,5 +1,7 @@
 package nl.hauntedmc.dataregistry.core.lifecycle;
 
+import nl.hauntedmc.dataregistry.api.session.SessionFence;
+
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
@@ -20,7 +22,8 @@ public record LoginCommand(
         String username,
         String ipAddress,
         String virtualHost,
-        Instant occurredAt
+        Instant occurredAt,
+        SessionFence sessionFence
 ) {
 
     public LoginCommand {
@@ -28,10 +31,13 @@ public record LoginCommand(
         playerUuid = requireUuid(playerUuid);
         username = requireText(username, "username");
         occurredAt = occurredAt == null ? Instant.now() : occurredAt;
+        Objects.requireNonNull(sessionFence, "sessionFence");
     }
 
-    public static LoginCommand create(String playerUuid, String username, String ipAddress, String virtualHost) {
-        return new LoginCommand(newEventId("login", playerUuid), playerUuid, username, ipAddress, virtualHost, Instant.now());
+    public static LoginCommand create(String playerUuid, String username, String ipAddress, String virtualHost,
+                                      SessionFence sessionFence) {
+        return new LoginCommand(newEventId("login", playerUuid), playerUuid, username, ipAddress, virtualHost,
+                Instant.now(), sessionFence);
     }
 
     static String newEventId(String eventType, String playerUuid) {

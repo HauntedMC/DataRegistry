@@ -1,5 +1,7 @@
 package nl.hauntedmc.dataregistry.core.persistence.entity;
 
+import nl.hauntedmc.dataregistry.api.session.SessionFence;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -29,6 +31,21 @@ public class PlayerOnlineStatusEntity {
 
     @Column(name = "previous_server", length = 64)
     private String previousServer;
+
+    @Column(name = "proxy_instance_id", length = 96, nullable = false)
+    private String proxyInstanceId = "";
+
+    @Column(name = "proxy_process_epoch", length = 36, nullable = false)
+    private String proxyProcessEpoch = "";
+
+    @Column(name = "network_session_id", length = 36, nullable = false)
+    private String networkSessionId = "";
+
+    @Column(name = "network_session_epoch", nullable = false)
+    private long networkSessionEpoch;
+
+    @Column(name = "network_fencing_token", nullable = false)
+    private long networkFencingToken;
 
     public PlayerOnlineStatusEntity() {
     }
@@ -72,4 +89,23 @@ public class PlayerOnlineStatusEntity {
     public void setPreviousServer(String previousServer) {
         this.previousServer = previousServer;
     }
+
+    public void setSessionFence(SessionFence fence) {
+        proxyInstanceId = fence.proxyInstanceId();
+        proxyProcessEpoch = fence.proxyProcessEpoch().toString();
+        networkSessionId = fence.sessionId().toString();
+        networkSessionEpoch = fence.sessionEpoch();
+        networkFencingToken = fence.fencingToken();
+    }
+
+    public boolean matches(SessionFence fence) {
+        return fence != null
+                && proxyInstanceId.equals(fence.proxyInstanceId())
+                && proxyProcessEpoch.equals(fence.proxyProcessEpoch().toString())
+                && networkSessionId.equals(fence.sessionId().toString())
+                && networkSessionEpoch == fence.sessionEpoch()
+                && networkFencingToken == fence.fencingToken();
+    }
+
+    public long getNetworkFencingToken() { return networkFencingToken; }
 }

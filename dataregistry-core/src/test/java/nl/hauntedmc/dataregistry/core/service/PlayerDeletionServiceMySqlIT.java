@@ -9,6 +9,7 @@ import nl.hauntedmc.dataprovider.database.relational.RelationalDatabaseProvider;
 import nl.hauntedmc.dataprovider.logging.LoggerAdapter;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
+import nl.hauntedmc.dataregistry.core.TestSessionFences;
 import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.core.config.ExternalPlayerDataConnectionSettings;
 import nl.hauntedmc.dataregistry.core.lifecycle.DisconnectCommand;
@@ -113,7 +114,8 @@ class PlayerDeletionServiceMySqlIT {
                     PLAYER_NAME,
                     "203.0.113.20",
                     "debug.example.test",
-                    startedAt
+                    startedAt,
+                    TestSessionFences.current()
             )).succeeded());
             PlayerIdentity originalIdentity = registry.players().findIdentity(PLAYER_UUID)
                     .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow();
@@ -144,7 +146,8 @@ class PlayerDeletionServiceMySqlIT {
                     PLAYER_UUID.toString(),
                     PLAYER_NAME,
                     "survival-1",
-                    startedAt.plusSeconds(10)
+                    startedAt.plusSeconds(10),
+                    TestSessionFences.current()
             )).succeeded());
             registry.players().saveLanguage(originalIdentity.playerId(), "NL", "nl")
                     .toCompletableFuture().get(10, TimeUnit.SECONDS);
@@ -154,7 +157,8 @@ class PlayerDeletionServiceMySqlIT {
                     "disconnect:deletion:1",
                     PLAYER_UUID.toString(),
                     PLAYER_NAME,
-                    startedAt.plusSeconds(30)
+                    startedAt.plusSeconds(30),
+                    TestSessionFences.current()
             )).succeeded());
             registry.newPlayerService(platformLogger).onPlayerQuit(PLAYER_NAME, PLAYER_UUID.toString());
 
@@ -186,7 +190,8 @@ class PlayerDeletionServiceMySqlIT {
                     PLAYER_NAME,
                     "203.0.113.20",
                     "debug.example.test",
-                    startedAt.plusSeconds(60)
+                    startedAt.plusSeconds(60),
+                    TestSessionFences.newer()
             )).succeeded());
             PlayerIdentity replacementIdentity = registry.players().findIdentity(PLAYER_UUID)
                     .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow();
@@ -197,7 +202,8 @@ class PlayerDeletionServiceMySqlIT {
                     "disconnect:deletion:2",
                     PLAYER_UUID.toString(),
                     PLAYER_NAME,
-                    startedAt.plusSeconds(90)
+                    startedAt.plusSeconds(90),
+                    TestSessionFences.newer()
             )).succeeded());
             registry.newPlayerService(platformLogger).onPlayerQuit(PLAYER_NAME, PLAYER_UUID.toString());
         } finally {

@@ -5,6 +5,7 @@ import nl.hauntedmc.dataregistry.api.observation.DataRegistryObservation;
 import nl.hauntedmc.dataregistry.api.observation.DataRegistryOperationOutcome;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
+import nl.hauntedmc.dataregistry.core.TestSessionFences;
 import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
 import nl.hauntedmc.dataregistry.core.observation.DataRegistryObservations;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
@@ -154,7 +155,8 @@ class PlayerLifecycleWriterTest {
                 "Alice",
                 null,
                 null,
-                Instant.parse("2026-07-20T07:30:00Z")
+                Instant.parse("2026-07-20T07:30:00Z"),
+                TestSessionFences.current()
         );
 
         PlayerLifecycleWriteResult result = writer.login(command);
@@ -204,7 +206,8 @@ class PlayerLifecycleWriterTest {
                 "Alice",
                 null,
                 null,
-                Instant.parse("2026-07-20T07:30:00Z")
+                Instant.parse("2026-07-20T07:30:00Z"),
+                TestSessionFences.current()
         ));
 
         assertEquals(PlayerLifecycleWriteStatus.PERMANENT_FAILURE, result.status());

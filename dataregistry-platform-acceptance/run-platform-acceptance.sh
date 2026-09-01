@@ -119,9 +119,10 @@ download_runtime() {
 }
 
 backend_port() {
+    local service=$1 container_port=$2
     local endpoint
-    endpoint="$(docker compose --file "$COMPOSE_FILE" port mysql 3306 | head -n 1)"
-    [[ "$endpoint" =~ :([0-9]+)$ ]] || fail "Could not determine the host MySQL port."
+    endpoint="$(docker compose --file "$COMPOSE_FILE" port "$service" "$container_port" | head -n 1)"
+    [[ "$endpoint" =~ :([0-9]+)$ ]] || fail "Could not determine the host port for ${service}:${container_port}."
     printf '%s' "${BASH_REMATCH[1]}"
 }
 
@@ -158,7 +159,7 @@ stop_process() {
 }
 
 write_dataprovider_configuration() {
-    local data_directory=$1 owner_plugin=$2 mysql_port=$3
+    local data_directory=$1 owner_plugin=$2 mysql_port=$3 redis_port=$4
     mkdir -p "$data_directory/databases"
     cat >"$data_directory/config.yml" <<'EOF'
 orm:
@@ -169,7 +170,7 @@ databases:
   mongodb:
     enabled: false
   redis:
-    enabled: false
+    enabled: true
   redis_messaging:
     enabled: false
 EOF
@@ -191,12 +192,33 @@ player_data_rw:
   connect_timeout_ms: 5000
   socket_timeout_ms: 5000
 EOF
+    cat >"$data_directory/databases/redis.yml" <<EOF
+network_sessions:
+  access:
+    owner_plugin: "${owner_plugin}"
+    shared_with: []
+  host: 127.0.0.1
+  port: ${redis_port}
+  user: default
+  password: acceptance-redis
+  network_namespace: dataregistry-platform-acceptance
+  pool:
+    connections: 2
+    min_idle: 0
+    max_idle: 2
+  connection_timeout_ms: 2000
+  socket_timeout_ms: 2000
+EOF
 }
 
 write_dataregistry_configuration() {
     local data_directory=$1
     mkdir -p "$data_directory"
     cp "$ROOT_DIRECTORY/dataregistry-core/src/main/resources/config.yml" "$data_directory/config.yml"
+    sed -i \
+        -e 's/^  namespace: ""$/  namespace: dataregistry-platform-acceptance/' \
+        -e 's/^    service-name: ""$/    service-name: acceptance-proxy/' \
+        "$data_directory/config.yml"
 }
 
 bootstrap_schema() {
@@ -206,7 +228,7 @@ bootstrap_schema() {
     cp "$DATAPROVIDER_PAPER_BUNDLE" "$directory/plugins/DataProvider.jar"
     enable_data_provider_multi_release_support "$directory/plugins/DataProvider.jar"
     cp "$PAPER_BUNDLE" "$directory/plugins/DataRegistry.jar"
-    write_dataprovider_configuration "$directory/plugins/DataProvider" "DataRegistry" "$MYSQL_PORT"
+    write_dataprovider_configuration "$directory/plugins/DataProvider" "DataRegistry" "$MYSQL_PORT" "$REDIS_PORT"
     write_dataregistry_configuration "$directory/plugins/DataRegistry"
     printf 'eula=true\n' >"$directory/eula.txt"
     printf 'server-port=0\n' >"$directory/server.properties"
@@ -230,7 +252,7 @@ start_paper() {
     enable_data_provider_multi_release_support "$directory/plugins/DataProvider.jar"
     cp "$PAPER_BUNDLE" "$directory/plugins/DataRegistry.jar"
     cp "$PAPER_CONSUMER" "$directory/plugins/DataRegistryAcceptance.jar"
-    write_dataprovider_configuration "$directory/plugins/DataProvider" "DataRegistry" "$MYSQL_PORT"
+    write_dataprovider_configuration "$directory/plugins/DataProvider" "DataRegistry" "$MYSQL_PORT" "$REDIS_PORT"
     write_dataregistry_configuration "$directory/plugins/DataRegistry"
     printf 'eula=true\n' >"$directory/eula.txt"
     printf 'server-port=0\n' >"$directory/server.properties"
@@ -254,7 +276,7 @@ start_velocity() {
     enable_data_provider_multi_release_support "$directory/plugins/DataProvider.jar"
     cp "$VELOCITY_BUNDLE" "$directory/plugins/DataRegistry.jar"
     cp "$VELOCITY_CONSUMER" "$directory/plugins/DataRegistryAcceptance.jar"
-    write_dataprovider_configuration "$directory/plugins/dataprovider" "dataregistry" "$MYSQL_PORT"
+    write_dataprovider_configuration "$directory/plugins/dataprovider" "dataregistry" "$MYSQL_PORT" "$REDIS_PORT"
     write_dataregistry_configuration "$directory/plugins/dataregistry"
     mkfifo "$directory/console.in"
     (cd "$directory" && exec "$JAVA_EXECUTABLE" -Xms256M -Xmx768M -jar "$WORK_DIRECTORY/velocity.jar" <console.in >velocity.log 2>&1) &
@@ -295,8 +317,10 @@ download_runtime paper "$(pom_property paper.runtime.version)" "$(pom_property p
 download_runtime velocity "$(pom_property velocity.version)" "$(pom_property velocity.runtime.build)" \
     "$(pom_property velocity.runtime.sha256)" "$WORK_DIRECTORY/velocity.jar"
 docker compose --file "$COMPOSE_FILE" up --detach --wait
-MYSQL_PORT="$(backend_port)"
+MYSQL_PORT="$(backend_port mysql 3306)"
 readonly MYSQL_PORT
+REDIS_PORT="$(backend_port redis 6379)"
+readonly REDIS_PORT
 bootstrap_schema
 docker compose --file "$COMPOSE_FILE" exec --no-TTY mysql mysql -uroot -pacceptance-root minecraft -e \
     "INSERT INTO player_entity (uuid, username) VALUES ('8a1c5035-c774-405e-ae4a-0948f0595d12', 'AcceptancePlayer');"

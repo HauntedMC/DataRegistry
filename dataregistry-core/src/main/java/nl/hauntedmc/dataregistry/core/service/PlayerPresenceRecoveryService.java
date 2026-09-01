@@ -50,6 +50,16 @@ public final class PlayerPresenceRecoveryService {
     }
 
     /**
+     * Closes only players proven absent from one complete distributed-session snapshot.
+     * Players present in the snapshot are protected even when an older local row also exists.
+     */
+    public PlayerPresenceRecoveryResult recoverAfterUncleanShutdown(Set<String> leasedPlayerUuids) {
+        Objects.requireNonNull(leasedPlayerUuids, "leasedPlayerUuids must not be null");
+        return recover(Set.of(), Set.copyOf(leasedPlayerUuids),
+                "Failed to recover proven-unleased player presence state during startup.");
+    }
+
+    /**
      * Reconciles only supplied players after a database outage; active players are protected from stale-row cleanup.
      */
     public PlayerPresenceRecoveryResult recoverAfterBackendRecovery(

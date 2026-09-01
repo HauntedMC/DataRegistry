@@ -1,6 +1,7 @@
 package nl.hauntedmc.dataregistry.core.service;
 
 import nl.hauntedmc.dataregistry.core.DataRegistry;
+import nl.hauntedmc.dataregistry.core.TestSessionFences;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerOnlineStatusEntity;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
@@ -48,7 +49,7 @@ class PlayerStatusServiceTest {
         when(session.merge(player)).thenReturn(managed);
         when(session.find(PlayerOnlineStatusEntity.class, managed.getId())).thenReturn(null);
 
-        service.updateStatus(player, "  Lobby-1  ");
+        service.updateStatus(player, "  Lobby-1  ", TestSessionFences.current());
 
         ArgumentCaptor<PlayerOnlineStatusEntity> captor = ArgumentCaptor.forClass(PlayerOnlineStatusEntity.class);
         verify(session).persist(captor.capture());
@@ -69,6 +70,7 @@ class PlayerStatusServiceTest {
         PlayerEntity managed = persistedPlayer();
         PlayerOnlineStatusEntity status = new PlayerOnlineStatusEntity();
         status.setPlayer(managed);
+        status.setSessionFence(TestSessionFences.current());
         status.setCurrentServer("old-server");
 
         when(registry.getORM()).thenReturn(ormContext);
@@ -76,7 +78,7 @@ class PlayerStatusServiceTest {
         when(session.merge(player)).thenReturn(managed);
         when(session.find(PlayerOnlineStatusEntity.class, managed.getId())).thenReturn(status);
 
-        service.updateStatus(player, "new-server");
+        service.updateStatus(player, "new-server", TestSessionFences.current());
 
         assertEquals("old-server", status.getPreviousServer());
         assertEquals("new-server", status.getCurrentServer());
@@ -94,6 +96,7 @@ class PlayerStatusServiceTest {
         PlayerEntity managed = persistedPlayer();
         PlayerOnlineStatusEntity status = new PlayerOnlineStatusEntity();
         status.setPlayer(managed);
+        status.setSessionFence(TestSessionFences.current());
         status.setOnline(true);
         status.setCurrentServer("minigames-1");
 
@@ -102,7 +105,7 @@ class PlayerStatusServiceTest {
         when(session.merge(player)).thenReturn(managed);
         when(session.find(PlayerOnlineStatusEntity.class, managed.getId())).thenReturn(status);
 
-        service.updateStatusOnQuit(player);
+        service.updateStatusOnQuit(player, TestSessionFences.current());
 
         assertFalse(status.isOnline());
         assertEquals("minigames-1", status.getPreviousServer());
@@ -116,8 +119,8 @@ class PlayerStatusServiceTest {
         ILoggerAdapter logger = mock(ILoggerAdapter.class);
         PlayerStatusService service = new PlayerStatusService(registry, logger, 64);
 
-        service.updateStatus(new PlayerEntity(), "lobby");
-        service.updateStatusOnQuit(new PlayerEntity());
+        service.updateStatus(new PlayerEntity(), "lobby", TestSessionFences.current());
+        service.updateStatusOnQuit(new PlayerEntity(), TestSessionFences.current());
         verify(logger).warn("updateStatus called with an invalid player entity.");
         verify(logger).warn("updateStatusOnQuit called with an invalid player entity.");
 
@@ -126,8 +129,8 @@ class PlayerStatusServiceTest {
         PlayerEntity player = persistedPlayer();
         player.setUuid("uuid\nvalue");
 
-        service.updateStatus(player, "lobby");
-        service.updateStatusOnQuit(player);
+        service.updateStatus(player, "lobby", TestSessionFences.current());
+        service.updateStatusOnQuit(player, TestSessionFences.current());
 
         verify(logger, times(2)).error(contains("uuid_value"), org.mockito.ArgumentMatchers.any(RuntimeException.class));
     }
@@ -146,7 +149,7 @@ class PlayerStatusServiceTest {
         when(session.merge(player)).thenReturn(player);
         when(session.find(PlayerOnlineStatusEntity.class, player.getId())).thenReturn(null);
 
-        service.updateStatusOnQuit(player);
+        service.updateStatusOnQuit(player, TestSessionFences.current());
 
         verify(session, never()).persist(org.mockito.ArgumentMatchers.any());
     }
@@ -158,8 +161,8 @@ class PlayerStatusServiceTest {
         PlayerStatusService service = new PlayerStatusService(registry, logger, 64, false);
         PlayerEntity player = persistedPlayer();
 
-        service.updateStatus(player, "lobby");
-        service.updateStatusOnQuit(player);
+        service.updateStatus(player, "lobby", TestSessionFences.current());
+        service.updateStatusOnQuit(player, TestSessionFences.current());
 
         verify(registry, never()).getORM();
         verify(logger, never()).warn(org.mockito.ArgumentMatchers.anyString());

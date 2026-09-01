@@ -3,6 +3,7 @@ package nl.hauntedmc.dataregistry.core.service;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerOnlineStatusEntity;
+import nl.hauntedmc.dataregistry.api.session.SessionFence;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import org.hibernate.Session;
 
@@ -40,7 +41,7 @@ public final class PlayerStatusService {
     /**
      * Upserts a player's online status and updates current/previous server fields.
      */
-    public void updateStatus(PlayerEntity playerEntity, String currentServer) {
+    public void updateStatus(PlayerEntity playerEntity, String currentServer, SessionFence fence) {
         if (!featureEnabled) {
             return;
         }
@@ -55,7 +56,7 @@ public final class PlayerStatusService {
 
         try {
             dataRegistry.getORM().runInTransaction(session -> {
-                updateStatus(session, playerEntity, sanitizedServer);
+                updateStatus(session, playerEntity, sanitizedServer, fence);
                 return null;
             });
         } catch (RuntimeException exception) {
@@ -70,7 +71,7 @@ public final class PlayerStatusService {
      * Existing online rows keep their current backend. This matters during reconnect/recovery races because the
      * subsequent transfer still needs the previous backend to move logical-gamemode population correctly.
      */
-    public void updateStatusOnLogin(Session session, PlayerEntity playerEntity) {
+    public void updateStatusOnLogin(Session session, PlayerEntity playerEntity, SessionFence fence) {
         if (!featureEnabled) {
             return;
         }
@@ -85,6 +86,7 @@ public final class PlayerStatusService {
             status.setPlayer(managed);
             status.setOnline(true);
             status.setCurrentServer("");
+            status.setSessionFence(fence);
             session.persist(status);
             return;
         }
@@ -93,12 +95,13 @@ public final class PlayerStatusService {
             status.setCurrentServer("");
         }
         status.setOnline(true);
+        status.setSessionFence(fence);
     }
 
     /**
      * Marks a player as offline.
      */
-    public void updateStatusOnQuit(PlayerEntity playerEntity) {
+    public void updateStatusOnQuit(PlayerEntity playerEntity, SessionFence fence) {
         if (!featureEnabled) {
             return;
         }
@@ -109,7 +112,7 @@ public final class PlayerStatusService {
 
         try {
             dataRegistry.getORM().runInTransaction(session -> {
-                updateStatusOnQuit(session, playerEntity);
+                updateStatusOnQuit(session, playerEntity, fence);
                 return null;
             });
         } catch (RuntimeException exception) {
@@ -121,7 +124,7 @@ public final class PlayerStatusService {
     /**
      * Upserts online status in the supplied transaction.
      */
-    public void updateStatus(Session session, PlayerEntity playerEntity, String currentServer) {
+    public void updateStatus(Session session, PlayerEntity playerEntity, String currentServer, SessionFence fence) {
         if (!featureEnabled) {
             return;
         }
@@ -139,8 +142,13 @@ public final class PlayerStatusService {
             status.setPlayer(managed);
             status.setOnline(true);
             status.setCurrentServer(sanitizedServer);
+            status.setSessionFence(fence);
             session.persist(status);
             return;
+        }
+
+        if (!status.matches(fence)) {
+            throw new IllegalStateException("Player status session fence changed before transfer");
         }
 
         status.setOnline(true);
@@ -151,7 +159,7 @@ public final class PlayerStatusService {
     /**
      * Marks a player offline in the supplied transaction.
      */
-    public void updateStatusOnQuit(Session session, PlayerEntity playerEntity) {
+    public void updateStatusOnQuit(Session session, PlayerEntity playerEntity, SessionFence fence) {
         if (!featureEnabled) {
             return;
         }
@@ -164,9 +172,22 @@ public final class PlayerStatusService {
         if (status == null) {
             return;
         }
+        if (!status.matches(fence)) {
+            throw new IllegalStateException("Player status session fence changed before disconnect");
+        }
         status.setOnline(false);
         status.setPreviousServer(status.getCurrentServer());
         status.setCurrentServer("");
+    }
+
+    public boolean mayClaim(Session session, PlayerEntity playerEntity, SessionFence fence) {
+        PlayerOnlineStatusEntity status = session.find(PlayerOnlineStatusEntity.class, playerEntity.getId());
+        return status == null || status.matches(fence) || status.getNetworkFencingToken() < fence.fencingToken();
+    }
+
+    public boolean isCurrent(Session session, PlayerEntity playerEntity, SessionFence fence) {
+        PlayerOnlineStatusEntity status = session.find(PlayerOnlineStatusEntity.class, playerEntity.getId());
+        return status != null && status.isOnline() && status.matches(fence);
     }
 
     private static boolean isPersistedPlayer(PlayerEntity playerEntity) {

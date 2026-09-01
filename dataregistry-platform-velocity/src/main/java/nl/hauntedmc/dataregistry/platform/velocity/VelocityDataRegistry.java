@@ -41,9 +41,11 @@ import nl.hauntedmc.dataregistry.core.service.PlayerService;
 import nl.hauntedmc.dataregistry.core.service.PlayerSessionService;
 import nl.hauntedmc.dataregistry.core.service.PlayerStatusService;
 import nl.hauntedmc.dataregistry.core.service.ServiceRegistryService;
+import nl.hauntedmc.dataregistry.core.session.DistributedNetworkSessionApi;
 import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.core.config.DataRegistrySettingsLoader;
 import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
+import nl.hauntedmc.dataregistry.core.config.SessionRedisOutageBehavior;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlaytimePolicyReconciliationResult;
 import nl.hauntedmc.dataregistry.platform.common.PlatformPlugin;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
@@ -63,6 +65,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -78,7 +83,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @Plugin(
         id = "dataregistry",
         name = "DataRegistry",
-        version = "1.15.0",
+        version = "1.16.0",
         description = "DataRegistry for cross-platform data handling.",
         authors = {"HauntedMC"},
         dependencies = @Dependency(id = "dataprovider")
@@ -111,7 +116,10 @@ public class VelocityDataRegistry implements PlatformPlugin {
     private ScheduledExecutorService serviceRegistryHeartbeatExecutor;
     private ScheduledExecutorService serviceRegistryProbeExecutor;
     private ScheduledExecutorService lifecycleOutboxRetentionExecutor;
+    private ScheduledExecutorService networkSessionLeaseExecutor;
     private PlayerStatusListener playerStatusListener;
+    private DistributedNetworkSessionApi networkSessions;
+    private String proxyInstanceId;
     private ServiceRegistryService serviceRegistryService;
     private final AtomicReference<String> localServiceInstanceId = new AtomicReference<>();
     private final AtomicLong nextProbePurgeAtEpochMillis = new AtomicLong(0L);
@@ -144,6 +152,8 @@ public class VelocityDataRegistry implements PlatformPlugin {
                     this::initializeRuntime,
                     getPlatformLogger()
             );
+            installNetworkSessionAuthority();
+            startNetworkSessionLeaseLifecycle();
             recoverPlayerPresenceStateOnStartup();
             registerPlayerStatusListener();
             startPlaytimeFlushLifecycle();
@@ -165,6 +175,7 @@ public class VelocityDataRegistry implements PlatformPlugin {
         unregisterDataRegistryCommand();
         stopPlaytimeFlushLifecycle();
         stopAcceptingAndDrainPlayerEvents();
+        stopNetworkSessionLeaseLifecycle();
         shutdownLifecycleOutboxRetentionExecutor();
         stopServiceRegistryLifecycle();
         shutdownPlayerLifecycleRetryExecutor();
@@ -238,6 +249,12 @@ public class VelocityDataRegistry implements PlatformPlugin {
         ensurePlayerEventExecutor();
         ensurePlayerLifecycleRetryExecutor();
         DataRegistry registry = runtimeDataRegistry();
+        if (networkSessions == null && registry.sessions() instanceof DistributedNetworkSessionApi installed) {
+            networkSessions = installed;
+        }
+        if (networkSessions == null) {
+            throw new IllegalStateException("Network session authority is not installed");
+        }
         PlayerService playerService = registry.newPlayerService(getPlatformLogger());
         PlayerNameHistoryService nameHistoryService = new PlayerNameHistoryService(
                 registry,
@@ -303,7 +320,8 @@ public class VelocityDataRegistry implements PlatformPlugin {
                 getPlatformLogger(),
                 playerEventExecutor,
                 playerLifecycleRetryExecutor,
-                this::recoverPlayerPresenceStateAfterBackendRecovery
+                this::recoverPlayerPresenceStateAfterBackendRecovery,
+                networkSessions
         );
         proxyServer.getEventManager().register(this, listener);
         playerStatusListener = listener;
@@ -332,11 +350,21 @@ public class VelocityDataRegistry implements PlatformPlugin {
 
     void recoverPlayerPresenceStateOnStartup() {
         DataRegistry registry = runtimeDataRegistry();
+        DistributedNetworkSessionApi sessions = Objects.requireNonNull(
+                networkSessions, "network session authority must be installed before recovery");
+        var directorySnapshot = sessions.snapshot().toCompletableFuture().join();
+        var directoryHealth = sessions.health();
+        if (!directoryHealth.available() || !directoryHealth.complete() || !directoryHealth.fresh()) {
+            throw new IllegalStateException("Cannot safely recover presence from an incomplete or stale session directory");
+        }
+        Set<String> leasedPlayers = directorySnapshot.sessions().keySet().stream()
+                .map(UUID::toString)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
         PlayerPresenceRecoveryService recoveryService = new PlayerPresenceRecoveryService(
                 registry,
                 settings
         );
-        PlayerPresenceRecoveryResult result = recoveryService.recoverAfterUncleanShutdown();
+        PlayerPresenceRecoveryResult result = recoveryService.recoverAfterUncleanShutdown(leasedPlayers);
         if (result.recoveredAnyState()) {
             logger.warn(
                     "Recovered stale player presence state left by a previous unclean shutdown: " +
@@ -384,10 +412,64 @@ public class VelocityDataRegistry implements PlatformPlugin {
         }
     }
 
+    void installNetworkSessionAuthority() {
+        proxyInstanceId = settings.velocityServiceName();
+        networkSessions = runtimeDataRegistry().installDistributedSessionAuthority(proxyInstanceId, UUID.randomUUID());
+        logger.info("Installed network session authority for proxy instance '{}'.", proxyInstanceId);
+    }
+
+    void startNetworkSessionLeaseLifecycle() {
+        if (networkSessions == null) throw new IllegalStateException("Network session authority is not installed");
+        if (networkSessionLeaseExecutor != null && !networkSessionLeaseExecutor.isShutdown()) {
+            throw new IllegalStateException("Network session lease lifecycle is already running");
+        }
+        networkSessionLeaseExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "DataRegistry-session-leases");
+            thread.setDaemon(true);
+            return thread;
+        });
+        // Fast renewal is also the losing owner's revocation signal during a cross-proxy reconnect.
+        long interval = settings.sessionRenewalIntervalSeconds();
+        networkSessionLeaseExecutor.scheduleAtFixedRate(this::renewOwnedNetworkSessions,
+                interval, interval, TimeUnit.SECONDS);
+    }
+
+    private void renewOwnedNetworkSessions() {
+        DistributedNetworkSessionApi sessions = networkSessions;
+        if (sessions == null) return;
+        for (var session : sessions.locallyOwnedSessions()) {
+            sessions.renew(session.playerUuid(), session.fence()).whenComplete((renewed, failure) -> {
+                if (failure == null && Boolean.TRUE.equals(renewed)) return;
+                if (failure != null
+                        && settings.sessionRedisOutageBehavior()
+                        == SessionRedisOutageBehavior.PRESERVE_UNTIL_EXPIRY
+                        && session.leaseExpiresAt().minusMillis(settings.sessionExpirySafetyMarginMillis())
+                        .isAfter(Instant.now())) {
+                    logger.warn("Temporarily preserving {} until its last confirmed session lease expires.",
+                            session.playerUuid());
+                    return;
+                }
+                proxyServer.getPlayer(session.playerUuid()).ifPresent(player -> player.disconnect(
+                        net.kyori.adventure.text.Component.text("Network session ownership was lost.")));
+                if (failure != null) {
+                    logger.error("Could not renew network session lease for {}.", session.playerUuid(), failure);
+                }
+            });
+        }
+    }
+
+    void stopNetworkSessionLeaseLifecycle() {
+        ScheduledExecutorService executor = networkSessionLeaseExecutor;
+        networkSessionLeaseExecutor = null;
+        if (executor != null) executor.shutdownNow();
+        networkSessions = null;
+    }
+
     private void rollbackFailedStartup() {
         unregisterDataRegistryCommand();
         stopPlaytimeFlushLifecycle();
         stopAcceptingAndDrainPlayerEvents();
+        stopNetworkSessionLeaseLifecycle();
         shutdownLifecycleOutboxRetentionExecutor();
         stopServiceRegistryLifecycle();
         shutdownPlayerLifecycleRetryExecutor();
@@ -415,13 +497,8 @@ public class VelocityDataRegistry implements PlatformPlugin {
         InetSocketAddress address = proxyServer.getBoundAddress();
         String host = address == null ? null : address.getHostString();
         Integer port = address == null ? null : address.getPort();
-        String serviceName = resolveProxyServiceName(settings.velocityServiceName(), host, port);
-        if (settings.isVelocityServiceNameAuto()) {
-            logger.warn(
-                    "platform.velocity.service-name is set to 'auto'; using host:port fallback '" + serviceName +
-                            "'. Set platform.velocity.service-name explicitly for stable identity."
-            );
-        }
+        String serviceName = Objects.requireNonNull(proxyInstanceId,
+                "network session authority must initialize before service registry");
         int heartbeatIntervalSeconds = settings.serviceHeartbeatIntervalSeconds();
         int probeIntervalSeconds = settings.serviceProbeIntervalSeconds();
         int probeTimeoutMillis = settings.serviceProbeTimeoutMillis();
@@ -952,15 +1029,6 @@ public class VelocityDataRegistry implements PlatformPlugin {
         if (executor != null) {
             executor.shutdown();
         }
-    }
-
-    private static String resolveProxyServiceName(String configuredServiceName, String host, Integer port) {
-        if (configuredServiceName != null && !"auto".equalsIgnoreCase(configuredServiceName.trim())) {
-            return configuredServiceName.trim();
-        }
-        String hostPart = host == null || host.isBlank() ? "unknown-host" : host;
-        String portPart = port == null ? "unknown-port" : Integer.toString(port);
-        return "velocity-" + hostPart + ":" + portPart;
     }
 
     private void runBackendProbePass(

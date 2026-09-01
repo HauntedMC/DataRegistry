@@ -1,5 +1,7 @@
 package nl.hauntedmc.dataregistry.core.lifecycle;
 
+import nl.hauntedmc.dataregistry.api.session.SessionFence;
+
 import java.time.Instant;
 
 /**
@@ -16,7 +18,8 @@ public record TransferCommand(
         String playerUuid,
         String username,
         String serverName,
-        Instant occurredAt
+        Instant occurredAt,
+        SessionFence sessionFence
 ) {
 
     public TransferCommand {
@@ -25,15 +28,18 @@ public record TransferCommand(
         username = LoginCommand.requireText(username, "username");
         serverName = LoginCommand.requireText(serverName, "serverName");
         occurredAt = occurredAt == null ? Instant.now() : occurredAt;
+        java.util.Objects.requireNonNull(sessionFence, "sessionFence");
     }
 
-    public static TransferCommand create(String playerUuid, String username, String serverName) {
+    public static TransferCommand create(String playerUuid, String username, String serverName,
+                                         SessionFence sessionFence) {
         return new TransferCommand(
                 LoginCommand.newEventId("transfer", playerUuid),
                 playerUuid,
                 username,
                 serverName,
-                Instant.now()
+                Instant.now(),
+                sessionFence
         );
     }
 }

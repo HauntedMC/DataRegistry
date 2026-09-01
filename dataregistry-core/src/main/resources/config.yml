@@ -14,16 +14,29 @@ database:
     # Must match [A-Za-z0-9._-]{1,64}.
     services:
       connection-id: player_data_rw
+    # Mandatory Redis profile for live multi-proxy session ownership and fencing.
+    sessions:
+      connection-id: network_sessions
 
 orm:
   # Applies to: Both.
   # Schema mode controls ORM DDL behavior:
   # validate: verify schema only
-  # update: auto-apply additive changes (default)
-  # create: drop and recreate schema at startup (ephemeral/local only)
-  # create-drop: create at startup, drop at shutdown (tests/local only)
-  # none: disable ORM schema management
-  schema-mode: update
+  # The clean-break runtime never creates, updates, or backfills schema.
+  schema-mode: validate
+
+sessions:
+  # Stable namespace shared by every DataRegistry instance in exactly one Minecraft network/environment.
+  namespace: ""
+  # Lease timing is authoritative Redis time. Renewal must be shorter than the TTL.
+  lease-ttl-seconds: 15
+  renewal-interval-seconds: 3
+  # Do not treat a lease as usable this close to its authoritative expiry.
+  expiry-safety-margin-millis: 500
+  # A directory snapshot older than this is reported as stale.
+  directory-freshness-seconds: 10
+  # PRESERVE_UNTIL_EXPIRY or DISCONNECT_IMMEDIATELY.
+  redis-outage-behavior: PRESERVE_UNTIL_EXPIRY
 
 privacy:
   # Applies to: Velocity lifecycle writes.
@@ -146,8 +159,8 @@ platform:
     service-name: auto
   velocity:
     # Applies to: Velocity.
-    # Proxy logical service name (up to 96 characters); set to 'auto' to derive from host:port fallback naming.
-    service-name: auto
+    # Required stable, unique proxy instance ID (1-96 characters). Never reuse it for another live proxy.
+    service-name: ""
 
 query:
   # Applies to: Both.

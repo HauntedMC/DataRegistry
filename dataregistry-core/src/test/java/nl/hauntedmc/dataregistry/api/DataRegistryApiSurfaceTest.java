@@ -21,6 +21,7 @@ class DataRegistryApiSurfaceTest {
         Set<String> methodNames = Set.of(
                 "players",
                 "population",
+                "sessions",
                 "featureServices",
                 "enabledFeatures",
                 "supports",

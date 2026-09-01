@@ -16,6 +16,11 @@ import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
 import nl.hauntedmc.dataregistry.api.population.PopulationData;
 import nl.hauntedmc.dataregistry.api.population.PopulationResolvedGamemode;
 import nl.hauntedmc.dataregistry.api.service.FeatureServiceDirectory;
+import nl.hauntedmc.dataregistry.api.session.NetworkSessionApi;
+import nl.hauntedmc.dataregistry.core.session.UnavailableNetworkSessionApi;
+import nl.hauntedmc.dataregistry.core.session.DistributedNetworkSessionApi;
+import nl.hauntedmc.dataprovider.database.DatabaseType;
+import nl.hauntedmc.dataprovider.database.keyvalue.KeyValueDatabaseProvider;
 import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.core.config.ExternalPlayerDataConnectionSettings;
 import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
@@ -28,6 +33,7 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerConnectionInfoEnt
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLanguageEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleAuthorityEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerNameHistoryEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerNicknameEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerOnlineStatusEntity;
@@ -88,6 +94,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Core backend runtime that wires DataProvider, ORM, repositories and public domain facades.
@@ -101,6 +108,7 @@ public class DataRegistry implements DataRegistryApi, DataRegistryInstrumentatio
     private final nl.hauntedmc.dataprovider.logging.LoggerAdapter ormLogger;
     private final FeatureServiceDirectory featureServiceDirectory = new DefaultFeatureServiceDirectory();
     private final DataRegistryObservations observations = new DataRegistryObservations();
+    private volatile NetworkSessionApi networkSessionApi = new UnavailableNetworkSessionApi();
 
     private volatile PlaytimeGamemodeResolver populationGamemodeResolver;
     private PlayerRepository playerRepository;
@@ -655,6 +663,47 @@ public class DataRegistry implements DataRegistryApi, DataRegistryInstrumentatio
         return featureServiceDirectory;
     }
 
+    @Override
+    public NetworkSessionApi sessions() {
+        return networkSessionApi;
+    }
+
+    /** Installs the mandatory platform-specific distributed session implementation. */
+    public void installNetworkSessionApi(NetworkSessionApi api) {
+        NetworkSessionApi installed = Objects.requireNonNull(api, "api");
+        if (!installed.health().available()) {
+            throw new IllegalStateException("Cannot install an unavailable session directory: "
+                    + installed.health().failure().orElse("unknown failure"));
+        }
+        networkSessionApi = installed;
+    }
+
+    /** Installs the mandatory read-only distributed directory used by Paper. */
+    public DistributedNetworkSessionApi installDistributedSessionReader() {
+        return installDistributedSessionApi(null, null);
+    }
+
+    /** Installs the mandatory authoritative directory used by one Velocity process. */
+    public DistributedNetworkSessionApi installDistributedSessionAuthority(String proxyInstanceId, UUID processEpoch) {
+        return installDistributedSessionApi(
+                Objects.requireNonNull(proxyInstanceId, "proxyInstanceId"),
+                Objects.requireNonNull(processEpoch, "processEpoch")
+        );
+    }
+
+    private DistributedNetworkSessionApi installDistributedSessionApi(String proxyInstanceId, UUID processEpoch) {
+        KeyValueDatabaseProvider provider = dataProviderAPI.registerDatabaseOrThrow(
+                DatabaseType.REDIS, settings.sessionDatabaseConnectionId(), KeyValueDatabaseProvider.class);
+        Duration expiryMargin = Duration.ofMillis(settings.sessionExpirySafetyMarginMillis());
+        Duration freshness = Duration.ofSeconds(settings.sessionDirectoryFreshnessSeconds());
+        DistributedNetworkSessionApi api = proxyInstanceId == null
+                ? new DistributedNetworkSessionApi(provider, settings.sessionNamespace(), expiryMargin, freshness)
+                : new DistributedNetworkSessionApi(provider, settings.sessionNamespace(), proxyInstanceId,
+                        processEpoch, Duration.ofSeconds(settings.sessionLeaseTtlSeconds()), expiryMargin, freshness);
+        installNetworkSessionApi(api);
+        return api;
+    }
+
     /** Returns immutable runtime settings currently used by this instance. */
     public DataRegistrySettings getSettings() {
         return settings;
@@ -795,6 +844,7 @@ public class DataRegistry implements DataRegistryApi, DataRegistryInstrumentatio
         LinkedHashSet<Class<?>> entityClasses = new LinkedHashSet<>();
         entityClasses.add(PlayerEntity.class);
         entityClasses.add(PlayerLifecycleOutboxEntity.class);
+        entityClasses.add(PlayerLifecycleAuthorityEntity.class);
         if (settings.isFeatureEnabled(DataRegistryFeature.ACTIVITY_SUMMARY)) {
             entityClasses.add(PlayerActivitySummaryEntity.class);
         }

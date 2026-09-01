@@ -20,6 +20,14 @@ final class DataRegistrySettingsParser {
     private static final String DATABASE_TYPE_KEY = "database.type";
     private static final String PLAYER_DATABASE_CONNECTION_ID_KEY = "database.profiles.players.connection-id";
     private static final String SERVICE_DATABASE_CONNECTION_ID_KEY = "database.profiles.services.connection-id";
+    private static final String SESSION_DATABASE_CONNECTION_ID_KEY = "database.profiles.sessions.connection-id";
+    private static final String SESSION_NAMESPACE_KEY = "sessions.namespace";
+    private static final String SESSION_LEASE_TTL_SECONDS_KEY = "sessions.lease-ttl-seconds";
+    private static final String SESSION_RENEWAL_INTERVAL_SECONDS_KEY = "sessions.renewal-interval-seconds";
+    private static final String SESSION_EXPIRY_SAFETY_MARGIN_MILLIS_KEY =
+            "sessions.expiry-safety-margin-millis";
+    private static final String SESSION_DIRECTORY_FRESHNESS_SECONDS_KEY = "sessions.directory-freshness-seconds";
+    private static final String SESSION_REDIS_OUTAGE_BEHAVIOR_KEY = "sessions.redis-outage-behavior";
     private static final String EXTERNAL_PLAYER_DATA_CONNECTIONS_KEY = "player-deletion.external-connections";
     private static final String ORM_SCHEMA_MODE_KEY = "orm.schema-mode";
     private static final String PRIVACY_PERSIST_IP_KEY = "privacy.persist-ip-address";
@@ -94,6 +102,19 @@ final class DataRegistrySettingsParser {
                 parseString(configRoot, SERVICE_DATABASE_CONNECTION_ID_KEY, defaults.serviceDatabaseConnectionId(), logger),
                 defaults.serviceDatabaseConnectionId(), logger, DataRegistrySettings.Builder::serviceDatabaseConnectionId
         ));
+        builder.sessionDatabaseConnectionId(parseString(configRoot, SESSION_DATABASE_CONNECTION_ID_KEY,
+                defaults.sessionDatabaseConnectionId(), logger));
+        builder.sessionNamespace(parseString(configRoot, SESSION_NAMESPACE_KEY, defaults.sessionNamespace(), logger));
+        builder.sessionLeaseTtlSeconds(parseInteger(configRoot, SESSION_LEASE_TTL_SECONDS_KEY,
+                defaults.sessionLeaseTtlSeconds(), logger));
+        builder.sessionRenewalIntervalSeconds(parseInteger(configRoot, SESSION_RENEWAL_INTERVAL_SECONDS_KEY,
+                defaults.sessionRenewalIntervalSeconds(), logger));
+        builder.sessionExpirySafetyMarginMillis(parseInteger(configRoot,
+                SESSION_EXPIRY_SAFETY_MARGIN_MILLIS_KEY, defaults.sessionExpirySafetyMarginMillis(), logger));
+        builder.sessionDirectoryFreshnessSeconds(parseInteger(configRoot,
+                SESSION_DIRECTORY_FRESHNESS_SECONDS_KEY, defaults.sessionDirectoryFreshnessSeconds(), logger));
+        builder.sessionRedisOutageBehavior(parseEnum(configRoot, SESSION_REDIS_OUTAGE_BEHAVIOR_KEY,
+                SessionRedisOutageBehavior.class, defaults.sessionRedisOutageBehavior(), logger));
         builder.externalPlayerDataConnections(parseExternalPlayerDataConnections(
                 configRoot,
                 databaseType,

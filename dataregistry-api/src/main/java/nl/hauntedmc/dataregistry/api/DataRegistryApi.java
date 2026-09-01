@@ -3,6 +3,7 @@ package nl.hauntedmc.dataregistry.api;
 import nl.hauntedmc.dataregistry.api.player.PlayerData;
 import nl.hauntedmc.dataregistry.api.population.PopulationData;
 import nl.hauntedmc.dataregistry.api.service.FeatureServiceDirectory;
+import nl.hauntedmc.dataregistry.api.session.NetworkSessionApi;
 
 import java.util.Set;
 
@@ -20,6 +21,9 @@ public interface DataRegistryApi {
 
     /** Returns canonical network and logical-gamemode population state. */
     PopulationData population();
+
+    /** Returns the canonical live multi-proxy session foundation. */
+    NetworkSessionApi sessions();
 
     /** Returns the catalog of feature-owned public service interfaces. */
     FeatureServiceDirectory featureServices();

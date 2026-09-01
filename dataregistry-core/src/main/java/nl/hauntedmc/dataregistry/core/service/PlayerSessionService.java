@@ -4,6 +4,7 @@ import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionVisitEntity;
+import nl.hauntedmc.dataregistry.api.session.SessionFence;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import org.hibernate.Session;
 
@@ -105,7 +106,8 @@ public final class PlayerSessionService {
     /**
      * Creates a new open session. Any dangling open sessions are closed first.
      */
-    public void openSessionOnLogin(PlayerEntity playerEntity, String ipAddress, String virtualHost) {
+    public void openSessionOnLogin(PlayerEntity playerEntity, String ipAddress, String virtualHost,
+                                   SessionFence fence) {
         if (!featureEnabled) {
             return;
         }
@@ -124,7 +126,7 @@ public final class PlayerSessionService {
 
         try {
             dataRegistry.getORM().runInTransaction(session -> {
-                openSessionOnLogin(session, playerEntity, sanitizedIp, sanitizedVirtualHost, now);
+                openSessionOnLogin(session, playerEntity, sanitizedIp, sanitizedVirtualHost, now, fence);
                 return null;
             });
 
@@ -139,7 +141,7 @@ public final class PlayerSessionService {
     /**
      * Updates open session server information on backend switch.
      */
-    public void updateServerOnSwitch(PlayerEntity playerEntity, String serverName) {
+    public void updateServerOnSwitch(PlayerEntity playerEntity, String serverName, SessionFence fence) {
         if (!featureEnabled) {
             return;
         }
@@ -156,7 +158,7 @@ public final class PlayerSessionService {
         final Instant now = Instant.now();
         try {
             dataRegistry.getORM().runInTransaction(session -> {
-                updateServerOnSwitch(session, playerEntity, sanitizedServer, now);
+                updateServerOnSwitch(session, playerEntity, sanitizedServer, now, fence);
                 return null;
             });
         } catch (RuntimeException exception) {
@@ -168,7 +170,7 @@ public final class PlayerSessionService {
     /**
      * Closes a currently open session on disconnect.
      */
-    public void closeSessionOnDisconnect(PlayerEntity playerEntity) {
+    public void closeSessionOnDisconnect(PlayerEntity playerEntity, SessionFence fence) {
         if (!featureEnabled) {
             return;
         }
@@ -180,7 +182,7 @@ public final class PlayerSessionService {
         final Instant now = Instant.now();
         try {
             dataRegistry.getORM().runInTransaction(session -> {
-                closeSessionOnDisconnect(session, playerEntity, now);
+                closeSessionOnDisconnect(session, playerEntity, now, fence);
                 return null;
             });
 
@@ -207,7 +209,8 @@ public final class PlayerSessionService {
             PlayerEntity playerEntity,
             String sanitizedIp,
             String sanitizedVirtualHost,
-            Instant now
+            Instant now,
+            SessionFence fence
     ) {
         if (!featureEnabled) {
             return;
@@ -239,13 +242,15 @@ public final class PlayerSessionService {
         sessionEntity.setIpAddress(sanitizedIp);
         sessionEntity.setVirtualHost(sanitizedVirtualHost);
         sessionEntity.setStartedAt(now);
+        sessionEntity.setSessionFence(fence);
         session.persist(sessionEntity);
     }
 
     /**
      * Updates open session and visit state in the supplied transaction.
      */
-    public void updateServerOnSwitch(Session session, PlayerEntity playerEntity, String serverName, Instant now) {
+    public void updateServerOnSwitch(Session session, PlayerEntity playerEntity, String serverName, Instant now,
+                                     SessionFence fence) {
         if (!featureEnabled) {
             return;
         }
@@ -264,6 +269,9 @@ public final class PlayerSessionService {
         }
 
         PlayerSessionEntity sessionEntity = openSession.get();
+        if (!sessionEntity.matches(fence)) {
+            throw new IllegalStateException("Open durable session changed before backend transfer");
+        }
         if (sessionEntity.getFirstServer() == null || sessionEntity.getFirstServer().isBlank()) {
             sessionEntity.setFirstServer(sanitizedServer);
         }
@@ -276,7 +284,8 @@ public final class PlayerSessionService {
     /**
      * Closes open session and visit state in the supplied transaction.
      */
-    public void closeSessionOnDisconnect(Session session, PlayerEntity playerEntity, Instant now) {
+    public void closeSessionOnDisconnect(Session session, PlayerEntity playerEntity, Instant now,
+                                         SessionFence fence) {
         if (!featureEnabled) {
             return;
         }
@@ -284,10 +293,16 @@ public final class PlayerSessionService {
         if (!isPersistedPlayer(playerEntity)) {
             throw new IllegalArgumentException("playerEntity must be a persisted player.");
         }
-        if (sessionVisitsEnabled) {
-            closeOpenVisit(playerEntity.getId(), now, session);
+        Optional<PlayerSessionEntity> open = findOpenSession(session, playerEntity.getId());
+        if (open.isEmpty() || !open.orElseThrow().matches(fence)) {
+            throw new IllegalStateException("Open durable session changed before disconnect");
         }
-        findOpenSession(session, playerEntity.getId()).ifPresent(sessionEntity -> sessionEntity.setEndedAt(now));
+        if (sessionVisitsEnabled) closeOpenVisit(playerEntity.getId(), now, session);
+        open.orElseThrow().setEndedAt(now);
+    }
+
+    public boolean isCurrent(Session session, PlayerEntity playerEntity, SessionFence fence) {
+        return findOpenSession(session, playerEntity.getId()).filter(value -> value.matches(fence)).isPresent();
     }
 
     /**

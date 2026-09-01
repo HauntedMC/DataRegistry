@@ -11,6 +11,7 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerConnectionInfoEnt
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLanguageEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleAuthorityEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerNameHistoryEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerNicknameEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionVisitEntity;
@@ -144,9 +145,10 @@ class DataRegistryTest {
         );
 
         assertTrue(registry.initialize());
-        assertEquals(3, registry.lastPlayerEntityClasses.length);
+        assertEquals(4, registry.lastPlayerEntityClasses.length);
         assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerEntity.class));
         assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerLifecycleOutboxEntity.class));
+        assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerLifecycleAuthorityEntity.class));
         assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerConnectionInfoEntity.class));
         assertFalse(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerActivitySummaryEntity.class));
         assertFalse(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerNameHistoryEntity.class));

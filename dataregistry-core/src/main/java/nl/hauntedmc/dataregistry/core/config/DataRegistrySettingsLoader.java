@@ -3,55 +3,66 @@ package nl.hauntedmc.dataregistry.core.config;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 
 import java.nio.file.Path;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
-/** Loads and parses DataRegistry runtime settings while keeping {@code config.yml} current. */
+/** Loads and validates the operator-supplied DataRegistry runtime settings. */
 public final class DataRegistrySettingsLoader {
 
     private final DataRegistrySettingsParser parser = new DataRegistrySettingsParser();
 
-    /** Loads runtime settings and adds any missing keys from the current packaged {@code config.yml}. */
+    /** Loads runtime settings, failing when a required clean-break setting is absent. */
     public DataRegistrySettings load(Path dataDirectory, ClassLoader resourceLoader, ILoggerAdapter logger) {
         Objects.requireNonNull(dataDirectory, "dataDirectory must not be null");
         Objects.requireNonNull(resourceLoader, "resourceLoader must not be null");
         Objects.requireNonNull(logger, "logger must not be null");
 
         Path configPath = DataRegistryConfigIO.ensureConfigFile(dataDirectory, resourceLoader, logger);
-        DataRegistryConfigIO.addMissingDefaults(configPath, resourceLoader, logger);
-        return parse(DataRegistryConfigIO.readConfig(configPath, logger), logger);
+        Map<?, ?> config = DataRegistryConfigIO.readConfig(configPath, logger);
+        validateCleanBreakConfiguration(config);
+        return parse(config, logger);
     }
 
     DataRegistrySettings parse(Map<?, ?> configRoot, ILoggerAdapter logger) {
-        return parser.parse(applyUpgradeDefaults(configRoot), logger);
+        return parser.parse(configRoot, logger);
     }
 
-    private static Map<?, ?> applyUpgradeDefaults(Map<?, ?> configRoot) {
-        Objects.requireNonNull(configRoot, "configRoot must not be null");
-        Object featuresNode = configRoot.get("features");
-        if (!(featuresNode instanceof Map<?, ?> features) || features.containsKey("population")) {
-            return configRoot;
+    private static void validateCleanBreakConfiguration(Map<?, ?> root) {
+        requireText(root, "database.profiles.sessions.connection-id");
+        requireText(root, "sessions.namespace");
+        requireValue(root, "sessions.lease-ttl-seconds");
+        requireValue(root, "sessions.renewal-interval-seconds");
+        requireValue(root, "sessions.expiry-safety-margin-millis");
+        requireValue(root, "sessions.directory-freshness-seconds");
+        requireText(root, "sessions.redis-outage-behavior");
+        String schema = requireText(root, "orm.schema-mode");
+        if (!"validate".equalsIgnoreCase(schema)) {
+            throw new IllegalArgumentException("orm.schema-mode must be 'validate'");
         }
-        if (!isExplicitlyFalse(features.get("online-status"))
-                && !isExplicitlyFalse(features.get("sessions"))
-                && !isExplicitlyFalse(features.get("session-visits"))) {
-            return configRoot;
+        String proxyId = requireText(root, "platform.velocity.service-name");
+        if ("auto".equalsIgnoreCase(proxyId) || "proxy-1".equalsIgnoreCase(proxyId)) {
+            throw new IllegalArgumentException(
+                    "platform.velocity.service-name must be an explicit stable unique proxy instance ID");
         }
-
-        Map<Object, Object> rootCopy = new LinkedHashMap<>();
-        configRoot.forEach(rootCopy::put);
-        Map<Object, Object> featuresCopy = new LinkedHashMap<>();
-        features.forEach(featuresCopy::put);
-        featuresCopy.put("population", false);
-        rootCopy.put("features", featuresCopy);
-        return rootCopy;
     }
 
-    private static boolean isExplicitlyFalse(Object value) {
-        if (value instanceof Boolean booleanValue) {
-            return !booleanValue;
+    private static String requireText(Map<?, ?> root, String path) {
+        Object value = requireValue(root, path);
+        if (!(value instanceof String text) || text.isBlank()) {
+            throw new IllegalArgumentException("Missing or blank required setting '" + path + "'");
         }
-        return value instanceof String stringValue && "false".equalsIgnoreCase(stringValue.trim());
+        return text.trim();
+    }
+
+    private static Object requireValue(Map<?, ?> root, String path) {
+        Object current = root;
+        for (String part : path.split("\\.")) {
+            if (!(current instanceof Map<?, ?> map) || !map.containsKey(part)) {
+                throw new IllegalArgumentException("Missing required setting '" + path + "'");
+            }
+            current = map.get(part);
+        }
+        if (current == null) throw new IllegalArgumentException("Missing required setting '" + path + "'");
+        return current;
     }
 }

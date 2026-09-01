@@ -101,13 +101,16 @@ class DataRegistryMySqlIT {
             PlayerLifecycleWriter writer = registry.newPlayerLifecycleWriter(platformLogger);
             Instant loginTime = Instant.parse("2026-07-25T12:00:00Z");
             assertTrue(writer.login(new LoginCommand(
-                    "login:integration:1", PLAYER_UUID.toString(), PLAYER_NAME, "203.0.113.10", "example.test", loginTime
+                    "login:integration:1", PLAYER_UUID.toString(), PLAYER_NAME, "203.0.113.10", "example.test", loginTime,
+                    TestSessionFences.current()
             )).succeeded());
             assertTrue(writer.transfer(new TransferCommand(
-                    "transfer:integration:1", PLAYER_UUID.toString(), PLAYER_NAME, "survival", loginTime.plusSeconds(30)
+                    "transfer:integration:1", PLAYER_UUID.toString(), PLAYER_NAME, "survival", loginTime.plusSeconds(30),
+                    TestSessionFences.current()
             )).succeeded());
             assertTrue(writer.disconnect(new DisconnectCommand(
-                    "disconnect:integration:1", PLAYER_UUID.toString(), PLAYER_NAME, loginTime.plusSeconds(60)
+                    "disconnect:integration:1", PLAYER_UUID.toString(), PLAYER_NAME, loginTime.plusSeconds(60),
+                    TestSessionFences.current()
             )).succeeded());
 
             PlayerIdentity identity = registry.players().findIdentity(PLAYER_UUID)
@@ -179,6 +182,7 @@ class DataRegistryMySqlIT {
                 PlayerSessionEntity bobSession = new PlayerSessionEntity();
                 bobSession.setPlayer(bob);
                 bobSession.setStartedAt(Instant.now().minusSeconds(30));
+                bobSession.setSessionFence(TestSessionFences.forPlayer(UUID.fromString(bob.getUuid())));
                 session.persist(bobSession);
                 PlayerPlaytimeSegmentEntity bobSegment = new PlayerPlaytimeSegmentEntity();
                 bobSegment.setPlayer(bob);
@@ -222,7 +226,7 @@ class DataRegistryMySqlIT {
         PlayerEntity player = new PlayerEntity();
         player.setUuid("20000000-0000-0000-0000-000000000001");
         player.setUsername("RetentionPlayer");
-        PlayerSessionEntity removableSession = session(player, closedAt, closedAt.plusSeconds(60));
+        PlayerSessionEntity removableSession = session(player, closedAt, closedAt.plusSeconds(60), 1L);
         PlayerSessionVisitEntity removableVisit = visit(player, removableSession, closedAt, closedAt.plusSeconds(30));
         PlayerPlaytimeSegmentEntity removableSegment = segment(
                 player,
@@ -230,7 +234,7 @@ class DataRegistryMySqlIT {
                 closedAt,
                 closedAt.plusSeconds(30)
         );
-        PlayerSessionEntity protectedSession = session(player, closedAt, closedAt.plusSeconds(60));
+        PlayerSessionEntity protectedSession = session(player, closedAt, closedAt.plusSeconds(60), 2L);
         PlayerPlaytimeSegmentEntity openSegment = segment(player, protectedSession, closedAt, null);
 
         DataRegistry registry = new DataRegistry(platformLogger, "DataRegistry", dataProvider, MYSQL_SETTINGS);
@@ -260,11 +264,12 @@ class DataRegistryMySqlIT {
         }
     }
 
-    private static PlayerSessionEntity session(PlayerEntity player, Instant startedAt, Instant endedAt) {
+    private static PlayerSessionEntity session(PlayerEntity player, Instant startedAt, Instant endedAt, long generation) {
         PlayerSessionEntity session = new PlayerSessionEntity();
         session.setPlayer(player);
         session.setStartedAt(startedAt);
         session.setEndedAt(endedAt);
+        session.setSessionFence(TestSessionFences.forPlayer(UUID.fromString(player.getUuid()), generation));
         return session;
     }
 
