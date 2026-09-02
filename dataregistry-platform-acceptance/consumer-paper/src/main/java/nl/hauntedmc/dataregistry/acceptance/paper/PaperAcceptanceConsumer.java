@@ -21,7 +21,11 @@ public final class PaperAcceptanceConsumer extends JavaPlugin {
     public void onEnable() {
         Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
             try {
-                DataRegistryApi api = resolveApi();
+                DataRegistryApiProvider provider = resolveProvider();
+                require(provider.getRuntimeIdentity().isEmpty(),
+                        "Paper service-name=auto must not publish an invented runtime identity.");
+
+                DataRegistryApi api = provider.getDataRegistry();
                 require(api.isReady(), "DataRegistry API is not ready.");
                 require(api.supports(DataRegistryFeature.LANGUAGE), "Language support is unexpectedly disabled.");
                 require(api.supports(DataRegistryFeature.NICKNAMES), "Nickname support is unexpectedly disabled.");
@@ -52,12 +56,12 @@ public final class PaperAcceptanceConsumer extends JavaPlugin {
         });
     }
 
-    private DataRegistryApi resolveApi() {
+    private DataRegistryApiProvider resolveProvider() {
         Plugin plugin = getServer().getPluginManager().getPlugin("DataRegistry");
         if (!(plugin instanceof DataRegistryApiProvider provider)) {
             throw new IllegalStateException("DataRegistry plugin does not expose DataRegistryApiProvider.");
         }
-        return provider.getDataRegistry();
+        return provider;
     }
 
     private static void require(boolean condition, String message) {

@@ -34,6 +34,25 @@ The builder supplies `FakePlayerData`, `FakePopulationData`, and `FakeFeatureSer
 custom collaborator is provided. Use `enableAll()` for broad integration-style tests and chain `disable(...)` when only
 a few unavailable domains need to be modeled; focused tests should generally continue to enable only what they use.
 
+## Runtime identity provider
+
+Runtime identity lives on `DataRegistryApiProvider`, not `DataRegistryApi`. Use `FakeDataRegistryApiProvider` when a
+consumer needs to test physical node identity without mocking a platform plugin:
+
+```java
+FakeDataRegistryApiProvider proxy = FakeDataRegistryApiProvider.proxy("proxy-01");
+RuntimeIdentity proxyIdentity = proxy.getRuntimeIdentity().orElseThrow();
+
+FakeDataRegistryApiProvider backend = FakeDataRegistryApiProvider.builder()
+        .dataRegistry(registry)
+        .backend("lobby-02")
+        .build();
+```
+
+The default builder publishes no runtime identity, matching providers that cannot safely expose one. `proxy(...)` and
+`backend(...)` create typed `PROXY` and `BACKEND` identities; `withoutRuntimeIdentity()` explicitly returns to the empty
+state. This keeps provider-level tests separate from DataRegistry-owned data-domain tests.
+
 ## Player data
 
 `FakePlayerData` implements the complete `PlayerData` and `PlayerDirectory` contracts. It supports identity lookup,

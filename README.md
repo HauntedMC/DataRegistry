@@ -24,7 +24,7 @@ tables and should reference players by the stable scalar `playerId`.
 - Java 25
 - Maven Wrapper (`./mvnw`; Maven 3.8.6+ is enforced by the build)
 - Docker, for the container-backed and platform-acceptance suites
-- DataProvider `3.4.0`
+- DataProvider `3.4.2`
 - Velocity `4.1.0-SNAPSHOT` and/or Paper `26.2`
 
 Configure both the shell `JAVA_HOME` and the IDE Maven runner/importer to Java 25. The build deliberately rejects
@@ -94,7 +94,7 @@ Depend only on `dataregistry-api` as `provided` (replace the version with the re
 <dependency>
   <groupId>nl.hauntedmc.dataregistry</groupId>
   <artifactId>dataregistry-api</artifactId>
-  <version>1.14.4</version>
+  <version>1.17.0</version>
   <scope>provided</scope>
 </dependency>
 ```
@@ -124,12 +124,19 @@ players.whenReady(uuid).thenAccept(identity -> {
 - `dataregistry-platform-velocity` owns authoritative proxy lifecycle listeners, including
   `PlayerStatusListener`; `dataregistry-platform-paper` provides the Paper identity bridge.
 - `dataregistry-testkit` supplies complete in-memory `FakePlayerData`, `FakePopulationData`,
-  `FakeFeatureServiceDirectory`, a fluent `FakeDataRegistryApi`, immutable player fixtures, temporary IDs, and async
-  failure helpers for consumer contract tests. See [dataregistry-testkit/README.md](dataregistry-testkit/README.md).
+  `FakeFeatureServiceDirectory`, a fluent `FakeDataRegistryApi`, `FakeDataRegistryApiProvider`, immutable player fixtures,
+  temporary IDs, and async failure helpers for consumer contract tests. See
+  [dataregistry-testkit/README.md](dataregistry-testkit/README.md).
 
 `DataRegistryApiProvider#getDataRegistry()` returns `DataRegistryApi`, not the core runtime. Platform plugins
 implement that provider capability; consumers can depend on `dataregistry-api` alone. There is deliberately no
 public path from that type to an ORM context, entity, repository, lifecycle writer, or DataProvider handle.
+
+`DataRegistryApiProvider#getRuntimeIdentity()` exposes only physical host-process metadata. On an active Velocity
+provider it contains the configured stable `platform.velocity.service-name` with kind `PROXY`. On Paper it contains
+`platform.bukkit.service-name` with kind `BACKEND` only when that name is explicit; the default `auto` value deliberately
+returns `Optional.empty()` rather than inventing an identity. Runtime identity is not a `DataRegistryApi` data domain and
+does not contain replica groups, cluster namespaces, leader state, or configuration-generation metadata.
 
 `DataRegistryApiProvider#getDataRegistryInstrumentation()` separately exposes the optional vendor-neutral observation
 capability of the active runtime. It does not add telemetry dependencies to DataRegistry or to normal API consumers.

@@ -5,6 +5,8 @@ import nl.hauntedmc.dataprovider.api.DataProviderApiSupplier;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
 import nl.hauntedmc.dataregistry.api.DataRegistryApi;
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
+import nl.hauntedmc.dataregistry.api.runtime.RuntimeIdentity;
+import nl.hauntedmc.dataregistry.api.runtime.RuntimeKind;
 import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceKind;
 import nl.hauntedmc.dataregistry.core.service.PlayerService;
 import nl.hauntedmc.dataregistry.core.service.ServiceRegistryService;
@@ -20,6 +22,7 @@ import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
+import java.util.Optional;
 import java.util.UUID;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
@@ -260,6 +263,19 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
     @Override
     public DataRegistryApi getDataRegistry() {
         return runtime.getDataRegistry();
+    }
+
+    @Override
+    public Optional<RuntimeIdentity> getRuntimeIdentity() {
+        try {
+            getDataRegistry();
+        } catch (IllegalStateException unavailable) {
+            return Optional.empty();
+        }
+        if (settings == null || settings.isBukkitServiceNameAuto()) {
+            return Optional.empty();
+        }
+        return Optional.of(new RuntimeIdentity(settings.bukkitServiceName(), RuntimeKind.BACKEND));
     }
 
     /**
