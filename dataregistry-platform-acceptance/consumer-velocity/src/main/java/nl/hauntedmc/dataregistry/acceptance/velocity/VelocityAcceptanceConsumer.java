@@ -10,6 +10,7 @@ import nl.hauntedmc.dataregistry.api.DataRegistryApi;
 import nl.hauntedmc.dataregistry.api.DataRegistryApiProvider;
 import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
+import nl.hauntedmc.dataregistry.api.runtime.RuntimeKind;
 import org.slf4j.Logger;
 
 import java.util.UUID;
@@ -39,7 +40,15 @@ public final class VelocityAcceptanceConsumer {
     public void onProxyInitialize(ProxyInitializeEvent event) {
         proxy.getScheduler().buildTask(this, () -> {
             try {
-                DataRegistryApi api = resolveApi();
+                DataRegistryApiProvider provider = resolveProvider();
+                var runtimeIdentity = provider.getRuntimeIdentity().orElseThrow(() ->
+                        new IllegalStateException("Velocity runtime identity is unavailable."));
+                require("acceptance-proxy".equals(runtimeIdentity.serviceName()),
+                        "Velocity runtime identity did not use configured service-name.");
+                require(runtimeIdentity.kind() == RuntimeKind.PROXY,
+                        "Velocity runtime identity kind is not PROXY.");
+
+                DataRegistryApi api = provider.getDataRegistry();
                 require(api.isReady(), "DataRegistry API is not ready.");
                 require(api.supports(DataRegistryFeature.LANGUAGE), "Language support is unexpectedly disabled.");
                 PlayerIdentity identity = api.players().findIdentity(PLAYER_UUID)
@@ -67,14 +76,14 @@ public final class VelocityAcceptanceConsumer {
         }).schedule();
     }
 
-    private DataRegistryApi resolveApi() {
+    private DataRegistryApiProvider resolveProvider() {
         Object plugin = proxy.getPluginManager().getPlugin("dataregistry")
                 .flatMap(container -> container.getInstance())
                 .orElseThrow(() -> new IllegalStateException("DataRegistry plugin instance is unavailable."));
         if (!(plugin instanceof DataRegistryApiProvider provider)) {
             throw new IllegalStateException("DataRegistry plugin does not expose DataRegistryApiProvider.");
         }
-        return provider.getDataRegistry();
+        return provider;
     }
 
     private static void require(boolean condition, String message) {
