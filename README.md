@@ -403,3 +403,7 @@ Build output:
 Deploy the `bundled` platform JAR only. It embeds the platform's relocated core implementation while retaining the
 public `DataRegistryApi` namespace. Do not deploy `dataregistry-core` as a separate server plugin and do not add it
 as a dependency to feature plugins.
+
+## License
+
+This project is licensed under the [GNU Affero General Public License v3.0](LICENSE).
