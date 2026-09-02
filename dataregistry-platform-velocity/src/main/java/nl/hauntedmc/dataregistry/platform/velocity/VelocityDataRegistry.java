@@ -23,6 +23,8 @@ import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.api.player.PlayerLookup;
 import nl.hauntedmc.dataregistry.api.player.PlayerProfileQuery;
 import nl.hauntedmc.dataregistry.api.player.PlayerProfileResult;
+import nl.hauntedmc.dataregistry.api.runtime.RuntimeIdentity;
+import nl.hauntedmc.dataregistry.api.runtime.RuntimeKind;
 import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceKind;
 import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceProbeStatus;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerLifecycleOutboxRepository;
@@ -83,7 +85,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @Plugin(
         id = "dataregistry",
         name = "DataRegistry",
-        version = "1.16.0",
+        version = "1.17.0",
         description = "DataRegistry for cross-platform data handling.",
         authors = {"HauntedMC"},
         dependencies = @Dependency(id = "dataprovider")
@@ -190,6 +192,16 @@ public class VelocityDataRegistry implements PlatformPlugin {
     @Override
     public DataRegistryApi getDataRegistry() {
         return runtime.getDataRegistry();
+    }
+
+    @Override
+    public Optional<RuntimeIdentity> getRuntimeIdentity() {
+        try {
+            getDataRegistry();
+        } catch (IllegalStateException unavailable) {
+            return Optional.empty();
+        }
+        return Optional.of(new RuntimeIdentity(settings.velocityServiceName(), RuntimeKind.PROXY));
     }
 
     /**
