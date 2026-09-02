@@ -1,6 +1,9 @@
 package nl.hauntedmc.dataregistry.api;
 
 import nl.hauntedmc.dataregistry.api.observation.DataRegistryInstrumentation;
+import nl.hauntedmc.dataregistry.api.runtime.RuntimeIdentity;
+
+import java.util.Optional;
 
 /**
  * Public platform capability that supplies the narrow DataRegistry API.
@@ -16,6 +19,19 @@ public interface DataRegistryApiProvider {
      * @return the persistence-agnostic API facade.
      */
     DataRegistryApi getDataRegistry();
+
+    /**
+     * Returns the physical runtime identity represented by this provider when it is available.
+     *
+     * <p>Identity is intentionally provider metadata rather than part of {@link DataRegistryApi}: it describes
+     * the hosting process, not a DataRegistry-owned data domain. The default stays empty so existing custom provider
+     * implementations remain source and binary compatible.</p>
+     *
+     * @return the current runtime identity, or empty when the provider cannot publish one safely.
+     */
+    default Optional<RuntimeIdentity> getRuntimeIdentity() {
+        return Optional.empty();
+    }
 
     /**
      * Returns the optional vendor-neutral instrumentation capability for the active runtime.
