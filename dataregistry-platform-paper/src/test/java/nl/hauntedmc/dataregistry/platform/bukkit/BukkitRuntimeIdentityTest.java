@@ -10,6 +10,7 @@ import java.lang.reflect.Field;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.withSettings;
 
@@ -40,6 +41,7 @@ class BukkitRuntimeIdentityTest {
                 BukkitDataRegistry.class,
                 withSettings().defaultAnswer(invocation -> invocation.callRealMethod())
         );
+        doThrow(new IllegalStateException("runtime unavailable")).when(plugin).getDataRegistry();
 
         assertTrue(plugin.getRuntimeIdentity().isEmpty());
     }
