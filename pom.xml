@@ -56,8 +56,8 @@
         <paper.runtime.build>65</paper.runtime.build>
         <paper.runtime.sha256>d290ee2a3ae92fea10afb0c74f797023d74cfd72cbcee44314e0c50d5551f2c6</paper.runtime.sha256>
         <velocity.version>4.1.1</velocity.version>
-        <velocity.runtime.build>9</velocity.runtime.build>
-        <velocity.runtime.sha256>635ffe27b4fe1b97e61479012121d4e7c61a9eec99e6bd5a1f923053c2a259ce</velocity.runtime.sha256>
+        <velocity.runtime.build>24</velocity.runtime.build>
+        <velocity.runtime.sha256>846411d2d0560fed0f23496ffb89681be528d2c0650ecdcf21724d2d7bd9c1ee</velocity.runtime.sha256>
         <adventure.version>${haunted.adventure.version}</adventure.version>
         <!-- Test libraries. -->
         <junit.version>${haunted.junit.version}</junit.version>
