@@ -11,6 +11,7 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerOnlineStatusEntit
 import nl.hauntedmc.dataregistry.api.player.PlayerActivitySnapshot;
 import nl.hauntedmc.dataregistry.api.player.PlayerConnectionSnapshot;
 import nl.hauntedmc.dataregistry.api.player.PlayerData;
+import nl.hauntedmc.dataregistry.api.player.PlayerDataVisibility;
 import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.api.player.PlayerLanguageSettings;
@@ -34,6 +35,7 @@ import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerNameHistoryRe
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerNicknameRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerOnlineStatusRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerPlaytimeRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerPrivacyRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerRepository;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import org.hibernate.Session;
@@ -66,6 +68,7 @@ public final class RepositoryPlayerData implements PlayerData {
     private final PlayerNicknameRepository nicknameRepository;
     private final PlayerNameHistoryRepository nameHistoryRepository;
     private final PlayerPlaytimeRepository playtimeRepository;
+    private final PlayerPrivacyRepository privacyRepository;
 
     public RepositoryPlayerData(
             PlayerDirectory playerDirectory,
@@ -90,6 +93,37 @@ public final class RepositoryPlayerData implements PlayerData {
                 nicknameRepository,
                 nameHistoryRepository,
                 playtimeRepository,
+                null,
+                Set.of()
+        );
+    }
+
+    /** Constructor for isolated repository tests that do not require an ORM-backed profile projection. */
+    public RepositoryPlayerData(
+            PlayerDirectory playerDirectory,
+            Set<DataRegistryFeature> enabledFeatures,
+            PlayerActivitySummaryRepository activitySummaryRepository,
+            PlayerOnlineStatusRepository onlineStatusRepository,
+            PlayerConnectionInfoRepository connectionInfoRepository,
+            PlayerLanguageRepository languageRepository,
+            PlayerNicknameRepository nicknameRepository,
+            PlayerNameHistoryRepository nameHistoryRepository,
+            PlayerPlaytimeRepository playtimeRepository,
+            PlayerPrivacyRepository privacyRepository
+    ) {
+        this(
+                playerDirectory,
+                DataRegistryQueryExecutor.immediateForTesting(),
+                null,
+                enabledFeatures,
+                activitySummaryRepository,
+                onlineStatusRepository,
+                connectionInfoRepository,
+                languageRepository,
+                nicknameRepository,
+                nameHistoryRepository,
+                playtimeRepository,
+                privacyRepository,
                 Set.of()
         );
     }
@@ -106,6 +140,7 @@ public final class RepositoryPlayerData implements PlayerData {
             PlayerNicknameRepository nicknameRepository,
             PlayerNameHistoryRepository nameHistoryRepository,
             PlayerPlaytimeRepository playtimeRepository,
+            PlayerPrivacyRepository privacyRepository,
             Collection<String> playtimeExcludedGamemodeKeys
     ) {
         this.playerDirectory = Objects.requireNonNull(playerDirectory, "playerDirectory must not be null");
@@ -119,6 +154,7 @@ public final class RepositoryPlayerData implements PlayerData {
         this.nicknameRepository = nicknameRepository;
         this.nameHistoryRepository = nameHistoryRepository;
         this.playtimeRepository = playtimeRepository;
+        this.privacyRepository = privacyRepository;
         Objects.requireNonNull(playtimeExcludedGamemodeKeys, "playtimeExcludedGamemodeKeys must not be null");
     }
 
@@ -259,6 +295,63 @@ public final class RepositoryPlayerData implements PlayerData {
                 languageRepository.deleteByPlayerId(playerId);
             }
             return null;
+        });
+    }
+
+    @Override
+    public CompletionStage<PlayerDataVisibility> findPrivacy(long playerId) {
+        return queryExecutor.supply("player.privacy.find", () -> {
+            requireRepository(privacyRepository, DataRegistryFeature.PRIVACY);
+            requirePositivePlayerId(playerId);
+            return privacyRepository.findVisibility(playerId);
+        });
+    }
+
+    @Override
+    public CompletionStage<PlayerDataVisibility> findPrivacy(UUID uuid) {
+        Objects.requireNonNull(uuid, "uuid must not be null");
+        requireRepository(privacyRepository, DataRegistryFeature.PRIVACY);
+        return findPlayerId(uuid).thenCompose(playerId -> playerId
+                .map(this::findPrivacy)
+                .orElseGet(() -> CompletableFuture.completedFuture(PlayerDataVisibility.PUBLIC)));
+    }
+
+    @Override
+    public CompletionStage<Map<Long, PlayerDataVisibility>> findPrivacy(Collection<Long> playerIds) {
+        Objects.requireNonNull(playerIds, "playerIds must not be null");
+        List<Long> requestedIds = List.copyOf(playerIds);
+        return queryExecutor.supply("player.privacy.find-batch", () -> {
+            requireRepository(privacyRepository, DataRegistryFeature.PRIVACY);
+            for (Long playerId : requestedIds) {
+                if (playerId == null) {
+                    throw new IllegalArgumentException("playerIds must not contain null values.");
+                }
+                requirePositivePlayerId(playerId);
+            }
+            return privacyRepository.findVisibilities(requestedIds);
+        });
+    }
+
+    @Override
+    public CompletionStage<Void> savePrivacy(long playerId, PlayerDataVisibility visibility) {
+        return queryExecutor.supply("player.privacy.save", () -> {
+            requireRepository(privacyRepository, DataRegistryFeature.PRIVACY);
+            requirePositivePlayerId(playerId);
+            privacyRepository.saveVisibility(playerId, Objects.requireNonNull(visibility, "visibility must not be null"));
+            return null;
+        });
+    }
+
+    @Override
+    public CompletionStage<Boolean> savePrivacy(UUID uuid, PlayerDataVisibility visibility) {
+        Objects.requireNonNull(uuid, "uuid must not be null");
+        Objects.requireNonNull(visibility, "visibility must not be null");
+        requireRepository(privacyRepository, DataRegistryFeature.PRIVACY);
+        return findPlayerId(uuid).thenCompose(playerId -> {
+            if (playerId.isEmpty()) {
+                return CompletableFuture.completedFuture(false);
+            }
+            return savePrivacy(playerId.get(), visibility).thenApply(ignored -> true);
         });
     }
 
@@ -505,6 +598,27 @@ public final class RepositoryPlayerData implements PlayerData {
                 return List.of();
             }
             return playtimeRepository.findTopPlayersByGamemode(gamemodeKey, limit);
+        });
+    }
+
+    @Override
+    public CompletionStage<List<PlayerPlaytimeLeaderboardEntry>> findTopPublicPlaytime(int limit) {
+        return queryExecutor.supply("player.playtime.public-leaderboard", () -> {
+            requireRepository(playtimeRepository, DataRegistryFeature.PLAYTIME);
+            requireRepository(privacyRepository, DataRegistryFeature.PRIVACY);
+            return playtimeRepository.findTopPublicPlayersByNetworkTotal(limit);
+        });
+    }
+
+    @Override
+    public CompletionStage<List<PlayerPlaytimeLeaderboardEntry>> findTopPublicPlaytimeByGamemode(
+            String gamemodeKey,
+            int limit
+    ) {
+        return queryExecutor.supply("player.playtime.public-gamemode-leaderboard", () -> {
+            requireRepository(playtimeRepository, DataRegistryFeature.PLAYTIME);
+            requireRepository(privacyRepository, DataRegistryFeature.PRIVACY);
+            return playtimeRepository.findTopPublicPlayersByGamemode(gamemodeKey, limit);
         });
     }
 
@@ -845,6 +959,12 @@ public final class RepositoryPlayerData implements PlayerData {
     private static void requireRepository(Object repository, DataRegistryFeature feature) {
         if (repository == null) {
             throw new IllegalStateException(feature + " data is unavailable.");
+        }
+    }
+
+    private static void requirePositivePlayerId(long playerId) {
+        if (playerId <= 0L) {
+            throw new IllegalArgumentException("playerId must be a positive database id.");
         }
     }
 

@@ -72,6 +72,36 @@ public interface PlayerData {
 
     CompletionStage<Void> clearLanguage(long playerId);
 
+    /**
+     * Finds a player's disclosure setting. Players without a persisted setting are {@link PlayerDataVisibility#PUBLIC}.
+     *
+     * @throws IllegalArgumentException when {@code playerId} is not a positive database ID
+     */
+    CompletionStage<PlayerDataVisibility> findPrivacy(long playerId);
+
+    /**
+     * Finds a player's disclosure setting. An unknown UUID has no persisted privacy state and is therefore public.
+     */
+    CompletionStage<PlayerDataVisibility> findPrivacy(UUID uuid);
+
+    /**
+     * Finds disclosure settings for the supplied player IDs, including {@link PlayerDataVisibility#PUBLIC} for IDs
+     * without a persisted row.
+     */
+    CompletionStage<Map<Long, PlayerDataVisibility>> findPrivacy(Collection<Long> playerIds);
+
+    /**
+     * Saves a player's disclosure setting. Saving {@link PlayerDataVisibility#PUBLIC} resets the persisted state.
+     */
+    CompletionStage<Void> savePrivacy(long playerId, PlayerDataVisibility visibility);
+
+    /**
+     * Saves a known player's disclosure setting.
+     *
+     * @return {@code false} when no player exists for {@code uuid}
+     */
+    CompletionStage<Boolean> savePrivacy(UUID uuid, PlayerDataVisibility visibility);
+
     CompletionStage<Optional<String>> findNickname(long playerId);
 
     CompletionStage<Optional<String>> findNickname(UUID uuid);
@@ -136,6 +166,16 @@ public interface PlayerData {
     CompletionStage<List<PlayerPlaytimeLeaderboardEntry>> findTopPlaytime(int limit);
 
     CompletionStage<List<PlayerPlaytimeLeaderboardEntry>> findTopPlaytimeByGamemode(String gamemodeKey, int limit);
+
+    /**
+     * Finds the public network-total leaderboard. Privacy filtering happens in persistence before ordering and limits.
+     */
+    CompletionStage<List<PlayerPlaytimeLeaderboardEntry>> findTopPublicPlaytime(int limit);
+
+    /**
+     * Finds the public logical-gamemode leaderboard. Privacy filtering happens in persistence before ordering and limits.
+     */
+    CompletionStage<List<PlayerPlaytimeLeaderboardEntry>> findTopPublicPlaytimeByGamemode(String gamemodeKey, int limit);
 
     /** Returns observed gamemode keys only; configured-but-unseen mappings are intentionally omitted. */
     CompletionStage<List<String>> findTrackedGamemodeKeys();

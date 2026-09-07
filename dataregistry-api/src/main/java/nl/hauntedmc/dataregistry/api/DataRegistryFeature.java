@@ -15,6 +15,7 @@ public enum DataRegistryFeature {
     SESSION_VISITS("session-visits"),
     POPULATION("population"),
     PLAYTIME("playtime"),
+    PRIVACY("privacy"),
     LANGUAGE("language"),
     NICKNAMES("nicknames"),
     NAME_HISTORY("name-history"),

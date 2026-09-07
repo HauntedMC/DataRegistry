@@ -7,6 +7,7 @@ import nl.hauntedmc.dataprovider.api.orm.ORMContext;
 import nl.hauntedmc.dataprovider.database.DatabaseType;
 import nl.hauntedmc.dataprovider.database.relational.RelationalDatabaseProvider;
 import nl.hauntedmc.dataprovider.logging.LoggerAdapter;
+import nl.hauntedmc.dataregistry.api.player.PlayerDataVisibility;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.core.lifecycle.DisconnectCommand;
@@ -16,6 +17,7 @@ import nl.hauntedmc.dataregistry.core.lifecycle.TransferCommand;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPrivacyEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionVisitEntity;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
@@ -179,6 +181,24 @@ class DataRegistryMySqlIT {
                 bobPlaytime.setLastTrackedAt(Instant.now().minusSeconds(30));
                 session.persist(bobPlaytime);
 
+                PlayerEntity privatePlayer = new PlayerEntity();
+                privatePlayer.setUuid("10000000-0000-0000-0000-000000000003");
+                privatePlayer.setUsername("LeaderboardPrivate");
+                session.persist(privatePlayer);
+                PlayerPlaytimeEntity privatePlaytime = new PlayerPlaytimeEntity();
+                privatePlaytime.setPlayer(privatePlayer);
+                privatePlaytime.setGamemodeKey("skyblock");
+                privatePlaytime.setTrackedMillis(12_000L);
+                privatePlaytime.setSegmentCount(1L);
+                privatePlaytime.setFirstTrackedAt(Instant.now().minusSeconds(60));
+                privatePlaytime.setLastTrackedAt(Instant.now().minusSeconds(30));
+                session.persist(privatePlaytime);
+                PlayerPrivacyEntity privateSetting = new PlayerPrivacyEntity();
+                privateSetting.setPlayerId(privatePlayer.getId());
+                privateSetting.setPlayer(privatePlayer);
+                privateSetting.setVisibility(PlayerDataVisibility.PRIVATE);
+                session.persist(privateSetting);
+
                 PlayerSessionEntity bobSession = new PlayerSessionEntity();
                 bobSession.setPlayer(bob);
                 bobSession.setStartedAt(Instant.now().minusSeconds(30));
@@ -202,8 +222,20 @@ class DataRegistryMySqlIT {
                     .get(10, TimeUnit.SECONDS);
 
             assertEquals(1, leaderboard.size());
-            assertEquals("LeaderboardBob", leaderboard.getFirst().username());
-            assertTrue(leaderboard.getFirst().trackedMillis() >= 7_000L);
+            assertEquals("LeaderboardPrivate", leaderboard.getFirst().username());
+            assertTrue(leaderboard.getFirst().trackedMillis() >= 12_000L);
+
+            List<nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeLeaderboardEntry> publicLeaderboard = registry.players()
+                    .findTopPublicPlaytimeByGamemode("skyblock", 2)
+                    .toCompletableFuture()
+                    .get(10, TimeUnit.SECONDS);
+
+            assertEquals(List.of("LeaderboardBob", "LeaderboardAlice"), publicLeaderboard.stream()
+                    .map(nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeLeaderboardEntry::username)
+                    .toList());
+            assertEquals(List.of(1L, 2L), publicLeaderboard.stream()
+                    .map(nl.hauntedmc.dataregistry.api.playtime.PlayerPlaytimeLeaderboardEntry::rank)
+                    .toList());
         } finally {
             registry.shutdown();
         }

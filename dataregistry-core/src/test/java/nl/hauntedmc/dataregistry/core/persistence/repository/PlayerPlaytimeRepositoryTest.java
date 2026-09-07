@@ -157,6 +157,36 @@ class PlayerPlaytimeRepositoryTest {
     }
 
     @Test
+    void publicLeaderboardsFilterPrivacyInSqlBeforeLimitAndRerankVisiblePlayers() {
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        NativeQuery<Object[]> leaderboardQuery = mock(NativeQuery.class);
+        PlayerPlaytimeRepository repository = new PlayerPlaytimeRepository(ormContext);
+
+        executeTransactionsWithSession(ormContext, session);
+        when(session.createNativeQuery(anyString())).thenReturn(leaderboardQuery);
+        when(leaderboardQuery.setParameter(eq("asOf"), org.mockito.ArgumentMatchers.any(Instant.class)))
+                .thenReturn(leaderboardQuery);
+        when(leaderboardQuery.setMaxResults(2)).thenReturn(leaderboardQuery);
+        when(leaderboardQuery.list()).thenReturn(List.<Object[]>of(
+                new Object[]{12L, "33333333-3333-3333-3333-333333333333", "PublicOne", 8_000L},
+                new Object[]{10L, "11111111-1111-1111-1111-111111111111", "PublicTwo", 4_000L}
+        ));
+
+        List<PlayerPlaytimeLeaderboardEntry> leaderboard = repository.findTopPublicPlayersByNetworkTotal(2);
+
+        assertEquals(List.of(1L, 2L), leaderboard.stream().map(PlayerPlaytimeLeaderboardEntry::rank).toList());
+        verify(leaderboardQuery).setMaxResults(2);
+        org.mockito.ArgumentCaptor<String> sql = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(session).createNativeQuery(sql.capture());
+        org.junit.jupiter.api.Assertions.assertTrue(sql.getValue().contains("LEFT JOIN player_privacy privacy"));
+        org.junit.jupiter.api.Assertions.assertTrue(sql.getValue().contains(
+                "WHERE COALESCE(privacy.visibility, 'PUBLIC') = 'PUBLIC' GROUP BY"
+        ));
+    }
+
+    @Test
     void findSnapshotByPlayerUuidReturnsEmptyForInvalidUuid() {
         PlayerPlaytimeRepository repository = new PlayerPlaytimeRepository(mock(ORMContext.class));
 

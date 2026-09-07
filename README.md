@@ -4,7 +4,7 @@ DataRegistry is HauntedMC's shared read/write boundary for canonical player iden
 player metadata on Velocity and Paper.
 
 It owns player creation, username updates, active identity state, connection metadata, language and nickname
-preferences, playtime summaries, population membership and counters, and name history. Feature plugins own their own
+preferences, privacy settings, playtime summaries, population membership and counters, and name history. Feature plugins own their own
 tables and should reference players by the stable scalar `playerId`.
 
 ## Runtime
@@ -114,6 +114,12 @@ players.whenReady(uuid).thenAccept(identity -> {
     });
 });
 ```
+
+The enabled-by-default `PRIVACY` domain stores optional player-facing disclosure settings. A missing row is `PUBLIC`.
+Use `players.findPrivacy(...)` and `players.savePrivacy(...)` for authoritative privacy state. Keep the existing
+`findTopPlaytime...` methods for internal/raw use; viewerless player-facing playtime rankings must use
+`findTopPublicPlaytime(...)` or `findTopPublicPlaytimeByGamemode(...)`, which filter to `PUBLIC` in SQL before
+ordering and limiting.
 
 ### Artifact boundaries
 

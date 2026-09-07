@@ -13,6 +13,7 @@ import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerNameHistoryRe
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerNicknameRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerOnlineStatusRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerPlaytimeRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerPrivacyRepository;
 import nl.hauntedmc.dataregistry.core.player.DataRegistryQueryExecutor;
 import nl.hauntedmc.dataregistry.core.player.RepositoryPlayerData;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
@@ -76,6 +77,64 @@ class PlayerDataTest {
 
         assertFalse(join(playerData.saveNickname(uuid, "Ghost")));
         verifyNoInteractions(nicknameRepository);
+    }
+
+    @Test
+    void privacyUsesPublicAsTheMissingDefaultAndSupportsIdUuidAndBatchReads() {
+        UUID uuid = UUID.randomUUID();
+        PlayerDirectory directory = mock(PlayerDirectory.class);
+        PlayerPrivacyRepository privacyRepository = mock(PlayerPrivacyRepository.class);
+        PlayerIdentity identity = new PlayerIdentity(42L, uuid, "Alice");
+        when(directory.findActiveIdentityCached(uuid)).thenReturn(Optional.of(identity));
+        when(privacyRepository.findVisibility(42L)).thenReturn(PlayerDataVisibility.FRIENDS);
+        when(privacyRepository.findVisibilities(List.of(42L, 43L))).thenReturn(java.util.Map.of(
+                42L, PlayerDataVisibility.FRIENDS,
+                43L, PlayerDataVisibility.PUBLIC
+        ));
+        PlayerData playerData = new RepositoryPlayerData(
+                directory,
+                EnumSet.allOf(DataRegistryFeature.class),
+                null, null, null, null, null, null, null, privacyRepository
+        );
+
+        assertEquals(PlayerDataVisibility.FRIENDS, join(playerData.findPrivacy(42L)));
+        assertEquals(PlayerDataVisibility.FRIENDS, join(playerData.findPrivacy(uuid)));
+        assertEquals(
+                java.util.Map.of(42L, PlayerDataVisibility.FRIENDS, 43L, PlayerDataVisibility.PUBLIC),
+                join(playerData.findPrivacy(List.of(42L, 43L)))
+        );
+
+        UUID unknown = UUID.randomUUID();
+        when(directory.findActiveIdentityCached(unknown)).thenReturn(Optional.empty());
+        when(directory.findByUuid(unknown)).thenReturn(CompletableFuture.completedFuture(Optional.empty()));
+        assertEquals(PlayerDataVisibility.PUBLIC, join(playerData.findPrivacy(unknown)));
+    }
+
+    @Test
+    void privacySavesEveryValueAndUuidSaveReportsUnknownPlayers() {
+        UUID uuid = UUID.randomUUID();
+        PlayerDirectory directory = mock(PlayerDirectory.class);
+        PlayerPrivacyRepository privacyRepository = mock(PlayerPrivacyRepository.class);
+        PlayerIdentity identity = new PlayerIdentity(54L, uuid, "Alice");
+        when(directory.findActiveIdentityCached(uuid)).thenReturn(Optional.of(identity));
+        PlayerData playerData = new RepositoryPlayerData(
+                directory,
+                EnumSet.allOf(DataRegistryFeature.class),
+                null, null, null, null, null, null, null, privacyRepository
+        );
+
+        join(playerData.savePrivacy(54L, PlayerDataVisibility.PUBLIC));
+        join(playerData.savePrivacy(54L, PlayerDataVisibility.FRIENDS));
+        assertTrue(join(playerData.savePrivacy(uuid, PlayerDataVisibility.PRIVATE)));
+
+        verify(privacyRepository).saveVisibility(54L, PlayerDataVisibility.PUBLIC);
+        verify(privacyRepository).saveVisibility(54L, PlayerDataVisibility.FRIENDS);
+        verify(privacyRepository).saveVisibility(54L, PlayerDataVisibility.PRIVATE);
+
+        UUID unknown = UUID.randomUUID();
+        when(directory.findActiveIdentityCached(unknown)).thenReturn(Optional.empty());
+        when(directory.findByUuid(unknown)).thenReturn(CompletableFuture.completedFuture(Optional.empty()));
+        assertFalse(join(playerData.savePrivacy(unknown, PlayerDataVisibility.PRIVATE)));
     }
 
     @Test
@@ -266,6 +325,7 @@ class PlayerDataTest {
                 DataRegistryQueryExecutor.immediateForTesting(),
                 ormContext,
                 EnumSet.allOf(DataRegistryFeature.class),
+                null,
                 null,
                 null,
                 null,

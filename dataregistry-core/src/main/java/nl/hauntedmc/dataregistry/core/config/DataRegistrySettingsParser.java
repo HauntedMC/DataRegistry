@@ -39,6 +39,7 @@ final class DataRegistrySettingsParser {
     private static final String FEATURE_SESSION_VISITS_KEY = "features.session-visits";
     private static final String FEATURE_POPULATION_KEY = "features.population";
     private static final String FEATURE_PLAYTIME_KEY = "features.playtime";
+    private static final String FEATURE_PRIVACY_KEY = "features.privacy";
     private static final String FEATURE_LANGUAGE_KEY = "features.language";
     private static final String FEATURE_NICKNAMES_KEY = "features.nicknames";
     private static final String FEATURE_NAME_HISTORY_KEY = "features.name-history";
@@ -520,6 +521,10 @@ final class DataRegistrySettingsParser {
                 logger
         )) {
             enabledFeatures.add(DataRegistryFeature.PLAYTIME);
+        }
+        if (parseBoolean(configRoot, FEATURE_PRIVACY_KEY,
+                defaults.isFeatureEnabled(DataRegistryFeature.PRIVACY), logger)) {
+            enabledFeatures.add(DataRegistryFeature.PRIVACY);
         }
 
         if (!enabledFeatures.contains(DataRegistryFeature.SESSIONS)

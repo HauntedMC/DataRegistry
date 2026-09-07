@@ -39,6 +39,7 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerNicknameEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerOnlineStatusEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPrivacyEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPopulationMembershipEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionVisitEntity;
@@ -57,6 +58,7 @@ import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerNicknameRepos
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerOnlineStatusRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerPlaytimeRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerPlaytimeSegmentRepository;
+import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerPrivacyRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerSessionRepository;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerSessionVisitRepository;
@@ -122,6 +124,7 @@ public class DataRegistry implements DataRegistryApi, DataRegistryInstrumentatio
     private PlayerSessionRepository playerSessionRepository;
     private PlayerSessionVisitRepository playerSessionVisitRepository;
     private PlayerPlaytimeRepository playerPlaytimeRepository;
+    private PlayerPrivacyRepository playerPrivacyRepository;
     private PlayerPlaytimeSegmentRepository playerPlaytimeSegmentRepository;
     private PopulationRepository populationRepository;
     private NetworkServiceRepository networkServiceRepository;
@@ -237,6 +240,9 @@ public class DataRegistry implements DataRegistryApi, DataRegistryInstrumentatio
                 this.playerPlaytimeRepository = settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
                         ? newPlayerPlaytimeRepository(queryOrmContext)
                         : null;
+                this.playerPrivacyRepository = settings.isFeatureEnabled(DataRegistryFeature.PRIVACY)
+                        ? newPlayerPrivacyRepository(queryOrmContext)
+                        : null;
                 if (playerPlaytimeRepository != null) {
                     if (lifecycleAuthority) {
                         playerPlaytimeRepository.initializeMetadata();
@@ -262,6 +268,7 @@ public class DataRegistry implements DataRegistryApi, DataRegistryInstrumentatio
                         playerNicknameRepository,
                         playerNameHistoryRepository,
                         playerPlaytimeRepository,
+                        playerPrivacyRepository,
                         settings.playtimeTrackingSettings().excludedFromNetworkTotalGamemodes()
                 );
                 this.populationData = populationRepository == null
@@ -343,6 +350,7 @@ public class DataRegistry implements DataRegistryApi, DataRegistryInstrumentatio
         playerSessionRepository = null;
         playerSessionVisitRepository = null;
         playerPlaytimeRepository = null;
+        playerPrivacyRepository = null;
         playerPlaytimeSegmentRepository = null;
         populationRepository = null;
         networkServiceRepository = null;
@@ -816,6 +824,10 @@ public class DataRegistry implements DataRegistryApi, DataRegistryInstrumentatio
         );
     }
 
+    PlayerPrivacyRepository newPlayerPrivacyRepository(ORMContext context) {
+        return new PlayerPrivacyRepository(context);
+    }
+
     PlayerPlaytimeSegmentRepository newPlayerPlaytimeSegmentRepository(ORMContext context) {
         return new PlayerPlaytimeSegmentRepository(context);
     }
@@ -869,6 +881,9 @@ public class DataRegistry implements DataRegistryApi, DataRegistryInstrumentatio
             entityClasses.add(PlayerPlaytimeEntity.class);
             entityClasses.add(PlayerPlaytimeSegmentEntity.class);
             entityClasses.add(TrackedGamemodeEntity.class);
+        }
+        if (settings.isFeatureEnabled(DataRegistryFeature.PRIVACY)) {
+            entityClasses.add(PlayerPrivacyEntity.class);
         }
         if (settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE)) {
             entityClasses.add(PlayerLanguageEntity.class);
@@ -964,6 +979,7 @@ public class DataRegistry implements DataRegistryApi, DataRegistryInstrumentatio
                 || playerSessionRepository != null
                 || playerSessionVisitRepository != null
                 || playerPlaytimeRepository != null
+                || playerPrivacyRepository != null
                 || playerPlaytimeSegmentRepository != null
                 || populationRepository != null
                 || networkServiceRepository != null
@@ -1011,6 +1027,9 @@ public class DataRegistry implements DataRegistryApi, DataRegistryInstrumentatio
         }
         if (settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME)
                 && (playerPlaytimeRepository == null || playerPlaytimeSegmentRepository == null)) {
+            return false;
+        }
+        if (settings.isFeatureEnabled(DataRegistryFeature.PRIVACY) && playerPrivacyRepository == null) {
             return false;
         }
         if (settings.isFeatureEnabled(DataRegistryFeature.SERVICE_REGISTRY)) {

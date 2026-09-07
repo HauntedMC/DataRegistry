@@ -60,6 +60,7 @@ class DataRegistrySettingsTest {
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.SESSION_VISITS));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME));
+        assertTrue(settings.isFeatureEnabled(DataRegistryFeature.PRIVACY));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.NICKNAMES));
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.NAME_HISTORY));

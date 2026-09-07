@@ -1,6 +1,7 @@
 package nl.hauntedmc.dataregistry.core.persistence.entity;
 
 import jakarta.persistence.Table;
+import nl.hauntedmc.dataregistry.api.player.PlayerDataVisibility;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -121,6 +122,20 @@ class EntityAccessorsTest {
         assertSame(player, language.getPlayer());
         assertEquals("NL", language.getLanguage());
         assertEquals("NL", language.getEffectiveLanguage());
+    }
+
+    @Test
+    void playerPrivacyEntityAccessorsRoundTripValues() {
+        PlayerEntity player = new PlayerEntity();
+        player.setId(8L);
+        PlayerPrivacyEntity privacy = new PlayerPrivacyEntity();
+        privacy.setPlayerId(8L);
+        privacy.setPlayer(player);
+        privacy.setVisibility(PlayerDataVisibility.PRIVATE);
+
+        assertEquals(8L, privacy.getPlayerId());
+        assertSame(player, privacy.getPlayer());
+        assertEquals(PlayerDataVisibility.PRIVATE, privacy.getVisibility());
     }
 
     @Test

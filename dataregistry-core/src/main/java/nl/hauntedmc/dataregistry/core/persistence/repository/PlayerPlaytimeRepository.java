@@ -351,6 +351,21 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
     }
 
     public List<PlayerPlaytimeLeaderboardEntry> findTopPlayersByGamemode(String gamemodeKey, int limit) {
+        return findTopPlayersByGamemode(gamemodeKey, limit, false);
+    }
+
+    /**
+     * Returns the public gamemode leaderboard. Privacy filtering occurs in SQL before ordering and limiting.
+     */
+    public List<PlayerPlaytimeLeaderboardEntry> findTopPublicPlayersByGamemode(String gamemodeKey, int limit) {
+        return findTopPlayersByGamemode(gamemodeKey, limit, true);
+    }
+
+    private List<PlayerPlaytimeLeaderboardEntry> findTopPlayersByGamemode(
+            String gamemodeKey,
+            int limit,
+            boolean publicOnly
+    ) {
         String normalizedGamemodeKey = requireNormalizedGamemodeKey(gamemodeKey);
         int resultLimit = Math.max(1, limit);
         Instant generatedAt = Instant.now();
@@ -366,6 +381,7 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
                             "INNER JOIN player_sessions ps ON ps.id = s.session_id " +
                             "WHERE s.gamemode_key = :gamemodeKey AND s.ended_at IS NULL AND ps.ended_at IS NULL" +
                             ") totals INNER JOIN player_entity p ON p.id = totals.player_id " +
+                            publicVisibilityClause(publicOnly) +
                             "GROUP BY totals.player_id, p.uuid, p.username " +
                             "HAVING SUM(totals.tracked_millis) > 0 " +
                             "ORDER BY tracked_millis DESC, LOWER(p.username) ASC, totals.player_id ASC"
@@ -381,9 +397,22 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
         return findTopPlayersByNetworkTotal(limit, centralExcludedGamemodeKeys);
     }
 
+    /** Returns the public network-total leaderboard, with filtering applied in SQL before ordering and limiting. */
+    public List<PlayerPlaytimeLeaderboardEntry> findTopPublicPlayersByNetworkTotal(int limit) {
+        return findTopPlayersByNetworkTotal(limit, centralExcludedGamemodeKeys, true);
+    }
+
     public List<PlayerPlaytimeLeaderboardEntry> findTopPlayersByNetworkTotal(
             int limit,
             Collection<String> excludedGamemodeKeys
+    ) {
+        return findTopPlayersByNetworkTotal(limit, excludedGamemodeKeys, false);
+    }
+
+    private List<PlayerPlaytimeLeaderboardEntry> findTopPlayersByNetworkTotal(
+            int limit,
+            Collection<String> excludedGamemodeKeys,
+            boolean publicOnly
     ) {
         int resultLimit = Math.max(1, limit);
         Set<String> normalizedExcludedGamemodes = normalizeGamemodeKeys(excludedGamemodeKeys);
@@ -402,6 +431,7 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
                             "INNER JOIN player_sessions ps ON ps.id = s.session_id " +
                             "WHERE s.ended_at IS NULL AND ps.ended_at IS NULL" + segmentExclusion +
                             ") totals INNER JOIN player_entity p ON p.id = totals.player_id " +
+                            publicVisibilityClause(publicOnly) +
                             "GROUP BY totals.player_id, p.uuid, p.username " +
                             "HAVING SUM(totals.tracked_millis) > 0 " +
                             "ORDER BY tracked_millis DESC, LOWER(p.username) ASC, totals.player_id ASC"
@@ -557,6 +587,14 @@ public class PlayerPlaytimeRepository extends AbstractRepository<PlayerPlaytimeE
             ));
         }
         return entries;
+    }
+
+    private static String publicVisibilityClause(boolean publicOnly) {
+        if (!publicOnly) {
+            return "";
+        }
+        return "LEFT JOIN player_privacy privacy ON privacy.player_id = totals.player_id " +
+                "WHERE COALESCE(privacy.visibility, 'PUBLIC') = 'PUBLIC' ";
     }
 
     private static String exclusionClause(String column, List<String> values, String prefix) {

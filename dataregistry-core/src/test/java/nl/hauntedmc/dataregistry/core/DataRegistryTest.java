@@ -14,6 +14,7 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEn
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleAuthorityEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerNameHistoryEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerNicknameEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPrivacyEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionVisitEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.NetworkServiceEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.ServiceInstanceEntity;
@@ -111,6 +112,7 @@ class DataRegistryTest {
         assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerActivitySummaryEntity.class));
         assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerLanguageEntity.class));
         assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerNicknameEntity.class));
+        assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerPrivacyEntity.class));
         assertTrue(Arrays.asList(registry.lastPlayerEntityClasses).contains(PlayerSessionVisitEntity.class));
         assertEquals(3, registry.lastServiceEntityClasses.length);
         assertTrue(Arrays.asList(registry.lastServiceEntityClasses).contains(NetworkServiceEntity.class));

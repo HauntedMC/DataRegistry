@@ -39,17 +39,18 @@ class DataRegistrySettingsLoaderTest {
                 ),
                 "orm", Map.of("schema-mode", "validate"),
                 "privacy", Map.of("persist-ip-address", true, "persist-virtual-host", true),
-                "features", Map.of(
-                        "online-status", true,
-                        "connection-info", false,
-                        "activity-summary", true,
-                        "sessions", true,
-                        "session-visits", true,
-                        "playtime", true,
-                        "language", false,
-                        "nicknames", true,
-                        "name-history", true,
-                        "service-registry", true
+                "features", Map.ofEntries(
+                        Map.entry("online-status", true),
+                        Map.entry("connection-info", false),
+                        Map.entry("activity-summary", true),
+                        Map.entry("sessions", true),
+                        Map.entry("session-visits", true),
+                        Map.entry("playtime", true),
+                        Map.entry("privacy", false),
+                        Map.entry("language", false),
+                        Map.entry("nicknames", true),
+                        Map.entry("name-history", true),
+                        Map.entry("service-registry", true)
                 ),
                 "playtime", Map.of(
                         "flush-interval-seconds", 45,
@@ -110,6 +111,7 @@ class DataRegistrySettingsLoaderTest {
         assertTrue(settings.isFeatureEnabled(DataRegistryFeature.POPULATION));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.CONNECTION_INFO));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE));
+        assertFalse(settings.isFeatureEnabled(DataRegistryFeature.PRIVACY));
         assertEquals(45, settings.playtimeTrackingSettings().flushIntervalSeconds());
         assertFalse(settings.playtimeTrackingSettings().resolveUnknownServersAsGamemode());
         assertEquals(List.of("queue", "limbo"), List.copyOf(settings.playtimeTrackingSettings().ignoredGamemodes()));

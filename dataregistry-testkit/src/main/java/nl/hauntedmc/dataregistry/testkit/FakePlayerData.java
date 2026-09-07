@@ -4,6 +4,7 @@ import nl.hauntedmc.dataregistry.api.DataRegistryFeature;
 import nl.hauntedmc.dataregistry.api.player.PlayerActivitySnapshot;
 import nl.hauntedmc.dataregistry.api.player.PlayerConnectionSnapshot;
 import nl.hauntedmc.dataregistry.api.player.PlayerData;
+import nl.hauntedmc.dataregistry.api.player.PlayerDataVisibility;
 import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.api.player.PlayerLanguageSettings;
@@ -53,6 +54,7 @@ public final class FakePlayerData implements PlayerData, PlayerDirectory {
     private final Map<String, PlayerIdentity> identitiesByUsername = new ConcurrentHashMap<>();
     private final Map<UUID, PlayerIdentity> activeIdentities = new ConcurrentHashMap<>();
     private final Map<Long, PlayerLanguageSettings> languages = new ConcurrentHashMap<>();
+    private final Map<Long, PlayerDataVisibility> privacy = new ConcurrentHashMap<>();
     private final Map<Long, String> nicknames = new ConcurrentHashMap<>();
     private final Map<Long, PlayerConnectionSnapshot> connections = new ConcurrentHashMap<>();
     private final Map<Long, List<PlayerNameHistoryEntry>> nameHistory = new ConcurrentHashMap<>();
@@ -101,6 +103,18 @@ public final class FakePlayerData implements PlayerData, PlayerDirectory {
     public FakePlayerData putLanguage(PlayerLanguageSettings settings) {
         Objects.requireNonNull(settings, "settings must not be null");
         languages.put(settings.playerId(), settings);
+        return this;
+    }
+
+    /** Configures an explicit privacy state; public removes the explicit state just like persistent storage. */
+    public FakePlayerData putPrivacy(long playerId, PlayerDataVisibility visibility) {
+        requirePositivePlayerId(playerId);
+        PlayerDataVisibility requestedVisibility = Objects.requireNonNull(visibility, "visibility must not be null");
+        if (requestedVisibility == PlayerDataVisibility.PUBLIC) {
+            privacy.remove(playerId);
+        } else {
+            privacy.put(playerId, requestedVisibility);
+        }
         return this;
     }
 
@@ -201,6 +215,7 @@ public final class FakePlayerData implements PlayerData, PlayerDirectory {
         identitiesByUsername.clear();
         activeIdentities.clear();
         languages.clear();
+        privacy.clear();
         nicknames.clear();
         connections.clear();
         nameHistory.clear();
@@ -350,6 +365,58 @@ public final class FakePlayerData implements PlayerData, PlayerDirectory {
     public CompletionStage<Void> clearLanguage(long playerId) {
         languages.remove(playerId);
         return completed(null);
+    }
+
+    @Override
+    public CompletionStage<PlayerDataVisibility> findPrivacy(long playerId) {
+        requireFeature(DataRegistryFeature.PRIVACY);
+        requirePositivePlayerId(playerId);
+        return completed(privacy.getOrDefault(playerId, PlayerDataVisibility.PUBLIC));
+    }
+
+    @Override
+    public CompletionStage<PlayerDataVisibility> findPrivacy(UUID uuid) {
+        requireFeature(DataRegistryFeature.PRIVACY);
+        Objects.requireNonNull(uuid, "uuid must not be null");
+        PlayerIdentity identity = identitiesByUuid.get(uuid);
+        return completed(identity == null
+                ? PlayerDataVisibility.PUBLIC
+                : privacy.getOrDefault(identity.playerId(), PlayerDataVisibility.PUBLIC));
+    }
+
+    @Override
+    public CompletionStage<Map<Long, PlayerDataVisibility>> findPrivacy(Collection<Long> playerIds) {
+        requireFeature(DataRegistryFeature.PRIVACY);
+        Objects.requireNonNull(playerIds, "playerIds must not be null");
+        Map<Long, PlayerDataVisibility> result = new LinkedHashMap<>();
+        for (Long playerId : playerIds) {
+            if (playerId == null) {
+                throw new IllegalArgumentException("playerIds must not contain null values");
+            }
+            requirePositivePlayerId(playerId);
+            result.put(playerId, privacy.getOrDefault(playerId, PlayerDataVisibility.PUBLIC));
+        }
+        return completed(Map.copyOf(result));
+    }
+
+    @Override
+    public CompletionStage<Void> savePrivacy(long playerId, PlayerDataVisibility visibility) {
+        requireFeature(DataRegistryFeature.PRIVACY);
+        putPrivacy(playerId, visibility);
+        return completed(null);
+    }
+
+    @Override
+    public CompletionStage<Boolean> savePrivacy(UUID uuid, PlayerDataVisibility visibility) {
+        requireFeature(DataRegistryFeature.PRIVACY);
+        Objects.requireNonNull(uuid, "uuid must not be null");
+        Objects.requireNonNull(visibility, "visibility must not be null");
+        PlayerIdentity identity = identitiesByUuid.get(uuid);
+        if (identity == null) {
+            return completed(false);
+        }
+        putPrivacy(identity.playerId(), visibility);
+        return completed(true);
     }
 
     @Override
@@ -572,6 +639,44 @@ public final class FakePlayerData implements PlayerData, PlayerDirectory {
         }
         String normalizedKey = normalizeGamemodeKey(gamemodeKey);
         List<PlayerPlaytimeSnapshot> ranked = playtime.values().stream()
+                .filter(snapshot -> gamemodeMillis(snapshot, normalizedKey) > 0L)
+                .sorted(Comparator.comparingLong((PlayerPlaytimeSnapshot snapshot) -> gamemodeMillis(snapshot, normalizedKey))
+                        .reversed()
+                        .thenComparing(snapshot -> snapshot.playerId() == null ? Long.MAX_VALUE : snapshot.playerId()))
+                .limit(normalizeLimit(limit))
+                .toList();
+        return completed(toLeaderboard(ranked, normalizedKey));
+    }
+
+    @Override
+    public CompletionStage<List<PlayerPlaytimeLeaderboardEntry>> findTopPublicPlaytime(int limit) {
+        requireFeature(DataRegistryFeature.PRIVACY);
+        if (!supports(DataRegistryFeature.PLAYTIME)) {
+            return completed(List.of());
+        }
+        List<PlayerPlaytimeSnapshot> ranked = playtime.values().stream()
+                .filter(snapshot -> privacy.getOrDefault(snapshot.playerId(), PlayerDataVisibility.PUBLIC)
+                        == PlayerDataVisibility.PUBLIC)
+                .sorted(Comparator.comparingLong(PlayerPlaytimeSnapshot::networkTotalMillis).reversed()
+                        .thenComparing(snapshot -> snapshot.playerId() == null ? Long.MAX_VALUE : snapshot.playerId()))
+                .limit(normalizeLimit(limit))
+                .toList();
+        return completed(toLeaderboard(ranked, null));
+    }
+
+    @Override
+    public CompletionStage<List<PlayerPlaytimeLeaderboardEntry>> findTopPublicPlaytimeByGamemode(
+            String gamemodeKey,
+            int limit
+    ) {
+        requireFeature(DataRegistryFeature.PRIVACY);
+        if (!supports(DataRegistryFeature.PLAYTIME)) {
+            return completed(List.of());
+        }
+        String normalizedKey = normalizeGamemodeKey(gamemodeKey);
+        List<PlayerPlaytimeSnapshot> ranked = playtime.values().stream()
+                .filter(snapshot -> privacy.getOrDefault(snapshot.playerId(), PlayerDataVisibility.PUBLIC)
+                        == PlayerDataVisibility.PUBLIC)
                 .filter(snapshot -> gamemodeMillis(snapshot, normalizedKey) > 0L)
                 .sorted(Comparator.comparingLong((PlayerPlaytimeSnapshot snapshot) -> gamemodeMillis(snapshot, normalizedKey))
                         .reversed()

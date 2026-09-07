@@ -69,6 +69,8 @@ features:
   sessions: true
   session-visits: true
   playtime: true
+  # Player-controlled disclosure state used by downstream player-facing features and public leaderboards.
+  privacy: true
   language: true
   nicknames: true
   name-history: true
