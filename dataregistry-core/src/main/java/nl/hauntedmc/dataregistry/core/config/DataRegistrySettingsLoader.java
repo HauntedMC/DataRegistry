@@ -2,6 +2,7 @@ package nl.hauntedmc.dataregistry.core.config;
 
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Objects;
@@ -17,7 +18,12 @@ public final class DataRegistrySettingsLoader {
         Objects.requireNonNull(resourceLoader, "resourceLoader must not be null");
         Objects.requireNonNull(logger, "logger must not be null");
 
-        Path configPath = DataRegistryConfigIO.ensureConfigFile(dataDirectory, resourceLoader, logger);
+        Path configPath = dataDirectory.resolve(DataRegistryConfigIO.FILE_NAME);
+        boolean existingConfig = Files.exists(configPath);
+        configPath = DataRegistryConfigIO.ensureConfigFile(dataDirectory, resourceLoader, logger);
+        if (existingConfig) {
+            DataRegistryConfigIO.addMissingDefaults(configPath, resourceLoader, logger);
+        }
         Map<?, ?> config = DataRegistryConfigIO.readConfig(configPath, logger);
         validateCleanBreakConfiguration(config);
         return parse(config, logger);

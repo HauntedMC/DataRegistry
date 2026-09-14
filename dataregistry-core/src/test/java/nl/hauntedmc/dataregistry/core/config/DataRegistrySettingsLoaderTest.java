@@ -312,7 +312,7 @@ class DataRegistrySettingsLoaderTest {
     }
 
     @Test
-    void loadDoesNotAddMissingSettingsOrRewriteLegacyConfiguration() throws Exception {
+    void loadAddsMissingSettingsWhilePreservingLegacyConfiguration() throws Exception {
         Path configFile = temporaryDirectory.resolve("config.yml");
         String existing = """
                 # custom operator comment must survive
@@ -341,12 +341,19 @@ class DataRegistrySettingsLoaderTest {
         );
 
         String updated = Files.readString(configFile);
-        assertEquals(existing, updated);
         assertTrue(updated.contains("# custom operator comment must survive"));
         assertTrue(updated.contains("connection-id: players-main"));
         assertTrue(updated.contains("old-or-plugin-specific-section:"));
         assertTrue(updated.contains("keep-me: true"));
-        assertTrue(exception.getMessage().contains("database.profiles.sessions.connection-id"));
+        Map<?, ?> updatedConfig = DataRegistryConfigIO.readConfig(configFile, logger);
+        Map<?, ?> profiles = (Map<?, ?>) ((Map<?, ?>) updatedConfig.get("database")).get("profiles");
+        Map<?, ?> sessions = (Map<?, ?>) profiles.get("sessions");
+        Map<?, ?> query = (Map<?, ?>) updatedConfig.get("query");
+        assertEquals("network_sessions", sessions.get("connection-id"));
+        assertEquals(3000, query.get("timeout-millis"));
+        assertEquals(existing, Files.readString(temporaryDirectory.resolve("config.yml.bak")));
+        assertTrue(logger.infoMessages.stream().anyMatch(message -> message.contains("Updated DataRegistry config with")));
+        assertTrue(exception.getMessage().contains("sessions.namespace"));
     }
 
     @Test
