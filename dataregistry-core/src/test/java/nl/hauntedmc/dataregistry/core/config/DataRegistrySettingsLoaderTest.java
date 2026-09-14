@@ -225,7 +225,7 @@ class DataRegistrySettingsLoaderTest {
     }
 
     @Test
-    void loadCopiesClasspathConfigExactlyOnFirstRun() throws Exception {
+    void loadCopiesClasspathConfigExactlyOnFirstRunAndAllowsUpdateSchemaMode() throws Exception {
         String fileContent = """
                 # keep packaged documentation exactly
                 database:
@@ -245,7 +245,7 @@ class DataRegistrySettingsLoaderTest {
                   directory-freshness-seconds: 10
                   redis-outage-behavior: PRESERVE_UNTIL_EXPIRY
                 orm:
-                  schema-mode: validate
+                  schema-mode: update
                 platform:
                   velocity:
                     service-name: proxy-test-01
@@ -267,6 +267,7 @@ class DataRegistrySettingsLoaderTest {
         assertEquals(fileContent, Files.readString(configFile));
         assertEquals("players-main", settings.playerDatabaseConnectionId());
         assertEquals("services-main", settings.serviceDatabaseConnectionId());
+        assertEquals("update", settings.ormSchemaMode());
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.SESSIONS));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.POPULATION));
         assertFalse(settings.isFeatureEnabled(DataRegistryFeature.PLAYTIME));

@@ -25,7 +25,7 @@ public final class DataRegistrySettingsLoader {
             DataRegistryConfigIO.addMissingDefaults(configPath, resourceLoader, logger);
         }
         Map<?, ?> config = DataRegistryConfigIO.readConfig(configPath, logger);
-        validateCleanBreakConfiguration(config);
+        validateRequiredConfiguration(config);
         return parse(config, logger);
     }
 
@@ -33,7 +33,7 @@ public final class DataRegistrySettingsLoader {
         return parser.parse(configRoot, logger);
     }
 
-    private static void validateCleanBreakConfiguration(Map<?, ?> root) {
+    private static void validateRequiredConfiguration(Map<?, ?> root) {
         requireText(root, "database.profiles.sessions.connection-id");
         requireText(root, "sessions.namespace");
         requireValue(root, "sessions.lease-ttl-seconds");
@@ -41,10 +41,6 @@ public final class DataRegistrySettingsLoader {
         requireValue(root, "sessions.expiry-safety-margin-millis");
         requireValue(root, "sessions.directory-freshness-seconds");
         requireText(root, "sessions.redis-outage-behavior");
-        String schema = requireText(root, "orm.schema-mode");
-        if (!"validate".equalsIgnoreCase(schema)) {
-            throw new IllegalArgumentException("orm.schema-mode must be 'validate'");
-        }
         String proxyId = requireText(root, "platform.velocity.service-name");
         if ("auto".equalsIgnoreCase(proxyId) || "proxy-1".equalsIgnoreCase(proxyId)) {
             throw new IllegalArgumentException(

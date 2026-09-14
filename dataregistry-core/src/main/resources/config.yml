@@ -22,7 +22,8 @@ orm:
   # Applies to: Both.
   # Schema mode controls ORM DDL behavior:
   # validate: verify schema only
-  # The clean-break runtime never creates, updates, or backfills schema.
+  # update: apply additive schema changes
+  # create, create-drop, and none are supported for controlled environments.
   schema-mode: validate
 
 sessions:
