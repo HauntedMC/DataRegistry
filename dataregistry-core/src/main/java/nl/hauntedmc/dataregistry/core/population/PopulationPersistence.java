@@ -32,15 +32,17 @@ final class PopulationPersistence {
         Objects.requireNonNull(peakQuality, "peakQuality must not be null");
         Objects.requireNonNull(now, "now must not be null");
 
-        // The player-domain database is MySQL in production. INSERT IGNORE makes first-observation creation safe
-        // across multiple Velocity writers; the subsequent pessimistic lock serializes ordinal/counter allocation.
+        // The player-domain database is MySQL in production. A no-op duplicate-key update takes the exclusive
+        // record lock directly. INSERT IGNORE takes a shared duplicate-key lock first, which can deadlock when
+        // concurrent lifecycle writers subsequently upgrade that same hot scope row to PESSIMISTIC_WRITE.
         session.createNativeMutationQuery(
-                        "INSERT IGNORE INTO population_scope_state " +
+                        "INSERT INTO population_scope_state " +
                                 "(scope_id, scope_type, scope_key, unique_player_count, current_online, online_peak, " +
                                 "membership_baseline_quality, peak_baseline_quality, backfill_version, created_at, " +
                                 "updated_at, version) VALUES " +
                                 "(:scopeId, :scopeType, :scopeKey, 0, 0, 0, :membershipQuality, :peakQuality, 0, " +
-                                ":createdAt, :updatedAt, 0)"
+                                ":createdAt, :updatedAt, 0) " +
+                                "ON DUPLICATE KEY UPDATE scope_id = scope_id"
                 )
                 .setParameter("scopeId", scope.storageKey())
                 .setParameter("scopeType", scope.type().name())

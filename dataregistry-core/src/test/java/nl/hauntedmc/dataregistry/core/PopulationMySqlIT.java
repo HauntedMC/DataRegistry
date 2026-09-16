@@ -48,6 +48,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -232,6 +233,69 @@ class PopulationMySqlIT {
     }
 
     @Test
+    void concurrentDisconnectsOnExistingPopulationScopesCompleteWithoutImmediateRetries() throws Exception {
+        DataRegistrySettings settings = DataRegistrySettings.builder()
+                .ormSchemaMode("update")
+                .lifecycleWriteMaxAttempts(1)
+                .playtimeTrackingSettings(PlaytimeTrackingSettings.builder()
+                        .serverGamemodeRules(List.of(
+                                new PlaytimeTrackingSettings.ServerGamemodeRule("survival-*", "survival")
+                        ))
+                        .build())
+                .build();
+        DataRegistry registry = newRegistry(settings);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        Instant base = Instant.parse("2026-09-16T14:33:41Z");
+        List<UUID> players = List.of(
+                UUID.fromString("31000000-0000-0000-0000-000000000001"),
+                UUID.fromString("31000000-0000-0000-0000-000000000002"),
+                UUID.fromString("31000000-0000-0000-0000-000000000003"),
+                UUID.fromString("31000000-0000-0000-0000-000000000004"),
+                UUID.fromString("31000000-0000-0000-0000-000000000005"),
+                UUID.fromString("31000000-0000-0000-0000-000000000006"),
+                UUID.fromString("31000000-0000-0000-0000-000000000007"),
+                UUID.fromString("31000000-0000-0000-0000-000000000008")
+        );
+        try {
+            assertTrue(registry.initialize());
+            PlayerLifecycleWriter writer = registry.newPlayerLifecycleWriter(logger);
+            for (int index = 0; index < players.size(); index++) {
+                writeJoin(writer, players.get(index), "Disconnect" + index, "disconnect-" + index,
+                        "survival-1", base.plusSeconds(index));
+            }
+
+            CyclicBarrier start = new CyclicBarrier(players.size());
+            try (ExecutorService executor = Executors.newFixedThreadPool(players.size())) {
+                List<CompletableFuture<PlayerLifecycleWriteStatus>> disconnects = new ArrayList<>();
+                for (int index = 0; index < players.size(); index++) {
+                    UUID player = players.get(index);
+                    int eventIndex = index;
+                    disconnects.add(CompletableFuture.supplyAsync(() -> {
+                        await(start);
+                        return writer.disconnect(new DisconnectCommand(
+                                "disconnect:concurrent:" + eventIndex,
+                                player.toString(),
+                                "Disconnect" + eventIndex,
+                                base.plus(Duration.ofMinutes(1)).plusMillis(eventIndex),
+                                TestSessionFences.forPlayer(player)
+                        )).status();
+                    }, executor));
+                }
+                for (CompletableFuture<PlayerLifecycleWriteStatus> disconnect : disconnects) {
+                    assertEquals(PlayerLifecycleWriteStatus.SUCCESS, disconnect.get(20, TimeUnit.SECONDS));
+                }
+            }
+
+            assertEquals(0L, registry.population().findNetworkSnapshot().toCompletableFuture()
+                    .get(10, TimeUnit.SECONDS).orElseThrow().currentOnline());
+            assertEquals(0L, registry.population().findSnapshot(PopulationScope.gamemode("survival"))
+                    .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow().currentOnline());
+        } finally {
+            registry.shutdown();
+        }
+    }
+
+    @Test
     void existingCanonicalRowsBackfillDeterministicallyEvenWhenPlaytimeRuntimeIsDisabled() throws Exception {
         DataRegistrySettings prePopulationSettings = DataRegistrySettings.builder()
                 .ormSchemaMode("update")
@@ -409,6 +473,14 @@ class PopulationMySqlIT {
                 occurredAt.plusSeconds(1),
                 TestSessionFences.forPlayer(uuid)
         )).succeeded());
+    }
+
+    private static void await(CyclicBarrier barrier) {
+        try {
+            barrier.await(10, TimeUnit.SECONDS);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Could not synchronize concurrent lifecycle writes.", exception);
+        }
     }
 
     private DataRegistry newRegistry(DataRegistrySettings settings) {

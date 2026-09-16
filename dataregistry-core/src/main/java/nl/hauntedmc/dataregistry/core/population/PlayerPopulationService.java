@@ -200,8 +200,8 @@ public final class PlayerPopulationService {
             PopulationTransitionCause cause,
             boolean emitTransition
     ) {
-        PopulationBaselineQuality baseline = inheritedMembershipQuality(session);
-        PopulationBaselineQuality peakQuality = inheritedPeakQuality(session);
+        PopulationBaselineQuality baseline = initialMembershipQuality(session, scope);
+        PopulationBaselineQuality peakQuality = initialPeakQuality(session, scope);
         PopulationScopeStateEntity state = PopulationPersistence.ensureAndLockScopeState(
                 session,
                 scope,
@@ -259,8 +259,8 @@ public final class PlayerPopulationService {
         PopulationScopeStateEntity state = PopulationPersistence.ensureAndLockScopeState(
                 session,
                 scope,
-                inheritedMembershipQuality(session),
-                inheritedPeakQuality(session),
+                initialMembershipQuality(session, scope),
+                initialPeakQuality(session, scope),
                 now
         );
         long previous = state.getCurrentOnline();
@@ -317,6 +317,24 @@ public final class PlayerPopulationService {
                 PopulationScope.network().storageKey()
         );
         return network == null ? PopulationBaselineQuality.TRACKED_ONLY : network.getPeakBaselineQuality();
+    }
+
+    /**
+     * The network state is itself the first scope locked by every live lifecycle mutation. Do not load it without a
+     * lock merely to obtain defaults: doing so leaves a versioned entity in Hibernate's session which then needs a
+     * lock upgrade on the hot network row. Its initial values are the same tracked-only defaults returned when no
+     * network row exists. Child scopes inherit only after that network row has been locked.
+     */
+    private PopulationBaselineQuality initialMembershipQuality(Session session, PopulationScope scope) {
+        return scope.equals(PopulationScope.network())
+                ? PopulationBaselineQuality.TRACKED_ONLY
+                : inheritedMembershipQuality(session);
+    }
+
+    private PopulationBaselineQuality initialPeakQuality(Session session, PopulationScope scope) {
+        return scope.equals(PopulationScope.network())
+                ? PopulationBaselineQuality.TRACKED_ONLY
+                : inheritedPeakQuality(session);
     }
 
     private void markPersistedBaselinesUnverified(Session session) {
