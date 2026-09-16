@@ -15,6 +15,7 @@ import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.execu
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -59,6 +60,11 @@ class PlayerPrivacyRepositoryTest {
         executeTransactionsWithSession(ormContext, session);
         when(session.find(PlayerPrivacyEntity.class, 4L)).thenReturn(null, existing, existing);
         when(session.getReference(PlayerEntity.class, 4L)).thenReturn(player);
+        doAnswer(invocation -> {
+            PlayerPrivacyEntity inserted = invocation.getArgument(0);
+            assertEquals(PlayerDataVisibility.FRIENDS, inserted.getVisibility());
+            return null;
+        }).when(session).persist(any(PlayerPrivacyEntity.class));
 
         repository.saveVisibility(4L, PlayerDataVisibility.FRIENDS);
         repository.saveVisibility(4L, PlayerDataVisibility.PRIVATE);

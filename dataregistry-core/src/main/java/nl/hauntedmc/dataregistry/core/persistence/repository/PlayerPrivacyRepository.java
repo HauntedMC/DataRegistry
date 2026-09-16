@@ -71,7 +71,9 @@ public class PlayerPrivacyRepository extends AbstractRepository<PlayerPrivacyEnt
                 entity = new PlayerPrivacyEntity();
                 entity.setPlayerId(playerId);
                 entity.setPlayer(session.getReference(PlayerEntity.class, playerId));
+                entity.setVisibility(requestedVisibility);
                 session.persist(entity);
+                return null;
             }
             entity.setVisibility(requestedVisibility);
             return null;
