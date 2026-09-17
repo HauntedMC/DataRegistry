@@ -28,7 +28,7 @@ orm:
 
 sessions:
   # Stable namespace shared by every DataRegistry instance in exactly one Minecraft network/environment.
-  namespace: ""
+  namespace: hauntedmc
   # Lease timing is authoritative Redis time. Renewal must be shorter than the TTL.
   lease-ttl-seconds: 15
   renewal-interval-seconds: 3
@@ -162,8 +162,9 @@ platform:
     service-name: auto
   velocity:
     # Applies to: Velocity.
-    # Required stable, unique proxy instance ID (1-96 characters). Never reuse it for another live proxy.
-    service-name: ""
+    # Stable proxy instance ID (1-96 characters). The default is suitable for a single proxy; every additional live
+    # proxy must use its own unique value.
+    service-name: proxy
 
 query:
   # Applies to: Both.
