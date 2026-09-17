@@ -37,14 +37,30 @@ public final class ServiceRegistryService {
     private final ILoggerAdapter logger;
     private final boolean featureEnabled;
     private final DataRegistryObservations observations;
+    private final ServiceProbeHistoryPolicy probeHistoryPolicy;
 
     /**
      * Creates a feature-aware service registry facade for both writes (heartbeats/state updates) and reads.
      */
     public ServiceRegistryService(DataRegistry dataRegistry, ILoggerAdapter logger, boolean featureEnabled) {
+        this(
+                dataRegistry,
+                logger,
+                featureEnabled,
+                ServiceProbeHistoryPolicy.fromSettings(dataRegistry == null ? null : dataRegistry.getSettings())
+        );
+    }
+
+    ServiceRegistryService(
+            DataRegistry dataRegistry,
+            ILoggerAdapter logger,
+            boolean featureEnabled,
+            ServiceProbeHistoryPolicy probeHistoryPolicy
+    ) {
         this.dataRegistry = Objects.requireNonNull(dataRegistry, "dataRegistry must not be null");
         this.logger = Objects.requireNonNull(logger, "logger must not be null");
         this.featureEnabled = featureEnabled;
+        this.probeHistoryPolicy = Objects.requireNonNull(probeHistoryPolicy, "probeHistoryPolicy must not be null");
         DataRegistryObservations runtimeObservations = dataRegistry.internalObservations();
         this.observations = runtimeObservations == null ? new DataRegistryObservations() : runtimeObservations;
     }
@@ -242,7 +258,12 @@ public final class ServiceRegistryService {
     }
 
     /**
-     * Appends a proxy-side health probe result for one logical service.
+     * Records one proxy-side health observation for a logical service.
+     *
+     * <p>Failures are always appended to durable history. Successful steady-state probes retain full current
+     * freshness by updating the observer's newest healthy row in place, while periodic healthy samples and recovery
+     * transitions are appended. This keeps effective-health reads exact without creating a history row every probe
+     * interval.</p>
      */
     public void recordProbe(
             ServiceKind serviceKind,
@@ -278,6 +299,14 @@ public final class ServiceRegistryService {
         String normalizedErrorDetail = Sanitization.trimToLengthOrNull(errorDetail, PROBE_ERROR_DETAIL_MAX_LENGTH);
         Integer normalizedPort = normalizePort(targetPort);
         Long normalizedLatencyMillis = normalizeLatencyMillis(latencyMillis);
+        Instant now = Instant.now();
+        ServiceProbeHistoryPolicy.WriteMode writeMode = probeHistoryPolicy.decide(
+                serviceKind,
+                normalizedServiceName,
+                normalizedObserverInstanceId,
+                status,
+                now
+        );
         boolean observed = observations.isEnabled();
         DataRegistryObservation observation = observed ? observations.start("service_registry.record_probe") : null;
 
@@ -286,8 +315,6 @@ public final class ServiceRegistryService {
                 : DataRegistryObservationScope.noop()) {
             try {
                 dataRegistry.getServiceORM().runInTransaction(session -> {
-                    Instant now = Instant.now();
-
                     NetworkServiceEntity service = session.createQuery(
                                     "SELECT s FROM NetworkServiceEntity s " +
                                             "WHERE s.serviceKind = :kind AND s.serviceName = :name",
@@ -298,7 +325,8 @@ public final class ServiceRegistryService {
                             .setMaxResults(1)
                             .uniqueResult();
 
-                    if (service == null) {
+                    boolean newService = service == null;
+                    if (newService) {
                         service = new NetworkServiceEntity();
                         service.setServiceKind(serviceKind);
                         service.setServiceName(normalizedServiceName);
@@ -311,24 +339,59 @@ public final class ServiceRegistryService {
                         service.setLastSeenAt(now);
                     }
 
-                    ServiceProbeEntity probe = new ServiceProbeEntity();
-                    probe.setService(service);
-                    probe.setObserverInstanceId(normalizedObserverInstanceId);
-                    probe.setStatus(status);
-                    probe.setTargetHost(normalizedTargetHost);
-                    probe.setTargetPort(normalizedPort);
-                    probe.setTargetInstanceId(normalizedTargetInstanceId);
-                    probe.setLatencyMillis(normalizedLatencyMillis);
-                    probe.setErrorCode(normalizedErrorCode);
-                    probe.setErrorDetail(normalizedErrorDetail);
-                    probe.setCheckedAt(now);
-                    session.persist(probe);
+                    ServiceProbeEntity probe = null;
+                    if (!newService
+                            && status == ServiceProbeStatus.UP
+                            && writeMode == ServiceProbeHistoryPolicy.WriteMode.REFRESH_CURRENT_HEALTHY) {
+                        probe = session.createQuery(
+                                        "SELECT p FROM ServiceProbeEntity p " +
+                                                "WHERE p.service = :service " +
+                                                "AND p.observerInstanceId = :observerInstanceId " +
+                                                "ORDER BY p.checkedAt DESC, p.id DESC",
+                                        ServiceProbeEntity.class
+                                )
+                                .setParameter("service", service)
+                                .setParameter("observerInstanceId", normalizedObserverInstanceId)
+                                .setMaxResults(1)
+                                .uniqueResult();
+                        if (probe != null && probe.getStatus() != ServiceProbeStatus.UP) {
+                            probe = null;
+                        }
+                    }
+
+                    boolean appendHistory = probe == null;
+                    if (appendHistory) {
+                        probe = new ServiceProbeEntity();
+                        probe.setService(service);
+                    }
+                    applyProbeObservation(
+                            probe,
+                            normalizedObserverInstanceId,
+                            status,
+                            normalizedTargetHost,
+                            normalizedPort,
+                            normalizedTargetInstanceId,
+                            normalizedLatencyMillis,
+                            normalizedErrorCode,
+                            normalizedErrorDetail,
+                            now
+                    );
+                    if (appendHistory) {
+                        session.persist(probe);
+                    }
                     return null;
                 });
                 if (observed) {
                     observations.complete(observation, DataRegistryOperationOutcome.SUCCESS, 1, null);
                 }
             } catch (RuntimeException exception) {
+                probeHistoryPolicy.onWriteFailure(
+                        serviceKind,
+                        normalizedServiceName,
+                        normalizedObserverInstanceId,
+                        status,
+                        writeMode
+                );
                 if (observed) {
                     observations.complete(observation, DataRegistryOperationOutcome.FAILURE, 1, exception);
                 }
@@ -339,6 +402,29 @@ public final class ServiceRegistryService {
                 );
             }
         }
+    }
+
+    private static void applyProbeObservation(
+            ServiceProbeEntity probe,
+            String observerInstanceId,
+            ServiceProbeStatus status,
+            String targetHost,
+            Integer targetPort,
+            String targetInstanceId,
+            Long latencyMillis,
+            String errorCode,
+            String errorDetail,
+            Instant checkedAt
+    ) {
+        probe.setObserverInstanceId(observerInstanceId);
+        probe.setStatus(status);
+        probe.setTargetHost(targetHost);
+        probe.setTargetPort(targetPort);
+        probe.setTargetInstanceId(targetInstanceId);
+        probe.setLatencyMillis(latencyMillis);
+        probe.setErrorCode(errorCode);
+        probe.setErrorDetail(errorDetail);
+        probe.setCheckedAt(checkedAt);
     }
 
     /**
@@ -669,7 +755,7 @@ public final class ServiceRegistryService {
         }
     }
 
-    /** Deletes stale probes older than {@code retentionWindow} in bounded batches. */
+    /** Deletes stale probes older than {@code retentionWindow} in bounded transactions until the cutoff is drained. */
     public int purgeProbesOlderThan(Duration retentionWindow, int batchSize) {
         Objects.requireNonNull(retentionWindow, "retentionWindow must not be null");
         if (retentionWindow.isNegative()) {
@@ -687,7 +773,7 @@ public final class ServiceRegistryService {
             try {
                 int deleted = dataRegistry.getServiceProbeRepository().deleteCheckedBefore(cutoff, Math.max(1, batchSize));
                 if (observed) {
-                    observations.complete(observation, DataRegistryOperationOutcome.SUCCESS, 1, null);
+                    observations.complete(observation, DataRegistryOperationOutcome.SUCCESS, deleted, null);
                 }
                 return deleted;
             } catch (RuntimeException exception) {
