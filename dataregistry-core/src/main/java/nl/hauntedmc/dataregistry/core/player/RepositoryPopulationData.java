@@ -22,6 +22,14 @@ import java.util.function.Function;
 /** Query-executor backed implementation of the public population facade. */
 public final class RepositoryPopulationData implements PopulationData {
 
+    static final String FIND_SNAPSHOT_OPERATION = "population.snapshot.find";
+    static final String FIND_GAMEMODE_SNAPSHOTS_OPERATION = "population.gamemode-snapshots.find";
+    static final String FIND_MEMBERSHIP_OPERATION = "population.membership.find";
+    static final String FIND_MEMBERSHIPS_OPERATION = "population.memberships.find";
+    static final String FIND_JOIN_CONTEXT_OPERATION = "population.join-context.find";
+    static final String FIND_TRANSITIONS_OPERATION = "population.transitions.find";
+    static final String LATEST_TRANSITION_ID_OPERATION = "population.transition.latest-id";
+
     private final PlayerDirectory playerDirectory;
     private final PopulationRepository repository;
     private final DataRegistryQueryExecutor queryExecutor;
@@ -42,12 +50,12 @@ public final class RepositoryPopulationData implements PopulationData {
     @Override
     public CompletionStage<Optional<PopulationSnapshot>> findSnapshot(PopulationScope scope) {
         Objects.requireNonNull(scope, "scope must not be null");
-        return queryExecutor.supply("population.findSnapshot", () -> repository.findSnapshot(scope));
+        return queryExecutor.supply(FIND_SNAPSHOT_OPERATION, () -> repository.findSnapshot(scope));
     }
 
     @Override
     public CompletionStage<List<PopulationSnapshot>> findGamemodeSnapshots() {
-        return queryExecutor.supply("population.findGamemodeSnapshots", repository::findGamemodeSnapshots);
+        return queryExecutor.supply(FIND_GAMEMODE_SNAPSHOTS_OPERATION, repository::findGamemodeSnapshots);
     }
 
     @Override
@@ -59,7 +67,7 @@ public final class RepositoryPopulationData implements PopulationData {
         Objects.requireNonNull(scope, "scope must not be null");
         return playerDirectory.findIdentity(player).thenCompose(identity -> identity
                 .<CompletionStage<Optional<PlayerPopulationMembership>>>map(value -> queryExecutor.supply(
-                        "population.findMembership",
+                        FIND_MEMBERSHIP_OPERATION,
                         () -> repository.findMembership(value.playerId(), scope)
                 ))
                 .orElseGet(() -> java.util.concurrent.CompletableFuture.completedFuture(Optional.empty())));
@@ -70,7 +78,7 @@ public final class RepositoryPopulationData implements PopulationData {
         Objects.requireNonNull(player, "player must not be null");
         return playerDirectory.findIdentity(player).thenCompose(identity -> identity
                 .<CompletionStage<List<PlayerPopulationMembership>>>map(value -> queryExecutor.supply(
-                        "population.findMemberships",
+                        FIND_MEMBERSHIPS_OPERATION,
                         () -> repository.findMemberships(value.playerId())
                 ))
                 .orElseGet(() -> java.util.concurrent.CompletableFuture.completedFuture(List.of())));
@@ -81,7 +89,7 @@ public final class RepositoryPopulationData implements PopulationData {
         Objects.requireNonNull(playerUuid, "playerUuid must not be null");
         PopulationResolvedGamemode resolved = gamemodeResolver.apply(serverName);
         return queryExecutor.supply(
-                "population.findJoinContext",
+                FIND_JOIN_CONTEXT_OPERATION,
                 () -> repository.findJoinContext(playerUuid, resolved.serverName(), resolved)
         );
     }
@@ -94,11 +102,11 @@ public final class RepositoryPopulationData implements PopulationData {
     @Override
     public CompletionStage<PopulationTransitionBatch> findTransitions(PopulationTransitionQuery query) {
         Objects.requireNonNull(query, "query must not be null");
-        return queryExecutor.supply("population.findTransitions", () -> repository.findTransitions(query));
+        return queryExecutor.supply(FIND_TRANSITIONS_OPERATION, () -> repository.findTransitions(query));
     }
 
     @Override
     public CompletionStage<Long> latestTransitionId() {
-        return queryExecutor.supply("population.latestTransitionId", repository::latestTransitionId);
+        return queryExecutor.supply(LATEST_TRANSITION_ID_OPERATION, repository::latestTransitionId);
     }
 }
