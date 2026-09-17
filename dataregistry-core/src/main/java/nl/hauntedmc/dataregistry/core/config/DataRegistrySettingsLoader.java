@@ -12,8 +12,30 @@ public final class DataRegistrySettingsLoader {
 
     private final DataRegistrySettingsParser parser = new DataRegistrySettingsParser();
 
-    /** Loads runtime settings, failing when a required infrastructure setting is absent. */
+    /**
+     * Loads authoritative proxy runtime settings. Velocity requires a stable explicit proxy instance ID.
+     */
     public DataRegistrySettings load(Path dataDirectory, ClassLoader resourceLoader, ILoggerAdapter logger) {
+        return load(dataDirectory, resourceLoader, logger, true);
+    }
+
+    /**
+     * Loads Paper/backend bridge settings without applying Velocity-only proxy identity requirements.
+     */
+    public DataRegistrySettings loadForBackend(
+            Path dataDirectory,
+            ClassLoader resourceLoader,
+            ILoggerAdapter logger
+    ) {
+        return load(dataDirectory, resourceLoader, logger, false);
+    }
+
+    private DataRegistrySettings load(
+            Path dataDirectory,
+            ClassLoader resourceLoader,
+            ILoggerAdapter logger,
+            boolean requireVelocityIdentity
+    ) {
         Objects.requireNonNull(dataDirectory, "dataDirectory must not be null");
         Objects.requireNonNull(resourceLoader, "resourceLoader must not be null");
         Objects.requireNonNull(logger, "logger must not be null");
@@ -25,7 +47,7 @@ public final class DataRegistrySettingsLoader {
             DataRegistryConfigIO.addMissingDefaults(configPath, resourceLoader, logger);
         }
         Map<?, ?> config = DataRegistryConfigIO.readConfig(configPath, logger);
-        validateRequiredConfiguration(config);
+        validateRequiredConfiguration(config, requireVelocityIdentity);
         return parse(config, logger);
     }
 
@@ -33,13 +55,21 @@ public final class DataRegistrySettingsLoader {
         return parser.parse(configRoot, logger);
     }
 
-    private static void validateRequiredConfiguration(Map<?, ?> root) {
+    private static void validateRequiredConfiguration(Map<?, ?> root, boolean requireVelocityIdentity) {
         requireText(root, "database.profiles.sessions.connection-id");
         requireValue(root, "sessions.lease-ttl-seconds");
         requireValue(root, "sessions.renewal-interval-seconds");
         requireValue(root, "sessions.expiry-safety-margin-millis");
         requireValue(root, "sessions.directory-freshness-seconds");
         requireText(root, "sessions.redis-outage-behavior");
+        if (requireVelocityIdentity) {
+            String proxyId = requireText(root, "platform.velocity.service-name");
+            if ("auto".equalsIgnoreCase(proxyId) || "proxy-1".equalsIgnoreCase(proxyId)) {
+                throw new IllegalArgumentException(
+                        "platform.velocity.service-name must be an explicit stable unique proxy instance ID"
+                );
+            }
+        }
     }
 
     private static String requireText(Map<?, ?> root, String path) {
