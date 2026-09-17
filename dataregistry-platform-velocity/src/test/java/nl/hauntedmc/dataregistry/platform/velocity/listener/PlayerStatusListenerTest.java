@@ -3,27 +3,30 @@ package nl.hauntedmc.dataregistry.platform.velocity.listener;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.connection.LoginEvent;
+import com.velocitypowered.api.event.connection.PostLoginEvent;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.velocitypowered.api.proxy.server.ServerInfo;
+import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
+import nl.hauntedmc.dataregistry.api.session.NetworkSession;
+import nl.hauntedmc.dataregistry.api.session.SessionFence;
 import nl.hauntedmc.dataregistry.core.DataRegistry;
+import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
+import nl.hauntedmc.dataregistry.core.lifecycle.PlayerIdentityInitializationTracker;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerActivitySummaryEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleAuthorityEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerNameHistoryEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerOnlineStatusEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeEntity;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentCloseReason;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerPlaytimeSegmentEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerSessionVisitEntity;
-import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
 import nl.hauntedmc.dataregistry.core.persistence.repository.PlayerRepository;
-import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
-import nl.hauntedmc.dataregistry.core.lifecycle.PlayerIdentityInitializationTracker;
 import nl.hauntedmc.dataregistry.core.player.RepositoryPlayerDirectory;
 import nl.hauntedmc.dataregistry.core.playtime.PlaytimeGamemodeResolver;
 import nl.hauntedmc.dataregistry.core.service.PlayerActivitySummaryService;
@@ -35,41 +38,39 @@ import nl.hauntedmc.dataregistry.core.service.PlayerSessionService;
 import nl.hauntedmc.dataregistry.core.service.PlayerStatusService;
 import nl.hauntedmc.dataregistry.core.session.DistributedNetworkSessionApi;
 import nl.hauntedmc.dataregistry.core.session.PendingSessionClaim;
-import nl.hauntedmc.dataregistry.api.session.NetworkSession;
-import nl.hauntedmc.dataregistry.api.session.SessionFence;
-import nl.hauntedmc.dataprovider.database.coordination.FencedLease;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
+import nl.hauntedmc.dataprovider.database.coordination.FencedLease;
+import jakarta.persistence.LockModeType;
 import org.hibernate.Session;
 import org.hibernate.query.MutationQuery;
 import org.hibernate.query.Query;
-import jakarta.persistence.LockModeType;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
+import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.lang.reflect.Method;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.time.Instant;
-import java.time.Duration;
-import java.util.Set;
 
 import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.executeTransactionsWithSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -81,8 +82,8 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -94,8 +95,9 @@ import static org.mockito.Mockito.when;
 class PlayerStatusListenerTest {
 
     @Test
-    void velocityLifecycleHandlersUseReservedEarlyPriority() throws Exception {
-        assertLifecyclePriority("onPlayerLogin", LoginEvent.class);
+    void velocityLifecycleStartsOnlyAfterLoginAdmissionAndUsesReservedEarlyPriority() throws Exception {
+        assertNoSubscribedHandlerFor(LoginEvent.class);
+        assertLifecyclePriority("onPostLogin", PostLoginEvent.class);
         assertLifecyclePriority("onServerSwitch", ServerConnectedEvent.class);
         assertLifecyclePriority("onPlayerQuit", DisconnectEvent.class);
     }
@@ -259,6 +261,17 @@ class PlayerStatusListenerTest {
         );
     }
 
+    private static void assertNoSubscribedHandlerFor(Class<?> eventType) {
+        for (Method method : PlayerStatusListener.class.getDeclaredMethods()) {
+            if (method.getAnnotation(Subscribe.class) != null
+                    && method.getParameterCount() > 0
+                    && method.getParameterTypes()[0] == eventType) {
+                throw new AssertionError("DataRegistry must not subscribe lifecycle persistence to "
+                        + eventType.getSimpleName());
+            }
+        }
+    }
+
     private static void assertLifecyclePriority(String methodName, Class<?> eventType) throws Exception {
         Method method = PlayerStatusListener.class.getDeclaredMethod(methodName, eventType);
         Subscribe subscribe = method.getAnnotation(Subscribe.class);
@@ -281,7 +294,7 @@ class PlayerStatusListenerTest {
         );
         when(player.getVirtualHost()).thenReturn(Optional.of(new InetSocketAddress("mc.example.org", 25566)));
 
-        context.listener.onPlayerLogin(new LoginEvent(player));
+        context.listener.onPostLogin(new PostLoginEvent(player));
 
         verify(context.repository).getOrCreatePlayer(context.session, uuid, "Alice");
         verify(context.ormContext).runInTransaction(any());
@@ -305,7 +318,7 @@ class PlayerStatusListenerTest {
         );
         when(player.getVirtualHost()).thenReturn(Optional.of(new InetSocketAddress("mc.example.org", 25566)));
 
-        context.listener.onPlayerLogin(new LoginEvent(player));
+        context.listener.onPostLogin(new PostLoginEvent(player));
 
         verify(context.ormContext).runInTransaction(any());
     }
@@ -324,7 +337,7 @@ class PlayerStatusListenerTest {
         RegisteredServer server = mock(RegisteredServer.class);
         when(server.getServerInfo()).thenReturn(new ServerInfo("lobby-1", new InetSocketAddress("127.0.0.1", 25567)));
 
-        context.listener.onPlayerLogin(new LoginEvent(player));
+        context.listener.onPostLogin(new PostLoginEvent(player));
         reset(context.ormContext);
         executeTransactionsWithSession(context.ormContext, context.session);
         context.listener.onServerSwitch(new ServerConnectedEvent(player, server, null));
@@ -346,7 +359,7 @@ class PlayerStatusListenerTest {
         RegisteredServer server = mock(RegisteredServer.class);
         when(server.getServerInfo()).thenReturn(new ServerInfo("lobby-1", new InetSocketAddress("127.0.0.1", 25567)));
 
-        context.listener.onPlayerLogin(new LoginEvent(player));
+        context.listener.onPostLogin(new PostLoginEvent(player));
         reset(context.ormContext);
         executeTransactionsWithSession(context.ormContext, context.session);
         context.listener.onServerSwitch(new ServerConnectedEvent(player, server, null));
@@ -482,7 +495,7 @@ class PlayerStatusListenerTest {
         RegisteredServer server = mock(RegisteredServer.class);
         when(server.getServerInfo()).thenReturn(new ServerInfo("survival-1", new InetSocketAddress("127.0.0.1", 25567)));
 
-        listener.onPlayerLogin(new LoginEvent(player));
+        listener.onPostLogin(new PostLoginEvent(player));
         openPlayerSession.get().setLastServer("lobby-1");
         listener.onServerSwitch(new ServerConnectedEvent(player, server, null));
 
@@ -516,7 +529,7 @@ class PlayerStatusListenerTest {
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
         when(player.getUsername()).thenReturn("Alice");
 
-        context.listener.onPlayerLogin(new LoginEvent(player));
+        context.listener.onPostLogin(new PostLoginEvent(player));
         reset(context.ormContext);
         executeTransactionsWithSession(context.ormContext, context.session);
         context.listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN));
@@ -537,7 +550,7 @@ class PlayerStatusListenerTest {
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
         when(player.getUsername()).thenReturn("Alice");
 
-        context.listener.onPlayerLogin(new LoginEvent(player));
+        context.listener.onPostLogin(new PostLoginEvent(player));
         reset(context.ormContext);
         executeTransactionsWithSession(context.ormContext, context.session);
         context.listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN));
@@ -685,7 +698,7 @@ class PlayerStatusListenerTest {
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
         when(player.getUsername()).thenReturn("Alice");
 
-        listener.onPlayerLogin(new LoginEvent(player));
+        listener.onPostLogin(new PostLoginEvent(player));
         listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN));
 
         InOrder inOrder = inOrder(
@@ -740,7 +753,7 @@ class PlayerStatusListenerTest {
         RegisteredServer lobby = mock(RegisteredServer.class);
         when(lobby.getServerInfo()).thenReturn(new ServerInfo("lobby-1", new InetSocketAddress("127.0.0.1", 25567)));
 
-        context.listener.onPlayerLogin(new LoginEvent(player));
+        context.listener.onPostLogin(new PostLoginEvent(player));
         context.listener.onServerSwitch(new ServerConnectedEvent(player, lobby, null));
         context.listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.CANCELLED_BY_PROXY));
 
@@ -764,8 +777,8 @@ class PlayerStatusListenerTest {
         when(replacementConnection.getUniqueId()).thenReturn(UUID.fromString(uuid));
         when(replacementConnection.getUsername()).thenReturn("Alice");
 
-        context.listener.onPlayerLogin(new LoginEvent(originalConnection));
-        context.listener.onPlayerLogin(new LoginEvent(replacementConnection));
+        context.listener.onPostLogin(new PostLoginEvent(originalConnection));
+        context.listener.onPostLogin(new PostLoginEvent(replacementConnection));
         reset(context.ormContext);
         executeTransactionsWithSession(context.ormContext, context.session);
 
@@ -796,7 +809,7 @@ class PlayerStatusListenerTest {
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
         when(player.getUsername()).thenReturn("Alice");
 
-        context.listener.onPlayerLogin(new LoginEvent(player));
+        context.listener.onPostLogin(new PostLoginEvent(player));
 
         verify(context.repository, never()).getOrCreatePlayer(any(), anyString(), anyString());
         verify(context.ormContext, never()).runInTransaction(any());
@@ -813,7 +826,7 @@ class PlayerStatusListenerTest {
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
         when(player.getUsername()).thenReturn("Alice");
 
-        context.listener.onPlayerLogin(new LoginEvent(player));
+        context.listener.onPostLogin(new PostLoginEvent(player));
         context.listener.beginShutdown();
 
         assertFalse(context.listener.awaitPipelineDrain(1L, TimeUnit.MILLISECONDS));
@@ -828,7 +841,7 @@ class PlayerStatusListenerTest {
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
         when(player.getUsername()).thenReturn("Alice");
 
-        context.listener.onPlayerLogin(new LoginEvent(player));
+        context.listener.onPostLogin(new PostLoginEvent(player));
         context.listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN));
 
         assertTrue(context.listener.snapshotCurrentPlayerUuids().isEmpty());
@@ -847,7 +860,7 @@ class PlayerStatusListenerTest {
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
         when(player.getUsername()).thenReturn("Alice");
 
-        context.listener.onPlayerLogin(new LoginEvent(player));
+        context.listener.onPostLogin(new PostLoginEvent(player));
 
         verify(context.repository, never()).findByUUID(anyString());
         verify(context.repository, never()).getOrCreatePlayer(any(), anyString(), anyString());
@@ -875,7 +888,7 @@ class PlayerStatusListenerTest {
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
         when(player.getUsername()).thenReturn("Alice");
 
-        context.listener.onPlayerLogin(new LoginEvent(player));
+        context.listener.onPostLogin(new PostLoginEvent(player));
 
         assertThrows(ExecutionException.class, () -> pendingInitialization.get().get());
         verify(context.repository, never()).getOrCreatePlayer(any(), anyString(), anyString());
@@ -910,9 +923,9 @@ class PlayerStatusListenerTest {
         when(replacement.getUniqueId()).thenReturn(UUID.fromString(uuid));
         when(replacement.getUsername()).thenReturn("Alice");
 
-        context.listener.onPlayerLogin(new LoginEvent(player));
+        context.listener.onPostLogin(new PostLoginEvent(player));
         context.listener.onPlayerQuit(new DisconnectEvent(player, DisconnectEvent.LoginStatus.SUCCESSFUL_LOGIN));
-        context.listener.onPlayerLogin(new LoginEvent(replacement));
+        context.listener.onPostLogin(new PostLoginEvent(replacement));
 
         assertEquals(2, queuedTasks.size());
         queuedTasks.removeFirst().run();
@@ -960,7 +973,7 @@ class PlayerStatusListenerTest {
         when(player.getUniqueId()).thenReturn(UUID.fromString(uuid));
         when(player.getUsername()).thenReturn("Alice");
 
-        context.listener.onPlayerLogin(new LoginEvent(player));
+        context.listener.onPostLogin(new PostLoginEvent(player));
         context.listener.flushActivePlaytime();
         assertEquals(1, queuedTasks.size());
 
@@ -994,9 +1007,8 @@ class PlayerStatusListenerTest {
         when(server.getServerInfo()).thenReturn(new ServerInfo("survival", new InetSocketAddress("127.0.0.1", 25567)));
 
         try {
-            context.listener.onPlayerLogin(new LoginEvent(player));
+            context.listener.onPostLogin(new PostLoginEvent(player));
             assertTrue(context.listener.awaitPipelineDrain(1L, TimeUnit.SECONDS));
-
             reset(context.ormContext);
             doAnswer(invocation -> {
                 int call = transactionCalls.incrementAndGet();
