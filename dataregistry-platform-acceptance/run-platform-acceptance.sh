@@ -216,8 +216,8 @@ write_dataregistry_configuration() {
     mkdir -p "$data_directory"
     cp "$ROOT_DIRECTORY/dataregistry-core/src/main/resources/config.yml" "$data_directory/config.yml"
     sed -i \
-        -e 's/^  namespace: ""$/  namespace: dataregistry-platform-acceptance/' \
-        -e 's/^    service-name: ""$/    service-name: acceptance-proxy/' \
+        -e 's/^  namespace: hauntedmc$/  namespace: dataregistry-platform-acceptance/' \
+        -e 's/^    service-name: proxy$/    service-name: acceptance-proxy/' \
         "$data_directory/config.yml"
 }
 
