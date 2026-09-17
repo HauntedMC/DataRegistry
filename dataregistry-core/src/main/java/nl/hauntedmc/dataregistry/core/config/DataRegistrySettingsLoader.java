@@ -12,7 +12,7 @@ public final class DataRegistrySettingsLoader {
 
     private final DataRegistrySettingsParser parser = new DataRegistrySettingsParser();
 
-    /** Loads runtime settings, failing when a required clean-break setting is absent. */
+    /** Loads runtime settings, failing when a required infrastructure setting is absent. */
     public DataRegistrySettings load(Path dataDirectory, ClassLoader resourceLoader, ILoggerAdapter logger) {
         Objects.requireNonNull(dataDirectory, "dataDirectory must not be null");
         Objects.requireNonNull(resourceLoader, "resourceLoader must not be null");
@@ -35,17 +35,11 @@ public final class DataRegistrySettingsLoader {
 
     private static void validateRequiredConfiguration(Map<?, ?> root) {
         requireText(root, "database.profiles.sessions.connection-id");
-        requireText(root, "sessions.namespace");
         requireValue(root, "sessions.lease-ttl-seconds");
         requireValue(root, "sessions.renewal-interval-seconds");
         requireValue(root, "sessions.expiry-safety-margin-millis");
         requireValue(root, "sessions.directory-freshness-seconds");
         requireText(root, "sessions.redis-outage-behavior");
-        String proxyId = requireText(root, "platform.velocity.service-name");
-        if ("auto".equalsIgnoreCase(proxyId) || "proxy-1".equalsIgnoreCase(proxyId)) {
-            throw new IllegalArgumentException(
-                    "platform.velocity.service-name must be an explicit stable unique proxy instance ID");
-        }
     }
 
     private static String requireText(Map<?, ?> root, String path) {
