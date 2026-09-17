@@ -59,6 +59,34 @@ public class ServiceProbeRepository extends AbstractRepository<ServiceProbeEntit
     }
 
     /**
+     * Returns the newest probe for one logical service as observed by one proxy/runtime instance.
+     */
+    public Optional<ServiceProbeEntity> findMostRecentByServiceAndObserver(
+            ServiceKind kind,
+            String serviceName,
+            String observerInstanceId
+    ) {
+        Objects.requireNonNull(kind, "kind must not be null");
+        String normalizedServiceName = normalizeNonBlank(serviceName, "serviceName");
+        String normalizedObserverInstanceId = normalizeNonBlank(observerInstanceId, "observerInstanceId");
+        return ormContext.runInTransaction(session ->
+                session.createQuery(
+                                "SELECT p FROM ServiceProbeEntity p " +
+                                        "WHERE p.service.serviceKind = :kind " +
+                                        "AND p.service.serviceName = :serviceName " +
+                                        "AND p.observerInstanceId = :observerInstanceId " +
+                                        "ORDER BY p.checkedAt DESC, p.id DESC",
+                                ServiceProbeEntity.class
+                        )
+                        .setParameter("kind", kind)
+                        .setParameter("serviceName", normalizedServiceName)
+                        .setParameter("observerInstanceId", normalizedObserverInstanceId)
+                        .setMaxResults(1)
+                        .uniqueResultOptional()
+        );
+    }
+
+    /**
      * Returns probes newer than the given timestamp across all services.
      */
     public List<ServiceProbeEntity> findCheckedAfter(Instant checkedAfter, int limit) {
@@ -132,30 +160,42 @@ public class ServiceProbeRepository extends AbstractRepository<ServiceProbeEntit
     }
 
     /**
-     * Deletes up to {@code limit} oldest probes older than the given timestamp.
+     * Deletes every probe older than the given timestamp while bounding each database transaction to {@code limit}
+     * rows. The cutoff is fixed before draining starts, so newly arriving probes cannot extend the work indefinitely.
+     *
+     * <p>This method intentionally drains the complete eligible backlog. The old one-batch behavior made retention
+     * throughput dependent on the maintenance cadence and could permanently fall behind the probe write rate.</p>
      */
     public int deleteCheckedBefore(Instant checkedBefore, int limit) {
         Objects.requireNonNull(checkedBefore, "checkedBefore must not be null");
         int boundedLimit = Math.max(1, limit);
-        return ormContext.runInTransaction(session -> {
-            List<Long> ids = session.createQuery(
-                            "SELECT p.id FROM ServiceProbeEntity p " +
-                                    "WHERE p.checkedAt < :checkedBefore " +
-                                    "ORDER BY p.checkedAt ASC, p.id ASC",
-                            Long.class
-                    )
-                    .setParameter("checkedBefore", checkedBefore)
-                    .setMaxResults(boundedLimit)
-                    .list();
-            if (ids.isEmpty()) {
-                return 0;
+        int totalDeleted = 0;
+
+        while (true) {
+            int deleted = ormContext.runInTransaction(session -> {
+                List<Long> ids = session.createQuery(
+                                "SELECT p.id FROM ServiceProbeEntity p " +
+                                        "WHERE p.checkedAt < :checkedBefore " +
+                                        "ORDER BY p.checkedAt ASC, p.id ASC",
+                                Long.class
+                        )
+                        .setParameter("checkedBefore", checkedBefore)
+                        .setMaxResults(boundedLimit)
+                        .list();
+                if (ids.isEmpty()) {
+                    return 0;
+                }
+                return session.createMutationQuery(
+                                "DELETE FROM ServiceProbeEntity p WHERE p.id IN :ids"
+                        )
+                        .setParameter("ids", ids)
+                        .executeUpdate();
+            });
+            totalDeleted = Math.addExact(totalDeleted, deleted);
+            if (deleted < boundedLimit) {
+                return totalDeleted;
             }
-            return session.createMutationQuery(
-                            "DELETE FROM ServiceProbeEntity p WHERE p.id IN :ids"
-                    )
-                    .setParameter("ids", ids)
-                    .executeUpdate();
-        });
+        }
     }
 
     private static String normalizeNonBlank(String value, String fieldName) {
