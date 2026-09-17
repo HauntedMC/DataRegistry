@@ -59,7 +59,13 @@ public class ServiceProbeEntity {
     @Column(name = "error_detail", length = 255)
     private String errorDetail;
 
-    @Column(name = "checked_at", nullable = false, updatable = false, columnDefinition = "TIMESTAMP")
+    /**
+     * Timestamp of the observation represented by this row.
+     *
+     * <p>Healthy steady-state rows may be refreshed in place between archival samples so effective-health reads keep
+     * an accurate liveness timestamp without appending a durable history row for every successful probe.</p>
+     */
+    @Column(name = "checked_at", nullable = false, columnDefinition = "TIMESTAMP")
     private Instant checkedAt;
 
     public ServiceProbeEntity() {

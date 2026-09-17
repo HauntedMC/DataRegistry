@@ -17,6 +17,7 @@ import static nl.hauntedmc.dataregistry.testutil.OrmTransactionTestSupport.execu
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -30,6 +31,8 @@ class ServiceProbeRepositoryTest {
         Query<ServiceProbeEntity> latestByServiceQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
         Query<ServiceProbeEntity> recentByServiceQuery = mock(Query.class);
+        @SuppressWarnings("unchecked")
+        Query<ServiceProbeEntity> latestByObserverQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
         Query<ServiceProbeEntity> checkedAfterQuery = mock(Query.class);
         @SuppressWarnings("unchecked")
@@ -63,6 +66,21 @@ class ServiceProbeRepositoryTest {
         when(recentByServiceQuery.setParameter("serviceName", "paper-lobby-1")).thenReturn(recentByServiceQuery);
         when(recentByServiceQuery.setMaxResults(1)).thenReturn(recentByServiceQuery);
         when(recentByServiceQuery.list()).thenReturn(List.of(probe));
+
+        when(session.createQuery(
+                "SELECT p FROM ServiceProbeEntity p " +
+                        "WHERE p.service.serviceKind = :kind " +
+                        "AND p.service.serviceName = :serviceName " +
+                        "AND p.observerInstanceId = :observerInstanceId " +
+                        "ORDER BY p.checkedAt DESC, p.id DESC",
+                ServiceProbeEntity.class
+        )).thenReturn(latestByObserverQuery);
+        when(latestByObserverQuery.setParameter("kind", ServiceKind.BACKEND)).thenReturn(latestByObserverQuery);
+        when(latestByObserverQuery.setParameter("serviceName", "paper-lobby-1")).thenReturn(latestByObserverQuery);
+        when(latestByObserverQuery.setParameter("observerInstanceId", "observer-1"))
+                .thenReturn(latestByObserverQuery);
+        when(latestByObserverQuery.setMaxResults(1)).thenReturn(latestByObserverQuery);
+        when(latestByObserverQuery.uniqueResultOptional()).thenReturn(Optional.of(probe));
 
         when(session.createQuery(
                 "SELECT p FROM ServiceProbeEntity p " +
@@ -114,7 +132,7 @@ class ServiceProbeRepositoryTest {
         )).thenReturn(staleIdsQuery);
         when(staleIdsQuery.setParameter("checkedBefore", cutoff)).thenReturn(staleIdsQuery);
         when(staleIdsQuery.setMaxResults(1)).thenReturn(staleIdsQuery);
-        when(staleIdsQuery.list()).thenReturn(List.of(7L));
+        when(staleIdsQuery.list()).thenReturn(List.of(7L), List.of());
 
         when(session.createMutationQuery(
                 "DELETE FROM ServiceProbeEntity p WHERE p.id IN :ids"
@@ -124,6 +142,14 @@ class ServiceProbeRepositoryTest {
 
         assertEquals(Optional.of(probe), repository.findMostRecentByService(ServiceKind.BACKEND, " paper-lobby-1 "));
         assertEquals(List.of(probe), repository.findRecentByService(ServiceKind.BACKEND, "paper-lobby-1", 0));
+        assertEquals(
+                Optional.of(probe),
+                repository.findMostRecentByServiceAndObserver(
+                        ServiceKind.BACKEND,
+                        "paper-lobby-1",
+                        " observer-1 "
+                )
+        );
         assertEquals(List.of(probe), repository.findCheckedAfter(cutoff, 0));
         assertEquals(List.of(probe), repository.findByObserverInstanceId(" observer-1 ", 0));
         assertEquals(5L, repository.countByStatus(ServiceProbeStatus.UP));
@@ -137,9 +163,69 @@ class ServiceProbeRepositoryTest {
                 )
         );
         verify(recentByServiceQuery).setMaxResults(1);
+        verify(latestByObserverQuery).setMaxResults(1);
         verify(checkedAfterQuery).setMaxResults(1);
         verify(byObserverQuery).setMaxResults(1);
-        verify(staleIdsQuery).setMaxResults(1);
+        verify(staleIdsQuery, times(2)).setMaxResults(1);
+    }
+
+    @Test
+    void deleteCheckedBeforeDrainsAllEligibleRowsAcrossBoundedTransactions() {
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<Long> staleIdsQuery = mock(Query.class);
+        MutationQuery deleteByIdsQuery = mock(MutationQuery.class);
+        Instant cutoff = Instant.now().minusSeconds(60);
+
+        executeTransactionsWithSession(ormContext, session);
+        when(session.createQuery(
+                "SELECT p.id FROM ServiceProbeEntity p " +
+                        "WHERE p.checkedAt < :checkedBefore " +
+                        "ORDER BY p.checkedAt ASC, p.id ASC",
+                Long.class
+        )).thenReturn(staleIdsQuery);
+        when(staleIdsQuery.setParameter("checkedBefore", cutoff)).thenReturn(staleIdsQuery);
+        when(staleIdsQuery.setMaxResults(2)).thenReturn(staleIdsQuery);
+        when(staleIdsQuery.list()).thenReturn(List.of(1L, 2L), List.of(3L));
+        when(session.createMutationQuery("DELETE FROM ServiceProbeEntity p WHERE p.id IN :ids"))
+                .thenReturn(deleteByIdsQuery);
+        when(deleteByIdsQuery.setParameter("ids", List.of(1L, 2L))).thenReturn(deleteByIdsQuery);
+        when(deleteByIdsQuery.setParameter("ids", List.of(3L))).thenReturn(deleteByIdsQuery);
+        when(deleteByIdsQuery.executeUpdate()).thenReturn(2, 1);
+
+        assertEquals(3, new ServiceProbeRepository(ormContext).deleteCheckedBefore(cutoff, 2));
+        verify(staleIdsQuery, times(2)).setMaxResults(2);
+    }
+
+    @Test
+    void deleteCheckedBeforeDoesNotStopEarlyWhenAnotherReplicaDeletesPartOfFullBatch() {
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<Long> staleIdsQuery = mock(Query.class);
+        MutationQuery deleteByIdsQuery = mock(MutationQuery.class);
+        Instant cutoff = Instant.now().minusSeconds(60);
+
+        executeTransactionsWithSession(ormContext, session);
+        when(session.createQuery(
+                "SELECT p.id FROM ServiceProbeEntity p " +
+                        "WHERE p.checkedAt < :checkedBefore " +
+                        "ORDER BY p.checkedAt ASC, p.id ASC",
+                Long.class
+        )).thenReturn(staleIdsQuery);
+        when(staleIdsQuery.setParameter("checkedBefore", cutoff)).thenReturn(staleIdsQuery);
+        when(staleIdsQuery.setMaxResults(2)).thenReturn(staleIdsQuery);
+        when(staleIdsQuery.list()).thenReturn(List.of(1L, 2L), List.of(3L));
+        when(session.createMutationQuery("DELETE FROM ServiceProbeEntity p WHERE p.id IN :ids"))
+                .thenReturn(deleteByIdsQuery);
+        when(deleteByIdsQuery.setParameter("ids", List.of(1L, 2L))).thenReturn(deleteByIdsQuery);
+        when(deleteByIdsQuery.setParameter("ids", List.of(3L))).thenReturn(deleteByIdsQuery);
+        // Another proxy removed one ID from the first selected batch before this transaction deleted it.
+        when(deleteByIdsQuery.executeUpdate()).thenReturn(1, 1);
+
+        assertEquals(2, new ServiceProbeRepository(ormContext).deleteCheckedBefore(cutoff, 2));
+        verify(staleIdsQuery, times(2)).setMaxResults(2);
     }
 
     @Test
@@ -152,6 +238,16 @@ class ServiceProbeRepositoryTest {
         assertThrows(NullPointerException.class, () -> repository.findRecentByService(null, "paper", 10));
         assertThrows(NullPointerException.class, () -> repository.findRecentByService(ServiceKind.BACKEND, null, 10));
         assertThrows(IllegalArgumentException.class, () -> repository.findRecentByService(ServiceKind.BACKEND, " ", 10));
+        assertThrows(NullPointerException.class, () ->
+                repository.findMostRecentByServiceAndObserver(null, "paper", "observer"));
+        assertThrows(NullPointerException.class, () ->
+                repository.findMostRecentByServiceAndObserver(ServiceKind.BACKEND, null, "observer"));
+        assertThrows(IllegalArgumentException.class, () ->
+                repository.findMostRecentByServiceAndObserver(ServiceKind.BACKEND, " ", "observer"));
+        assertThrows(NullPointerException.class, () ->
+                repository.findMostRecentByServiceAndObserver(ServiceKind.BACKEND, "paper", null));
+        assertThrows(IllegalArgumentException.class, () ->
+                repository.findMostRecentByServiceAndObserver(ServiceKind.BACKEND, "paper", " "));
         assertThrows(NullPointerException.class, () -> repository.findCheckedAfter(null, 10));
         assertThrows(NullPointerException.class, () -> repository.findByObserverInstanceId(null, 10));
         assertThrows(IllegalArgumentException.class, () -> repository.findByObserverInstanceId(" ", 10));

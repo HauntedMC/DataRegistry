@@ -59,6 +59,34 @@ public class ServiceProbeRepository extends AbstractRepository<ServiceProbeEntit
     }
 
     /**
+     * Returns the newest probe for one logical service as observed by one proxy/runtime instance.
+     */
+    public Optional<ServiceProbeEntity> findMostRecentByServiceAndObserver(
+            ServiceKind kind,
+            String serviceName,
+            String observerInstanceId
+    ) {
+        Objects.requireNonNull(kind, "kind must not be null");
+        String normalizedServiceName = normalizeNonBlank(serviceName, "serviceName");
+        String normalizedObserverInstanceId = normalizeNonBlank(observerInstanceId, "observerInstanceId");
+        return ormContext.runInTransaction(session ->
+                session.createQuery(
+                                "SELECT p FROM ServiceProbeEntity p " +
+                                        "WHERE p.service.serviceKind = :kind " +
+                                        "AND p.service.serviceName = :serviceName " +
+                                        "AND p.observerInstanceId = :observerInstanceId " +
+                                        "ORDER BY p.checkedAt DESC, p.id DESC",
+                                ServiceProbeEntity.class
+                        )
+                        .setParameter("kind", kind)
+                        .setParameter("serviceName", normalizedServiceName)
+                        .setParameter("observerInstanceId", normalizedObserverInstanceId)
+                        .setMaxResults(1)
+                        .uniqueResultOptional()
+        );
+    }
+
+    /**
      * Returns probes newer than the given timestamp across all services.
      */
     public List<ServiceProbeEntity> findCheckedAfter(Instant checkedAfter, int limit) {
@@ -132,30 +160,48 @@ public class ServiceProbeRepository extends AbstractRepository<ServiceProbeEntit
     }
 
     /**
-     * Deletes up to {@code limit} oldest probes older than the given timestamp.
+     * Deletes every probe older than the given timestamp while bounding each database transaction to {@code limit}
+     * selected rows. The cutoff is fixed before draining starts, so newly arriving probes cannot extend the work
+     * indefinitely.
+     *
+     * <p>This method intentionally drains the complete eligible backlog. The old one-batch behavior made retention
+     * throughput dependent on the maintenance cadence and could permanently fall behind the probe write rate.</p>
+     *
+     * <p>Completion is based on the number of rows selected rather than the number actually deleted. Another proxy
+     * may concurrently delete some of the selected IDs; that must not make this replica mistake a full batch for the
+     * end of the backlog.</p>
      */
     public int deleteCheckedBefore(Instant checkedBefore, int limit) {
         Objects.requireNonNull(checkedBefore, "checkedBefore must not be null");
         int boundedLimit = Math.max(1, limit);
-        return ormContext.runInTransaction(session -> {
-            List<Long> ids = session.createQuery(
-                            "SELECT p.id FROM ServiceProbeEntity p " +
-                                    "WHERE p.checkedAt < :checkedBefore " +
-                                    "ORDER BY p.checkedAt ASC, p.id ASC",
-                            Long.class
-                    )
-                    .setParameter("checkedBefore", checkedBefore)
-                    .setMaxResults(boundedLimit)
-                    .list();
-            if (ids.isEmpty()) {
-                return 0;
+        int totalDeleted = 0;
+
+        while (true) {
+            ProbeDeleteBatch batch = ormContext.runInTransaction(session -> {
+                List<Long> ids = session.createQuery(
+                                "SELECT p.id FROM ServiceProbeEntity p " +
+                                        "WHERE p.checkedAt < :checkedBefore " +
+                                        "ORDER BY p.checkedAt ASC, p.id ASC",
+                                Long.class
+                        )
+                        .setParameter("checkedBefore", checkedBefore)
+                        .setMaxResults(boundedLimit)
+                        .list();
+                if (ids.isEmpty()) {
+                    return new ProbeDeleteBatch(0, 0);
+                }
+                int deleted = session.createMutationQuery(
+                                "DELETE FROM ServiceProbeEntity p WHERE p.id IN :ids"
+                        )
+                        .setParameter("ids", ids)
+                        .executeUpdate();
+                return new ProbeDeleteBatch(ids.size(), deleted);
+            });
+            totalDeleted = Math.addExact(totalDeleted, batch.deleted());
+            if (batch.selected() < boundedLimit) {
+                return totalDeleted;
             }
-            return session.createMutationQuery(
-                            "DELETE FROM ServiceProbeEntity p WHERE p.id IN :ids"
-                    )
-                    .setParameter("ids", ids)
-                    .executeUpdate();
-        });
+        }
     }
 
     private static String normalizeNonBlank(String value, String fieldName) {
@@ -165,5 +211,8 @@ public class ServiceProbeRepository extends AbstractRepository<ServiceProbeEntit
             throw new IllegalArgumentException(fieldName + " must not be blank");
         }
         return normalized;
+    }
+
+    private record ProbeDeleteBatch(int selected, int deleted) {
     }
 }
