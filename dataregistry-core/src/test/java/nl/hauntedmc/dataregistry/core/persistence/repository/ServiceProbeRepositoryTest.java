@@ -199,6 +199,36 @@ class ServiceProbeRepositoryTest {
     }
 
     @Test
+    void deleteCheckedBeforeDoesNotStopEarlyWhenAnotherReplicaDeletesPartOfFullBatch() {
+        ORMContext ormContext = mock(ORMContext.class);
+        Session session = mock(Session.class);
+        @SuppressWarnings("unchecked")
+        Query<Long> staleIdsQuery = mock(Query.class);
+        MutationQuery deleteByIdsQuery = mock(MutationQuery.class);
+        Instant cutoff = Instant.now().minusSeconds(60);
+
+        executeTransactionsWithSession(ormContext, session);
+        when(session.createQuery(
+                "SELECT p.id FROM ServiceProbeEntity p " +
+                        "WHERE p.checkedAt < :checkedBefore " +
+                        "ORDER BY p.checkedAt ASC, p.id ASC",
+                Long.class
+        )).thenReturn(staleIdsQuery);
+        when(staleIdsQuery.setParameter("checkedBefore", cutoff)).thenReturn(staleIdsQuery);
+        when(staleIdsQuery.setMaxResults(2)).thenReturn(staleIdsQuery);
+        when(staleIdsQuery.list()).thenReturn(List.of(1L, 2L), List.of(3L));
+        when(session.createMutationQuery("DELETE FROM ServiceProbeEntity p WHERE p.id IN :ids"))
+                .thenReturn(deleteByIdsQuery);
+        when(deleteByIdsQuery.setParameter("ids", List.of(1L, 2L))).thenReturn(deleteByIdsQuery);
+        when(deleteByIdsQuery.setParameter("ids", List.of(3L))).thenReturn(deleteByIdsQuery);
+        // Another proxy removed one ID from the first selected batch before this transaction deleted it.
+        when(deleteByIdsQuery.executeUpdate()).thenReturn(1, 1);
+
+        assertEquals(2, new ServiceProbeRepository(ormContext).deleteCheckedBefore(cutoff, 2));
+        verify(staleIdsQuery, times(2)).setMaxResults(2);
+    }
+
+    @Test
     void helperMethodsRejectInvalidArguments() {
         ServiceProbeRepository repository = new ServiceProbeRepository(mock(ORMContext.class));
 
