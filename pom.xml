@@ -48,7 +48,7 @@
         <!-- Project identity and compiler configuration. -->
         <revision>1.18.3</revision>
         <!-- Runtime and platform APIs. -->
-        <dataprovider.version>3.4.2</dataprovider.version>
+        <dataprovider.version>3.4.3</dataprovider.version>
         <hauntedmc-theme.version>1.0.0</hauntedmc-theme.version>
         <jakarta.persistence.version>${haunted.jpa.version}</jakarta.persistence.version>
         <paper.version>26.2.build.123-stable</paper.version>
