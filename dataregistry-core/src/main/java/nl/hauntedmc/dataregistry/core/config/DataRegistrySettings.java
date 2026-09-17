@@ -18,7 +18,7 @@ public final class DataRegistrySettings {
     private static final String DEFAULT_PLAYER_CONNECTION_ID = "player_data_rw";
     private static final String DEFAULT_SERVICE_CONNECTION_ID = "player_data_rw";
     private static final String DEFAULT_SESSION_CONNECTION_ID = "network_sessions";
-    private static final String DEFAULT_SESSION_NAMESPACE = "network";
+    private static final String DEFAULT_SESSION_NAMESPACE = "hauntedmc";
     private static final int DEFAULT_SESSION_LEASE_TTL_SECONDS = 15;
     private static final int DEFAULT_SESSION_RENEWAL_INTERVAL_SECONDS = 3;
     private static final int DEFAULT_SESSION_EXPIRY_SAFETY_MARGIN_MILLIS = 500;
@@ -41,7 +41,7 @@ public final class DataRegistrySettings {
     private static final int DEFAULT_BUKKIT_JOIN_DELAY_TICKS = 4;
     private static final boolean DEFAULT_BUKKIT_REGISTER_SERVICE_INSTANCE = false;
     private static final String DEFAULT_BUKKIT_SERVICE_NAME = "auto";
-    private static final String DEFAULT_VELOCITY_SERVICE_NAME = "test-proxy";
+    private static final String DEFAULT_VELOCITY_SERVICE_NAME = "proxy";
     private static final int DEFAULT_QUERY_EXECUTOR_THREADS = 2;
     private static final int DEFAULT_QUERY_TIMEOUT_MILLIS = 3000;
     private static final boolean DEFAULT_QUERY_DEVELOPMENT_THREAD_CHECKS = false;
@@ -293,7 +293,7 @@ public final class DataRegistrySettings {
     /** Retention period for stopped service-instance history, or {@code -1} to retain rows indefinitely. */
     public int serviceInstanceRetentionDays() { return serviceInstanceRetentionDays; }
 
-    /** Retention period for fully closed raw session history, or {@code -1} to retain rows indefinitely. */
+    /** Retention period for fully closed raw session history, or {@code -1} to retain them indefinitely. */
     public int closedSessionHistoryRetentionDays() { return closedSessionHistoryRetentionDays; }
 
     public int retentionPurgeBatchSize() { return retentionPurgeBatchSize; }
