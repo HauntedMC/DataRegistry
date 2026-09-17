@@ -161,10 +161,15 @@ public class ServiceProbeRepository extends AbstractRepository<ServiceProbeEntit
 
     /**
      * Deletes every probe older than the given timestamp while bounding each database transaction to {@code limit}
-     * rows. The cutoff is fixed before draining starts, so newly arriving probes cannot extend the work indefinitely.
+     * selected rows. The cutoff is fixed before draining starts, so newly arriving probes cannot extend the work
+     * indefinitely.
      *
      * <p>This method intentionally drains the complete eligible backlog. The old one-batch behavior made retention
      * throughput dependent on the maintenance cadence and could permanently fall behind the probe write rate.</p>
+     *
+     * <p>Completion is based on the number of rows selected rather than the number actually deleted. Another proxy
+     * may concurrently delete some of the selected IDs; that must not make this replica mistake a full batch for the
+     * end of the backlog.</p>
      */
     public int deleteCheckedBefore(Instant checkedBefore, int limit) {
         Objects.requireNonNull(checkedBefore, "checkedBefore must not be null");
@@ -172,7 +177,7 @@ public class ServiceProbeRepository extends AbstractRepository<ServiceProbeEntit
         int totalDeleted = 0;
 
         while (true) {
-            int deleted = ormContext.runInTransaction(session -> {
+            ProbeDeleteBatch batch = ormContext.runInTransaction(session -> {
                 List<Long> ids = session.createQuery(
                                 "SELECT p.id FROM ServiceProbeEntity p " +
                                         "WHERE p.checkedAt < :checkedBefore " +
@@ -183,16 +188,17 @@ public class ServiceProbeRepository extends AbstractRepository<ServiceProbeEntit
                         .setMaxResults(boundedLimit)
                         .list();
                 if (ids.isEmpty()) {
-                    return 0;
+                    return new ProbeDeleteBatch(0, 0);
                 }
-                return session.createMutationQuery(
+                int deleted = session.createMutationQuery(
                                 "DELETE FROM ServiceProbeEntity p WHERE p.id IN :ids"
                         )
                         .setParameter("ids", ids)
                         .executeUpdate();
+                return new ProbeDeleteBatch(ids.size(), deleted);
             });
-            totalDeleted = Math.addExact(totalDeleted, deleted);
-            if (deleted < boundedLimit) {
+            totalDeleted = Math.addExact(totalDeleted, batch.deleted());
+            if (batch.selected() < boundedLimit) {
                 return totalDeleted;
             }
         }
@@ -205,5 +211,8 @@ public class ServiceProbeRepository extends AbstractRepository<ServiceProbeEntit
             throw new IllegalArgumentException(fieldName + " must not be blank");
         }
         return normalized;
+    }
+
+    private record ProbeDeleteBatch(int selected, int deleted) {
     }
 }
