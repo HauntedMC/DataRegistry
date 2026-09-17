@@ -1,35 +1,37 @@
 package nl.hauntedmc.dataregistry.platform.velocity.listener;
 
-import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.EventTask;
+import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
-import com.velocitypowered.api.event.connection.LoginEvent;
+import com.velocitypowered.api.event.connection.PostLoginEvent;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.proxy.Player;
+import net.kyori.adventure.text.Component;
+import nl.hauntedmc.dataregistry.api.session.NetworkSession;
 import nl.hauntedmc.dataregistry.core.config.PlaytimeTrackingSettings;
-import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.lifecycle.DisconnectCommand;
 import nl.hauntedmc.dataregistry.core.lifecycle.LoginCommand;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerIdentityInitializationTracker.PlayerIdentityInitialization;
 import nl.hauntedmc.dataregistry.core.lifecycle.PlayerLifecycleWriter;
 import nl.hauntedmc.dataregistry.core.lifecycle.TransferCommand;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.service.PlayerActivitySummaryService;
 import nl.hauntedmc.dataregistry.core.service.PlayerConnectionInfoService;
 import nl.hauntedmc.dataregistry.core.service.PlayerNameHistoryService;
 import nl.hauntedmc.dataregistry.core.service.PlayerPlaytimeService;
 import nl.hauntedmc.dataregistry.core.service.PlayerService;
 import nl.hauntedmc.dataregistry.core.service.PlayerSessionService;
+import nl.hauntedmc.dataregistry.core.service.PlayerStatusService;
 import nl.hauntedmc.dataregistry.core.session.DistributedNetworkSessionApi;
 import nl.hauntedmc.dataregistry.core.session.PendingSessionClaim;
-import nl.hauntedmc.dataregistry.api.session.NetworkSession;
-import net.kyori.adventure.text.Component;
-import nl.hauntedmc.dataregistry.core.service.PlayerStatusService;
 import nl.hauntedmc.dataregistry.platform.common.logger.ILoggerAdapter;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -38,8 +40,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.Objects;
-import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -50,7 +50,13 @@ import java.util.function.Supplier;
 /**
  * Serializes Velocity player lifecycle persistence off the proxy event thread.
  * <p>
- * Velocity can emit login, server switch, and disconnect events in quick succession. This listener snapshots the
+ * Login admission belongs to Velocity and the proxy security/capacity gates. DataRegistry therefore starts the
+ * durable player lifecycle only from {@link PostLoginEvent}: Velocity has accepted the login at that point, but its
+ * awaited PostLogin phase has not yet proceeded to initial-server selection. This keeps rejected LoginEvent attempts
+ * out of Redis session ownership and durable lifecycle storage while still making identity/session state authoritative
+ * before routing begins.
+ * <p>
+ * Velocity can emit post-login, server switch, and disconnect events in quick succession. This listener snapshots the
  * platform state synchronously, then processes all database-backed lifecycle work through a per-player queue so
  * dependent feature tables observe identity creation before later lifecycle updates. Periodic playtime writes use a
  * separate lightweight pipeline, but share a keyed write coordinator with lifecycle commands so transactions for the
@@ -169,17 +175,23 @@ public class PlayerStatusListener {
         );
     }
 
+    /**
+     * Establishes durable identity and fenced network-session ownership only after Velocity has accepted LoginEvent.
+     * PostLoginEvent is awaited by Velocity before initial-server selection, so returning an EventTask here preserves
+     * the existing readiness guarantee for routing and downstream DataRegistry consumers without doing security-gate
+     * work for rejected connection attempts.
+     */
     @Subscribe(priority = PLAYER_LIFECYCLE_EVENT_PRIORITY)
-    public EventTask onPlayerLogin(LoginEvent event) {
+    public EventTask onPostLogin(PostLoginEvent event) {
         Player player = event.getPlayer();
         String uuid = player.getUniqueId().toString();
         String username = player.getUsername();
         String ip = extractIp(player);
         String vhost = extractVirtualHost(player);
         if (!acceptingEvents.get()) {
-            event.setResult(LoginEvent.ComponentResult.denied(
-                    Component.text("Network session service is shutting down.")));
-            return EventTask.resumeWhenComplete(CompletableFuture.completedFuture(null));
+            IllegalStateException failure = new IllegalStateException("Network session service is shutting down.");
+            player.disconnect(Component.text("Network session service is shutting down."));
+            return EventTask.resumeWhenComplete(CompletableFuture.failedFuture(failure));
         }
 
         currentPlayerConnections.put(uuid, player);
@@ -191,12 +203,13 @@ public class PlayerStatusListener {
                 })
                 .toCompletableFuture()
                 .orTimeout(10L, TimeUnit.SECONDS)
-                .exceptionally(failure -> {
+                .whenComplete((ignored, failure) -> {
+                    if (failure == null) {
+                        return;
+                    }
                     currentPlayerConnections.remove(uuid, player);
-                    event.setResult(LoginEvent.ComponentResult.denied(
-                            Component.text("Network session initialization failed.")));
+                    player.disconnect(Component.text("Network session initialization failed."));
                     logger.error("Could not initialize fenced network session for uuid=" + safeForLog(uuid), failure);
-                    return null;
                 });
         trackPipeline(uuid, gate);
         return EventTask.resumeWhenComplete(gate);
@@ -259,9 +272,7 @@ public class PlayerStatusListener {
                 command.eventId(),
                 () -> executePlayerWrite(uuid, () -> {
                     var result = lifecycleWriter.disconnect(command);
-                    if (session != null) {
-                        networkSessions.end(player.getUniqueId(), session.fence()).toCompletableFuture().join();
-                    }
+                    networkSessions.end(player.getUniqueId(), session.fence()).toCompletableFuture().join();
                     return result;
                 }),
                 ignored -> {
@@ -271,7 +282,7 @@ public class PlayerStatusListener {
                 ignored -> disconnectsAwaitingReconciliation.add(uuid),
                 ignored -> {
                     disconnectsAwaitingReconciliation.remove(uuid);
-                    if (session != null) networkSessions.end(player.getUniqueId(), session.fence());
+                    networkSessions.end(player.getUniqueId(), session.fence());
                 }
         );
     }
