@@ -289,7 +289,7 @@ class DataRegistrySettingsLoaderTest {
     }
 
     @Test
-    void shippedConfigIsAManualCutoverTemplateThatFailsUntilIdentitiesAreSupplied() throws Exception {
+    void shippedConfigUsesHauntedMcRuntimeDefaults() throws Exception {
         DataRegistrySettingsLoader loader = new DataRegistrySettingsLoader();
         RecordingLogger logger = new RecordingLogger();
         ClassLoader classLoader = getClass().getClassLoader();
@@ -298,18 +298,97 @@ class DataRegistrySettingsLoaderTest {
             packaged = new String(input.readAllBytes(), StandardCharsets.UTF_8);
         }
 
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
-                () -> loader.load(temporaryDirectory, classLoader, logger)
-        );
+        DataRegistrySettings settings = loader.load(temporaryDirectory, classLoader, logger);
         String generated = Files.readString(temporaryDirectory.resolve("config.yml"));
 
         assertEquals(packaged, generated);
-        assertTrue(exception.getMessage().contains("sessions.namespace"));
+        assertEquals("hauntedmc", settings.sessionNamespace());
+        assertEquals("proxy", settings.velocityServiceName());
         assertTrue(generated.contains("# Schema mode controls ORM DDL behavior:"));
         assertTrue(generated.contains("# Ordered first-match server mapping rules."));
+        assertTrue(generated.contains("namespace: hauntedmc"));
+        assertTrue(generated.contains("service-name: proxy"));
         assertTrue(generated.contains("population: true"));
         assertTrue(generated.contains("population-transition-days: 90"));
+    }
+
+    @Test
+    void backendLoadSkipsVelocityOnlyIdentityValidation() throws Exception {
+        String fileContent = """
+                database:
+                  profiles:
+                    sessions:
+                      connection-id: sessions-main
+                sessions:
+                  namespace: hauntedmc
+                  lease-ttl-seconds: 15
+                  renewal-interval-seconds: 3
+                  expiry-safety-margin-millis: 500
+                  directory-freshness-seconds: 10
+                  redis-outage-behavior: PRESERVE_UNTIL_EXPIRY
+                platform:
+                  velocity:
+                    service-name: auto
+                features:
+                  sessions: false
+                  population: false
+                  playtime: false
+                """;
+        DataRegistrySettingsLoader loader = new DataRegistrySettingsLoader();
+        SingleResourceClassLoader resourceLoader = new SingleResourceClassLoader(fileContent);
+
+        DataRegistrySettings backendSettings = loader.loadForBackend(
+                temporaryDirectory.resolve("paper"),
+                resourceLoader,
+                new RecordingLogger()
+        );
+        IllegalArgumentException proxyFailure = assertThrows(
+                IllegalArgumentException.class,
+                () -> loader.load(
+                        temporaryDirectory.resolve("velocity"),
+                        resourceLoader,
+                        new RecordingLogger()
+                )
+        );
+
+        assertEquals("auto", backendSettings.velocityServiceName());
+        assertTrue(proxyFailure.getMessage().contains("platform.velocity.service-name"));
+    }
+
+    @Test
+    void backendLoadFallsBackFromLegacyBlankIdentityValues() throws Exception {
+        String fileContent = """
+                database:
+                  profiles:
+                    sessions:
+                      connection-id: sessions-main
+                sessions:
+                  namespace: ""
+                  lease-ttl-seconds: 15
+                  renewal-interval-seconds: 3
+                  expiry-safety-margin-millis: 500
+                  directory-freshness-seconds: 10
+                  redis-outage-behavior: PRESERVE_UNTIL_EXPIRY
+                platform:
+                  velocity:
+                    service-name: ""
+                features:
+                  sessions: false
+                  population: false
+                  playtime: false
+                """;
+        RecordingLogger logger = new RecordingLogger();
+
+        DataRegistrySettings settings = new DataRegistrySettingsLoader().loadForBackend(
+                temporaryDirectory,
+                new SingleResourceClassLoader(fileContent),
+                logger
+        );
+
+        assertEquals("hauntedmc", settings.sessionNamespace());
+        assertEquals("proxy", settings.velocityServiceName());
+        assertTrue(logger.warnMessages.stream().anyMatch(message -> message.contains("sessions.namespace")));
+        assertTrue(logger.warnMessages.stream().anyMatch(message -> message.contains("platform.velocity.service-name")));
     }
 
     @Test
@@ -332,13 +411,10 @@ class DataRegistrySettingsLoaderTest {
         Files.writeString(configFile, existing);
         RecordingLogger logger = new RecordingLogger();
 
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
-                () -> new DataRegistrySettingsLoader().load(
-                        temporaryDirectory,
-                        getClass().getClassLoader(),
-                        logger
-                )
+        DataRegistrySettings settings = new DataRegistrySettingsLoader().load(
+                temporaryDirectory,
+                getClass().getClassLoader(),
+                logger
         );
 
         String updated = Files.readString(configFile);
@@ -352,9 +428,10 @@ class DataRegistrySettingsLoaderTest {
         Map<?, ?> query = (Map<?, ?>) updatedConfig.get("query");
         assertEquals("network_sessions", sessions.get("connection-id"));
         assertEquals(3000, query.get("timeout-millis"));
+        assertEquals("hauntedmc", settings.sessionNamespace());
+        assertEquals("proxy", settings.velocityServiceName());
         assertEquals(existing, Files.readString(temporaryDirectory.resolve("config.yml.bak")));
         assertTrue(logger.infoMessages.stream().anyMatch(message -> message.contains("Updated DataRegistry config with")));
-        assertTrue(exception.getMessage().contains("sessions.namespace"));
     }
 
     @Test

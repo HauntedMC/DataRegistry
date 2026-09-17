@@ -47,7 +47,7 @@ public class BukkitDataRegistry extends JavaPlugin implements PlatformPlugin {
     @Override
     public void onEnable() {
         logInstance = new BukkitLoggerAdapter(getLogger());
-        settings = settingsLoader.load(getDataFolder().toPath(), getClass().getClassLoader(), logInstance);
+        settings = settingsLoader.loadForBackend(getDataFolder().toPath(), getClass().getClassLoader(), logInstance);
 
         DataProviderAPI dataProviderAPI = resolveDataProviderApi();
         if (dataProviderAPI == null) {

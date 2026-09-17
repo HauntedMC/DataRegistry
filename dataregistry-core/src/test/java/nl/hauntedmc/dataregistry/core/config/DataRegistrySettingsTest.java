@@ -24,7 +24,7 @@ class DataRegistrySettingsTest {
         assertEquals("player_data_rw", settings.serviceDatabaseConnectionId());
         assertEquals("validate", settings.ormSchemaMode());
         assertEquals("network_sessions", settings.sessionDatabaseConnectionId());
-        assertEquals("network", settings.sessionNamespace());
+        assertEquals("hauntedmc", settings.sessionNamespace());
         assertEquals(15, settings.sessionLeaseTtlSeconds());
         assertEquals(3, settings.sessionRenewalIntervalSeconds());
         assertEquals(500, settings.sessionExpirySafetyMarginMillis());
@@ -33,7 +33,7 @@ class DataRegistrySettingsTest {
         assertEquals(4, settings.bukkitJoinDelayTicks());
         assertFalse(settings.bukkitRegisterServiceInstance());
         assertEquals("auto", settings.bukkitServiceName());
-        assertEquals("test-proxy", settings.velocityServiceName());
+        assertEquals("proxy", settings.velocityServiceName());
         assertEquals(2, settings.queryExecutorThreads());
         assertEquals(3000, settings.queryTimeoutMillis());
         assertFalse(settings.queryDevelopmentThreadChecks());
