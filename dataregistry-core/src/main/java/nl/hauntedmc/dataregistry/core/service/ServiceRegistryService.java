@@ -773,7 +773,7 @@ public final class ServiceRegistryService {
             try {
                 int deleted = dataRegistry.getServiceProbeRepository().deleteCheckedBefore(cutoff, Math.max(1, batchSize));
                 if (observed) {
-                    observations.complete(observation, DataRegistryOperationOutcome.SUCCESS, deleted, null);
+                    observations.complete(observation, DataRegistryOperationOutcome.SUCCESS, 1, null);
                 }
                 return deleted;
             } catch (RuntimeException exception) {
