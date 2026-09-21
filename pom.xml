@@ -7,7 +7,7 @@
     <parent>
         <groupId>nl.hauntedmc.platform</groupId>
         <artifactId>haunted-library-parent</artifactId>
-        <version>1.6.7</version>
+        <version>1.6.8</version>
         <relativePath/>
     </parent>
 
@@ -55,14 +55,14 @@
         <paper.runtime.version>26.2</paper.runtime.version>
         <paper.runtime.build>65</paper.runtime.build>
         <paper.runtime.sha256>d290ee2a3ae92fea10afb0c74f797023d74cfd72cbcee44314e0c50d5551f2c6</paper.runtime.sha256>
-        <velocity.version>4.1.1</velocity.version>
+        <velocity.version>4.2.0</velocity.version>
         <velocity.runtime.build>24</velocity.runtime.build>
         <velocity.runtime.sha256>846411d2d0560fed0f23496ffb89681be528d2c0650ecdcf21724d2d7bd9c1ee</velocity.runtime.sha256>
         <adventure.version>${haunted.adventure.version}</adventure.version>
         <!-- Test libraries. -->
         <junit.version>${haunted.junit.version}</junit.version>
         <mockito.version>${haunted.mockito.version}</mockito.version>
-        <bytebuddy.version>1.18.13</bytebuddy.version>
+        <bytebuddy.version>1.18.14</bytebuddy.version>
     </properties>
 
     <repositories>
