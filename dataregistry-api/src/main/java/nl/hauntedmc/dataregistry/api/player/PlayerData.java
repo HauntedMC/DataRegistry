@@ -30,6 +30,32 @@ public interface PlayerData {
     boolean supports(DataRegistryFeature feature);
 
     /**
+     * Returns a disclosure-only view of enabled account-data categories.
+     * Implementations must not expose raw connection, session, client, or message values here.
+     */
+    default CompletionStage<PlayerAccountDataSummary> accountDataSummary() {
+        java.util.ArrayList<PlayerAccountDataSummary.Category> categories = new java.util.ArrayList<>();
+        if (supports(DataRegistryFeature.NAME_HISTORY)) categories.add(new PlayerAccountDataSummary.Category(
+                "identity-history", "Keeps player identities and name history consistent.", "Network", "Administrator-configured history policy."));
+        if (supports(DataRegistryFeature.LANGUAGE) || supports(DataRegistryFeature.NICKNAMES) || supports(DataRegistryFeature.PRIVACY)) {
+            categories.add(new PlayerAccountDataSummary.Category("preferences", "Stores language, nickname, and privacy choices.",
+                    "Network", "Until changed or removed by the player or administrator."));
+        }
+        if (supports(DataRegistryFeature.PLAYTIME) || supports(DataRegistryFeature.ACTIVITY_SUMMARY)) {
+            categories.add(new PlayerAccountDataSummary.Category("activity", "Provides playtime, activity, and profile statistics.",
+                    "Network", "Administrator-configured retention policy."));
+        }
+        if (supports(DataRegistryFeature.SESSIONS) || supports(DataRegistryFeature.SESSION_VISITS) || supports(DataRegistryFeature.ONLINE_STATUS)) {
+            categories.add(new PlayerAccountDataSummary.Category("session-presence", "Routes the player safely and represents current presence.",
+                    "Network", "Live session while connected; history follows administrator policy."));
+        }
+        if (supports(DataRegistryFeature.CONNECTION_INFO)) categories.add(new PlayerAccountDataSummary.Category(
+                "connection", "Supports security and connection diagnostics when enabled.", "Restricted administrator access",
+                "Administrator-configured retention policy."));
+        return CompletableFuture.completedFuture(new PlayerAccountDataSummary(categories));
+    }
+
+    /**
      * Returns the active cached identity for a player without querying persistence.
      */
     Optional<PlayerIdentity> findActiveIdentityCached(UUID uuid);

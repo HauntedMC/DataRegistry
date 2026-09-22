@@ -115,6 +115,10 @@ players.whenReady(uuid).thenAccept(identity -> {
 });
 ```
 
+For player-facing privacy pages, use `players.accountDataSummary()`. It is an asynchronous,
+disclosure-only read model containing enabled data categories, their purpose, scope and configured
+retention policy. It never returns IP addresses, client telemetry, session identifiers or message content.
+
 The enabled-by-default `PRIVACY` domain stores optional player-facing disclosure settings. A missing row is `PUBLIC`.
 Use `players.findPrivacy(...)` and `players.savePrivacy(...)` for authoritative privacy state. Keep the existing
 `findTopPlaytime...` methods for internal/raw use; viewerless player-facing playtime rankings must use
