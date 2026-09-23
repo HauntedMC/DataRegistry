@@ -24,8 +24,8 @@ tables and should reference players by the stable scalar `playerId`.
 - Java 25
 - Maven Wrapper (`./mvnw`; Maven 3.8.6+ is enforced by the build)
 - Docker, for the container-backed and platform-acceptance suites
-- DataProvider `3.4.2`
-- Velocity `4.1.0-SNAPSHOT` and/or Paper `26.2`
+- DataProvider `3.4.3`
+- Velocity `4.2.0` and/or Paper `26.2`
 
 Configure both the shell `JAVA_HOME` and the IDE Maven runner/importer to Java 25. The build deliberately rejects
 Java 26 or newer until the bundled DataProvider/Hibernate stack is qualified for it.
