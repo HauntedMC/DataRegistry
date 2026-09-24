@@ -399,8 +399,7 @@ Velocity runtime builds, checks their SHA-256 values, provisions MySQL 8.4, chec
 DataProvider configuration, and requires clean DataRegistry and Hikari shutdown. Set
 `PLATFORM_ACCEPTANCE_KEEP_WORK_DIRECTORY=true` to retain server logs after a local run.
 
-The tag release workflow runs both profiles against the exact tagged reactor before Maven deployment and independently
-verifies that the `vX.Y.Z` tag matches the Maven project version. This keeps fast checks, MySQL schema compatibility,
+The release workflow runs both profiles against the merged version before Maven deployment, resolves the published artifacts from a fresh cache, and only then creates `vX.Y.Z`. This keeps fast checks, MySQL schema compatibility,
 and real bundled-plugin boot checks in the release gate.
 
 Build output:
