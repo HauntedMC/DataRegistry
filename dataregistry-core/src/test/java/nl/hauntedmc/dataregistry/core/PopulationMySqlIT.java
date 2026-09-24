@@ -34,7 +34,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
-import org.testcontainers.containers.MySQLContainer;
+import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -70,7 +70,7 @@ class PopulationMySqlIT {
     private static final String CONNECTION_ID = "player_data_rw";
 
     @Container
-    private static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
+    private static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.4")
             .withDatabaseName("population")
             .withUsername("registry")
             .withPassword("registry-password");

@@ -13,14 +13,14 @@
         <dependency>
             <groupId>nl.hauntedmc.dataprovider</groupId>
             <artifactId>dataprovider-platform-paper</artifactId>
-            <version>${dataprovider.version}</version>
+            <version>${haunted.dataprovider.version}</version>
             <classifier>bundled</classifier>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>nl.hauntedmc.dataprovider</groupId>
             <artifactId>dataprovider-platform-velocity</artifactId>
-            <version>${dataprovider.version}</version>
+            <version>${haunted.dataprovider.version}</version>
             <classifier>bundled</classifier>
             <scope>test</scope>
         </dependency>

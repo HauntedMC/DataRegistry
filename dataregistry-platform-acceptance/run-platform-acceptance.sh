@@ -91,14 +91,7 @@ verify_prerequisites() {
 pom_property() {
     local property_name=$1
     local value
-    value="$(awk -v opening_tag="<${property_name}>" -v closing_tag="</${property_name}>" '
-        index($0, opening_tag) {
-            value = substr($0, index($0, opening_tag) + length(opening_tag))
-            closing_tag_index = index(value, closing_tag)
-            if (closing_tag_index > 0) print substr(value, 1, closing_tag_index - 1)
-            exit
-        }
-    ' "$ROOT_DIRECTORY/pom.xml")"
+    value="$(cd "$ROOT_DIRECTORY" && mvn -q help:evaluate -Dexpression="$property_name" -DforceStdout)"
     [[ -n "$value" ]] || fail "Missing Maven property ${property_name}."
     printf '%s' "$value"
 }
@@ -297,7 +290,7 @@ readonly VELOCITY_BUNDLE="$ROOT_DIRECTORY/dataregistry-platform-velocity/target/
 readonly PAPER_CONSUMER="$ACCEPTANCE_DIRECTORY/consumer-paper/target/dataregistry-acceptance-consumer-paper-${RELEASE_VERSION}.jar"
 readonly VELOCITY_CONSUMER="$ACCEPTANCE_DIRECTORY/consumer-velocity/target/dataregistry-acceptance-consumer-velocity-${RELEASE_VERSION}.jar"
 readonly MAVEN_REPOSITORY="${MAVEN_REPO_LOCAL:-${HOME}/.m2/repository}"
-DATAPROVIDER_VERSION="$(pom_property dataprovider.version)"
+DATAPROVIDER_VERSION="$(pom_property haunted.dataprovider.version)"
 readonly DATAPROVIDER_VERSION
 readonly DATAPROVIDER_PAPER_BUNDLE="$MAVEN_REPOSITORY/nl/hauntedmc/dataprovider/dataprovider-platform-paper/${DATAPROVIDER_VERSION}/dataprovider-platform-paper-${DATAPROVIDER_VERSION}-bundled.jar"
 readonly DATAPROVIDER_VELOCITY_BUNDLE="$MAVEN_REPOSITORY/nl/hauntedmc/dataprovider/dataprovider-platform-velocity/${DATAPROVIDER_VERSION}/dataprovider-platform-velocity-${DATAPROVIDER_VERSION}-bundled.jar"
@@ -312,10 +305,10 @@ for consumer in "$PAPER_CONSUMER" "$VELOCITY_CONSUMER"; do
         && fail "Consumer bundled DataRegistry API classes instead of compiling against the provided API."
 done
 
-download_runtime paper "$(pom_property paper.runtime.version)" "$(pom_property paper.runtime.build)" \
-    "$(pom_property paper.runtime.sha256)" "$WORK_DIRECTORY/paper.jar"
-download_runtime velocity "$(pom_property velocity.version)" "$(pom_property velocity.runtime.build)" \
-    "$(pom_property velocity.runtime.sha256)" "$WORK_DIRECTORY/velocity.jar"
+download_runtime paper "$(pom_property haunted.paper.runtime.version)" "$(pom_property haunted.paper.runtime.build)" \
+    "$(pom_property haunted.paper.runtime.sha256)" "$WORK_DIRECTORY/paper.jar"
+download_runtime velocity "$(pom_property haunted.velocity.version)" "$(pom_property haunted.velocity.runtime.build)" \
+    "$(pom_property haunted.velocity.runtime.sha256)" "$WORK_DIRECTORY/velocity.jar"
 docker compose --file "$COMPOSE_FILE" up --detach --wait
 MYSQL_PORT="$(backend_port mysql 3306)"
 readonly MYSQL_PORT

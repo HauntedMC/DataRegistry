@@ -7,7 +7,7 @@
     <parent>
         <groupId>nl.hauntedmc.platform</groupId>
         <artifactId>haunted-library-parent</artifactId>
-        <version>1.6.7</version>
+        <version>1.6.10</version>
         <relativePath/>
     </parent>
 
@@ -45,24 +45,11 @@
     </modules>
 
     <properties>
+        <!-- Versions of HauntedMC APIs this library builds against. -->
+        <haunted.dataprovider.version>3.4.3</haunted.dataprovider.version>
+        <haunted.theme.version>1.2.0</haunted.theme.version>
         <!-- Project identity and compiler configuration. -->
         <revision>1.18.4</revision>
-        <!-- Runtime and platform APIs. -->
-        <dataprovider.version>3.4.3</dataprovider.version>
-        <hauntedmc-theme.version>1.0.0</hauntedmc-theme.version>
-        <jakarta.persistence.version>${haunted.jpa.version}</jakarta.persistence.version>
-        <paper.version>26.2.build.124-stable</paper.version>
-        <paper.runtime.version>26.2</paper.runtime.version>
-        <paper.runtime.build>65</paper.runtime.build>
-        <paper.runtime.sha256>d290ee2a3ae92fea10afb0c74f797023d74cfd72cbcee44314e0c50d5551f2c6</paper.runtime.sha256>
-        <velocity.version>4.1.1</velocity.version>
-        <velocity.runtime.build>24</velocity.runtime.build>
-        <velocity.runtime.sha256>846411d2d0560fed0f23496ffb89681be528d2c0650ecdcf21724d2d7bd9c1ee</velocity.runtime.sha256>
-        <adventure.version>${haunted.adventure.version}</adventure.version>
-        <!-- Test libraries. -->
-        <junit.version>${haunted.junit.version}</junit.version>
-        <mockito.version>${haunted.mockito.version}</mockito.version>
-        <bytebuddy.version>1.18.13</bytebuddy.version>
     </properties>
 
     <repositories>
@@ -170,13 +157,13 @@
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>${maven.surefire.version}</version>
                     <configuration>
-                        <argLine>@{argLine} -javaagent:${settings.localRepository}/net/bytebuddy/byte-buddy-agent/${bytebuddy.version}/byte-buddy-agent-${bytebuddy.version}.jar -Dnet.bytebuddy.experimental=true</argLine>
+                        <argLine>@{argLine} -javaagent:${settings.localRepository}/net/bytebuddy/byte-buddy-agent/${haunted.bytebuddy.version}/byte-buddy-agent-${haunted.bytebuddy.version}.jar -Dnet.bytebuddy.experimental=true</argLine>
                     </configuration>
                     <dependencies>
                         <dependency>
                             <groupId>net.bytebuddy</groupId>
                             <artifactId>byte-buddy-agent</artifactId>
-                            <version>${bytebuddy.version}</version>
+                            <version>${haunted.bytebuddy.version}</version>
                         </dependency>
                     </dependencies>
                 </plugin>
@@ -188,13 +175,13 @@
                     <artifactId>maven-failsafe-plugin</artifactId>
                     <version>${maven.failsafe.version}</version>
                     <configuration>
-                        <argLine>@{argLine} -javaagent:${settings.localRepository}/net/bytebuddy/byte-buddy-agent/${bytebuddy.version}/byte-buddy-agent-${bytebuddy.version}.jar -Dnet.bytebuddy.experimental=true</argLine>
+                        <argLine>@{argLine} -javaagent:${settings.localRepository}/net/bytebuddy/byte-buddy-agent/${haunted.bytebuddy.version}/byte-buddy-agent-${haunted.bytebuddy.version}.jar -Dnet.bytebuddy.experimental=true</argLine>
                     </configuration>
                     <dependencies>
                         <dependency>
                             <groupId>net.bytebuddy</groupId>
                             <artifactId>byte-buddy-agent</artifactId>
-                            <version>${bytebuddy.version}</version>
+                            <version>${haunted.bytebuddy.version}</version>
                         </dependency>
                     </dependencies>
                 </plugin>
