@@ -81,9 +81,9 @@ Preview the next version without touching the worktree, creating a commit, or cr
 ```
 
 Use `major`, `minor`, or `patch` without `--dry-run` only from a clean worktree when preparing the actual release. The
-script updates the Maven revision and Velocity plugin annotation together, verifies the resulting API version, creates
-the local release commit, and creates the matching `vX.Y.Z` tag. The tag workflow independently verifies that the tag
-and Maven project version match before publishing anything.
+script updates the Maven revision and Velocity plugin annotation together and verifies the resulting API version.
+Commit the changes in a reviewed PR. After it merges, the release workflow verifies and publishes the reactor,
+resolves the package from a fresh Maven cache, and creates `vX.Y.Z`.
 
 ## Security Guidelines
 

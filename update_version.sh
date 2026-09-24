@@ -17,7 +17,7 @@ usage() {
 Usage: ./update_version.sh [--dry-run] <major|minor|patch>
 
 Bumps the Maven project version in pom.xml and keeps release metadata in sync.
-Then creates a local commit and a local git tag vX.Y.Z.
+Commit the changed files in a pull request; CI creates the tag after publication.
 
 Options:
   --dry-run   Print the current and next version without changing files, committing, or tagging.
@@ -185,9 +185,5 @@ resolved_api_version="$(resolve_api_version)"
 
 update_velocity_plugin_annotation "$new_version"
 
-git add "$POM_FILE" "$VELOCITY_FILE"
-git commit -m "Bump version to ${new_tag} for release"
-git tag "$new_tag"
-
-echo "Version updated locally."
-echo "Next step: git push && git push origin ${new_tag}"
+git diff --check
+echo "Version files prepared. Review and commit them in a pull request; publication will create the tag after verification."

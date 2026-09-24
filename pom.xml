@@ -36,6 +36,7 @@
     </distributionManagement>
 
     <modules>
+        <module>dataregistry-bom</module>
         <module>dataregistry-api</module>
         <module>dataregistry-platform-common</module>
         <module>dataregistry-core</module>
@@ -49,7 +50,7 @@
         <haunted.dataprovider.version>3.4.3</haunted.dataprovider.version>
         <haunted.theme.version>1.2.0</haunted.theme.version>
         <!-- Project identity and compiler configuration. -->
-        <revision>1.18.4</revision>
+        <revision>1.18.5</revision>
     </properties>
 
     <repositories>
