@@ -11,7 +11,7 @@
   `./mvnw -B -ntp -Pplatform-acceptance verify`
 - Run the full release-equivalent verification with
   `./mvnw -B -ntp -Pintegration-tests,platform-acceptance verify`.
-- Run `shellcheck update_version.sh dataregistry-platform-acceptance/run-platform-acceptance.sh` after changing either
+- Run `shellcheck tools/release/update-version tools/release/prepare-version.sh dataregistry-platform-acceptance/run-platform-acceptance.sh` after changing either
   repository shell script.
 - Docker is required for the integration and platform gates. The platform gate also requires `curl`, `jq`,
   `sha256sum`, and `jar`.
@@ -77,7 +77,7 @@ and add a contract test in the same change so downstream tests do not need one-o
 Preview the next version without touching the worktree, creating a commit, or creating a tag:
 
 ```bash
-./update_version.sh --dry-run patch
+./tools/release/update-version --dry-run patch
 ```
 
 Use `major`, `minor`, or `patch` without `--dry-run` only from a clean worktree when preparing the actual release. The

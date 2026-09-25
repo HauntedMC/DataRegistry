@@ -14,7 +14,7 @@ die() {
 
 usage() {
   cat >&2 <<'USAGE'
-Usage: ./update_version.sh [--dry-run] <major|minor|patch>
+Usage: ./tools/release/update-version [--dry-run] <major|minor|patch>
 
 Bumps the Maven project version in pom.xml and keeps release metadata in sync.
 Commit the changed files in a pull request; CI creates the tag after publication.

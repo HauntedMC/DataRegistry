@@ -386,10 +386,10 @@ Authenticated GitHub Packages access may be required for private HauntedMC depen
 ./mvnw -B -ntp -Pintegration-tests,platform-acceptance verify
 
 # Shell validation used by CI for the repository maintenance scripts.
-shellcheck update_version.sh dataregistry-platform-acceptance/run-platform-acceptance.sh
+shellcheck tools/release/update-version tools/release/prepare-version.sh dataregistry-platform-acceptance/run-platform-acceptance.sh
 
 # Preview a patch release bump without changing files, committing, or tagging.
-./update_version.sh --dry-run patch
+./tools/release/update-version --dry-run patch
 ```
 
 The integration and platform suites need a reachable Docker daemon. The platform suite additionally needs `curl`,
