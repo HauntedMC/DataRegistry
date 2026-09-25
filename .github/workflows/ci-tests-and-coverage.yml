@@ -10,17 +10,21 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   tests:
     name: Unit and MySQL Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
       packages: read
     env:
-      PACKAGES_USER: ${{ secrets.HAUNTEDMC_PACKAGES_USERNAME }}
-      PACKAGES_TOKEN: ${{ secrets.HAUNTEDMC_PACKAGES_TOKEN }}
+      PACKAGES_USER: ${{ secrets.HAUNTEDMC_PACKAGES_USERNAME || github.actor }}
+      PACKAGES_TOKEN: ${{ secrets.HAUNTEDMC_PACKAGES_TOKEN || github.token }}
 
     steps:
       - name: Checkout
@@ -49,13 +53,14 @@ jobs:
         if: failure() && steps.tests.outcome == 'failure'
         shell: bash
         run: |
+          # shellcheck disable=SC2016
           find . -type f \( -path '*/target/surefire-reports/*.txt' -o -path '*/target/failsafe-reports/*.txt' \) -print0 \
             | sort -z \
             | xargs -0 -r -n1 sh -c 'echo "::group::$0"; cat "$0"; echo "::endgroup::"'
 
       - name: Upload JaCoCo report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: jacoco-report
           retention-days: 7
@@ -64,7 +69,7 @@ jobs:
 
       - name: Upload test reports
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: test-reports
           retention-days: 7
@@ -75,14 +80,14 @@ jobs:
 
   platform-acceptance:
     name: Bundled Paper and Velocity Acceptance
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
       packages: read
     env:
-      PACKAGES_USER: ${{ secrets.HAUNTEDMC_PACKAGES_USERNAME }}
-      PACKAGES_TOKEN: ${{ secrets.HAUNTEDMC_PACKAGES_TOKEN }}
+      PACKAGES_USER: ${{ secrets.HAUNTEDMC_PACKAGES_USERNAME || github.actor }}
+      PACKAGES_TOKEN: ${{ secrets.HAUNTEDMC_PACKAGES_TOKEN || github.token }}
 
     steps:
       - name: Checkout
@@ -108,7 +113,7 @@ jobs:
 
       - name: Upload platform acceptance logs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: platform-acceptance-logs
           retention-days: 7
@@ -119,3 +124,53 @@ jobs:
             ${{ runner.temp }}/dataregistry-platform-acceptance/schema-bootstrap/paper.log
             ${{ runner.temp }}/dataregistry-platform-acceptance/paper/paper.log
             ${{ runner.temp }}/dataregistry-platform-acceptance/velocity/velocity.log
+
+  maven-policy:
+    name: Shared Maven policy
+    uses: HauntedMC/HauntedPlatform/.github/workflows/maven-ci.yml@10dfbacc8515208bf3b0ee236a8c7688fda49c9e # release hardening
+    with:
+      maven-command: ./mvnw -U -B -ntp validate
+    secrets:
+      PACKAGES_USER: ${{ secrets.HAUNTEDMC_PACKAGES_USERNAME || github.actor }}
+      PACKAGES_TOKEN: ${{ secrets.HAUNTEDMC_PACKAGES_TOKEN || github.token }}
+
+  shellcheck:
+    name: ShellCheck and release-bump smoke test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    env:
+      PACKAGES_USER: ${{ secrets.HAUNTEDMC_PACKAGES_USERNAME || github.actor }}
+      PACKAGES_TOKEN: ${{ secrets.HAUNTEDMC_PACKAGES_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned release CLI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh extension install HauntedMC/gh-haunted-release --pin de43c102d81797001eef36fe45725744fdd22031
+      - run: shellcheck tools/release/update-version tools/release/prepare-version.sh dataregistry-platform-acceptance/run-platform-acceptance.sh
+      - run: ./tools/release/update-version --dry-run patch
+
+  ci-required:
+    name: ci-required
+    if: ${{ always() }}
+    needs: [tests, platform-acceptance, maven-policy, shellcheck]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      CHECK_RESULTS: ${{ toJSON(needs) }}
+    steps:
+      - name: Require every validation job
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          results = {name: job['result'] for name, job in json.loads(os.environ['CHECK_RESULTS']).items()}
+          failed = {name: result for name, result in results.items() if result != 'success'}
+          if failed:
+              raise SystemExit(f'Validation did not pass: {failed}')
+          PYTHON
