@@ -150,7 +150,7 @@ jobs:
       - name: Install pinned release CLI
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh extension install HauntedMC/gh-haunted-release --pin 5165e777de588ab722af44b43b87c26d2baaafb9
+        run: gh extension install HauntedMC/gh-haunted-release --pin de43c102d81797001eef36fe45725744fdd22031
       - run: shellcheck tools/release/update-version tools/release/prepare-version.sh dataregistry-platform-acceptance/run-platform-acceptance.sh
       - run: ./tools/release/update-version --dry-run patch
 
