@@ -99,3 +99,7 @@ resolves the package from a fresh Maven cache, and creates `vX.Y.Z`.
 - [ ] New domain changes are feature-toggleable.
 - [ ] Failure paths are logged with sanitized values only.
 - [ ] Added/updated tests cover success and failure paths.
+
+## Fork pull requests
+
+Fork PRs run with a read-only GitHub token and receive no repository package secrets. CI attempts to resolve public HauntedMC Maven packages with that token and still runs static checks. If GitHub Packages denies cross-repository access, the required Maven check cannot pass on the fork; a maintainer reviews the change and opens an upstream branch PR for full CI before merge. Never include a package token in a PR or build log.
