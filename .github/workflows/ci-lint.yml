@@ -13,9 +13,9 @@ concurrency:
 jobs:
   maven-policy:
     name: Shared Maven policy
-    uses: HauntedMC/HauntedPlatform/.github/workflows/maven-ci.yml@v1.6.8
+    uses: HauntedMC/HauntedPlatform/.github/workflows/maven-ci.yml@v2.0.0
     with:
-      maven-command: ./mvnw -U -B -ntp -DskipTests verify
+      maven-command: ./mvnw -U -B -ntp validate
     secrets:
       PACKAGES_USER: ${{ secrets.HAUNTEDMC_PACKAGES_USERNAME }}
       PACKAGES_TOKEN: ${{ secrets.HAUNTEDMC_PACKAGES_TOKEN }}
@@ -33,5 +33,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: shellcheck update_version.sh dataregistry-platform-acceptance/run-platform-acceptance.sh
-      - run: ./update_version.sh --dry-run patch
+      - name: Install pinned release CLI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh extension install HauntedMC/gh-haunted-release --pin 86bed2fdf7438ea3d6cc3b76f5c7cc36a58a46bf
+      - run: shellcheck tools/release/update-version tools/release/prepare-version.sh dataregistry-platform-acceptance/run-platform-acceptance.sh
+      - run: ./tools/release/update-version --dry-run patch
