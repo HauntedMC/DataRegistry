@@ -47,8 +47,12 @@ public final class ReadOnlyPlayerProfiles implements AutoCloseable {
             if (!identity.uuid().equals(uuid)) {
                 return java.util.concurrent.CompletableFuture.completedFuture(Result.stale());
             }
-            return registry.players().findProfile(identity, 0).thenApply(profile ->
-                    profile.map(value -> Result.found(summary(value))).orElseGet(Result::missing));
+            return registry.players().findProfile(identity, 0).thenApply(profile -> profile.map(value -> {
+                if (!value.identity().playerId().equals(playerId) || !value.identity().uuid().equals(uuid)) {
+                    return Result.stale();
+                }
+                return Result.found(summary(value));
+            }).orElseGet(Result::missing));
         });
     }
 
