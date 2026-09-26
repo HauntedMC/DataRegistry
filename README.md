@@ -12,8 +12,9 @@ tables and should reference players by the stable scalar `playerId`.
 - Velocity is the authoritative writer for joins, switches, disconnects, sessions, connection info, population state,
   and probes.
 - Paper prepares backend identity state and exposes the same read APIs to Paper features.
+- Non-Minecraft applications can use the non-authoritative `ReadOnlyPlayerProfiles` projection with a standalone DataProvider host. It validates the schema and checks numeric player ID against UUID on every read; it owns no lifecycle writes.
 - DataProvider supplies database connections and ORM bootstrap.
-- Hibernate automatically applies additive schema updates by default.
+- The authoritative Velocity runtime may apply additive schema updates; the standalone profile reader validates only.
 - On Velocity startup, stale player presence from an unclean shutdown is reconciled before periodic flushing starts.
   Open sessions, visits, playtime segments, online flags, and derived population online counters are reconciled from
   durable state instead of inventing activity after the last known event.

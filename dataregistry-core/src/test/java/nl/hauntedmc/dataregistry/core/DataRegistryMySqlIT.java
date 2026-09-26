@@ -4,11 +4,13 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import nl.hauntedmc.dataprovider.api.DataProviderAPI;
 import nl.hauntedmc.dataprovider.api.orm.ORMContext;
+import nl.hauntedmc.dataprovider.standalone.StandaloneDataProvider;
 import nl.hauntedmc.dataprovider.database.DatabaseType;
 import nl.hauntedmc.dataprovider.database.relational.RelationalDatabaseProvider;
 import nl.hauntedmc.dataprovider.logging.LoggerAdapter;
 import nl.hauntedmc.dataregistry.api.player.PlayerDataVisibility;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
+import nl.hauntedmc.dataregistry.core.player.ReadOnlyPlayerProfiles;
 import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.core.lifecycle.DisconnectCommand;
 import nl.hauntedmc.dataregistry.core.lifecycle.LoginCommand;
@@ -336,6 +338,47 @@ class DataRegistryMySqlIT {
         segment.setLastAccruedAt(startedAt);
         segment.setEndedAt(endedAt);
         return segment;
+    }
+
+    @Test
+    void headlessReaderChecksNumericIdAgainstUuidWithoutOwningLifecycle() throws Exception {
+        DataProviderAPI dataProvider = mock(DataProviderAPI.class);
+        RelationalDatabaseProvider provider = mock(RelationalDatabaseProvider.class);
+        ILoggerAdapter logger = mock(ILoggerAdapter.class);
+        when(dataProvider.registerDatabaseOrThrow(DatabaseType.MYSQL, CONNECTION_ID)).thenReturn(provider);
+        when(provider.isConnected()).thenReturn(true);
+        when(provider.getDataSource()).thenReturn(dataSource);
+        when(dataProvider.createOrmContext(eq(dataSource), any(LoggerAdapter.class), any(String.class), any(Class[].class)))
+                .thenAnswer(invocation -> createOrmContext(invocation.getArguments()));
+
+        UUID uuid = UUID.randomUUID();
+        long playerId;
+        DataRegistry owner = new DataRegistry(logger, "DataRegistry", dataProvider, MYSQL_SETTINGS);
+        try {
+            assertTrue(owner.initialize());
+            playerId = owner.getORM().runInTransaction(session -> {
+                PlayerEntity player = new PlayerEntity();
+                player.setUuid(uuid.toString());
+                player.setUsername("WebProfilePlayer");
+                session.persist(player);
+                session.flush();
+                return player.getId();
+            });
+        } finally {
+            owner.shutdown();
+        }
+
+        LoggerAdapter silent = (level, message, failure) -> { };
+        try (StandaloneDataProvider standalone = StandaloneDataProvider.open("webapp",
+                new StandaloneDataProvider.MysqlConnection(CONNECTION_ID, MYSQL.getHost(), MYSQL.getMappedPort(3306),
+                        MYSQL.getDatabaseName(), MYSQL.getUsername(), MYSQL.getPassword(), "PREFERRED", 2), silent);
+             ReadOnlyPlayerProfiles reader = ReadOnlyPlayerProfiles.open(standalone.api(), logger)) {
+            var found = reader.find(playerId, uuid).toCompletableFuture().get(10, TimeUnit.SECONDS);
+            assertEquals(ReadOnlyPlayerProfiles.Status.FOUND, found.status());
+            assertEquals("WebProfilePlayer", found.summary().name());
+            assertEquals(ReadOnlyPlayerProfiles.Status.STALE,
+                    reader.find(playerId, UUID.randomUUID()).toCompletableFuture().get(10, TimeUnit.SECONDS).status());
+        }
     }
 
     private ORMContext createOrmContext(Object[] arguments) {
