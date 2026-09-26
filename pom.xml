@@ -47,10 +47,10 @@
 
     <properties>
         <!-- Versions of HauntedMC APIs this library builds against. -->
-        <haunted.dataprovider.version>3.4.5</haunted.dataprovider.version>
+        <haunted.dataprovider.version>3.5.0</haunted.dataprovider.version>
         <haunted.theme.version>1.2.2</haunted.theme.version>
         <!-- Project identity and compiler configuration. -->
-        <revision>1.18.6</revision>
+        <revision>1.18.7</revision>
     </properties>
 
     <repositories>
