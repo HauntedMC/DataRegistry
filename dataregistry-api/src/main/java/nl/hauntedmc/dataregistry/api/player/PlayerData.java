@@ -97,8 +97,13 @@ public interface PlayerData {
         return CompletableFuture.failedFuture(new UnsupportedOperationException("Identity-bound language reads are unavailable"));
     }
 
+    /** Legacy unversioned writer. Use {@link #saveLanguageIfVersion(UUID, String, String, long)}
+     * when browser edits may race with in-game changes. */
+    @Deprecated(since = "1.19.1")
     CompletionStage<Void> saveLanguage(long playerId, String language, String effectiveLanguage);
 
+    /** Legacy unversioned writer; see {@link #saveLanguage(long, String, String)}. */
+    @Deprecated(since = "1.19.1")
     CompletionStage<Boolean> saveLanguage(UUID uuid, String language, String effectiveLanguage);
 
     /** Atomically writes a preference for an exact player identity and expected language version. */
@@ -113,6 +118,8 @@ public interface PlayerData {
         return CompletableFuture.failedFuture(new UnsupportedOperationException("Versioned language writes are unavailable"));
     }
 
+    /** Legacy unversioned deletion. Use a versioned owner command for concurrent edits. */
+    @Deprecated(since = "1.19.1")
     CompletionStage<Void> clearLanguage(long playerId);
 
     /**

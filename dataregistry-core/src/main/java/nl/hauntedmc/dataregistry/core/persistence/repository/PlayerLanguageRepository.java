@@ -28,6 +28,8 @@ public class PlayerLanguageRepository extends AbstractRepository<PlayerLanguageE
         return findById(playerId);
     }
 
+    /** Legacy unversioned write retained for compatibility; do not use for concurrent browser edits. */
+    @Deprecated(since = "1.19.1")
     public PlayerLanguageEntity saveOrUpdate(long playerId, String language, String effectiveLanguage) {
         requirePlayerId(playerId);
         String normalizedLanguage = requireCode(language, "language");
@@ -139,6 +141,8 @@ public class PlayerLanguageRepository extends AbstractRepository<PlayerLanguageE
         });
     }
 
+    /** Legacy unversioned deletion retained for compatibility. */
+    @Deprecated(since = "1.19.1")
     public void deleteByPlayerId(Long playerId) {
         if (playerId == null) {
             return;
