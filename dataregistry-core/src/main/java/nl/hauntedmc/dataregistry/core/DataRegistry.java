@@ -32,6 +32,8 @@ import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerActivitySummaryEn
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerConnectionInfoEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLanguageEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLanguageMutationEntity;
+import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerDataChangeOutboxEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleOutboxEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerLifecycleAuthorityEntity;
 import nl.hauntedmc.dataregistry.core.persistence.entity.PlayerNameHistoryEntity;
@@ -69,6 +71,7 @@ import nl.hauntedmc.dataregistry.core.persistence.repository.ServiceProbeReposit
 import nl.hauntedmc.dataregistry.core.player.DataRegistryQueryExecutor;
 import nl.hauntedmc.dataregistry.core.player.DeadlineAwareOrmContext;
 import nl.hauntedmc.dataregistry.core.player.RepositoryPlayerData;
+import nl.hauntedmc.dataregistry.core.player.PlayerDataChange;
 import nl.hauntedmc.dataregistry.core.player.RepositoryPlayerDirectory;
 import nl.hauntedmc.dataregistry.core.player.RepositoryPopulationData;
 import nl.hauntedmc.dataregistry.core.playtime.PlaytimeGamemodeResolver;
@@ -887,6 +890,8 @@ public class DataRegistry implements DataRegistryApi, DataRegistryInstrumentatio
         }
         if (settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE)) {
             entityClasses.add(PlayerLanguageEntity.class);
+            entityClasses.add(PlayerLanguageMutationEntity.class);
+            entityClasses.add(PlayerDataChangeOutboxEntity.class);
         }
         if (settings.isFeatureEnabled(DataRegistryFeature.NICKNAMES)) {
             entityClasses.add(PlayerNicknameEntity.class);
@@ -905,6 +910,51 @@ public class DataRegistry implements DataRegistryApi, DataRegistryInstrumentatio
         ormContext.runInTransaction(session ->
                 session.createQuery("SELECT COUNT(o) FROM PlayerLifecycleOutboxEntity o", Long.class).getSingleResult()
         );
+    }
+
+    /** Outbox publishing is idempotent: concurrent relays may publish the same event ID. */
+    public java.util.List<PlayerDataChange> pendingPlayerDataChanges(int limit) {
+        if (!settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE) || ormContext == null) return java.util.List.of();
+        return ormContext.runInTransaction(session -> session.createQuery(
+                        "from PlayerDataChangeOutboxEntity e where e.publishedAt is null order by e.createdAt, e.eventId",
+                        PlayerDataChangeOutboxEntity.class)
+                .setMaxResults(Math.max(1, Math.min(limit, 100)))
+                .list().stream()
+                .map(e -> new PlayerDataChange(java.util.UUID.fromString(e.getEventId()), e.getCapability(),
+                        e.getPlayerId(), java.util.UUID.fromString(e.getPlayerUuid()), e.getRevision(), e.getCreatedAt()))
+                .toList());
+    }
+
+    public void markPlayerDataChangePublished(java.util.UUID eventId) {
+        java.util.Objects.requireNonNull(eventId, "eventId");
+        if (!settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE) || ormContext == null) return;
+        ormContext.runInTransaction(session -> {
+            PlayerDataChangeOutboxEntity event = session.find(PlayerDataChangeOutboxEntity.class, eventId.toString());
+            if (event != null && event.getPublishedAt() == null) event.markPublished(System.currentTimeMillis());
+            return null;
+        });
+    }
+
+    /** Deletes only published notifications and old request receipts; unpublished notifications are never purged. */
+    public int purgePlayerDataHistory(Duration retention, int batchSize) {
+        java.util.Objects.requireNonNull(retention, "retention");
+        if (retention.isNegative() || retention.isZero() || batchSize < 1 || batchSize > 1_000) {
+            throw new IllegalArgumentException("Invalid player data retention or batch size");
+        }
+        if (!settings.isFeatureEnabled(DataRegistryFeature.LANGUAGE) || ormContext == null) return 0;
+        long cutoff = System.currentTimeMillis() - retention.toMillis();
+        return ormContext.runInTransaction(session -> {
+            var published = session.createQuery("from PlayerDataChangeOutboxEntity e "
+                            + "where e.publishedAt is not null and e.publishedAt < :cutoff order by e.publishedAt",
+                            PlayerDataChangeOutboxEntity.class)
+                    .setParameter("cutoff", cutoff).setMaxResults(batchSize).list();
+            for (var event : published) session.remove(event);
+            var receipts = session.createQuery("from PlayerLanguageMutationEntity e "
+                            + "where e.createdAt < :cutoff order by e.createdAt", PlayerLanguageMutationEntity.class)
+                    .setParameter("cutoff", cutoff).setMaxResults(batchSize).list();
+            for (var receipt : receipts) session.remove(receipt);
+            return published.size() + receipts.size();
+        });
     }
 
     private DataSource resolveDataSource(Map<String, DataSource> dataSourceCache, String connectionId) {

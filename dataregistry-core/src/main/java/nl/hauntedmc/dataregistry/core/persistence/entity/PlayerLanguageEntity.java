@@ -7,6 +7,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.MapsId;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 @Entity
 @Table(name = "player_language")
@@ -31,6 +32,10 @@ public class PlayerLanguageEntity {
     @Column(name = "effective_language", length = 16)
     private String effectiveLanguage;
 
+    @Version
+    @Column(name = "version", nullable = false)
+    private long version;
+
     public PlayerLanguageEntity() {}
 
     public Long getPlayerId() { return playerId; }
@@ -44,4 +49,6 @@ public class PlayerLanguageEntity {
 
     public String getEffectiveLanguage() { return effectiveLanguage; }
     public void setEffectiveLanguage(String effectiveLanguage) { this.effectiveLanguage = effectiveLanguage; }
+
+    public long getVersion() { return version; }
 }
