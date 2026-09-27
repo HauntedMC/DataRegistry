@@ -92,9 +92,26 @@ public interface PlayerData {
 
     CompletionStage<Optional<PlayerLanguageSettings>> findLanguage(UUID uuid);
 
+    /** Reads language only when the numeric ID still belongs to the exact UUID. */
+    default CompletionStage<Optional<PlayerLanguageSettings>> findLanguageForIdentity(long playerId, UUID uuid) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Identity-bound language reads are unavailable"));
+    }
+
     CompletionStage<Void> saveLanguage(long playerId, String language, String effectiveLanguage);
 
     CompletionStage<Boolean> saveLanguage(UUID uuid, String language, String effectiveLanguage);
+
+    /** Atomically writes a preference for an exact player identity and expected language version. */
+    default CompletionStage<PlayerLanguageMutationResult> saveLanguagePreference(
+            long playerId, UUID uuid, String preference, long expectedVersion, UUID requestId) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Versioned language writes are unavailable"));
+    }
+
+    /** Compare-and-set used by in-game language callers; it also emits the owner change event. */
+    default CompletionStage<PlayerLanguageMutationResult> saveLanguageIfVersion(
+            UUID uuid, String preference, String effectiveLanguage, long expectedVersion) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Versioned language writes are unavailable"));
+    }
 
     CompletionStage<Void> clearLanguage(long playerId);
 
