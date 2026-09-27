@@ -10,7 +10,9 @@ import nl.hauntedmc.dataprovider.database.relational.RelationalDatabaseProvider;
 import nl.hauntedmc.dataprovider.logging.LoggerAdapter;
 import nl.hauntedmc.dataregistry.api.player.PlayerDataVisibility;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
+import nl.hauntedmc.dataregistry.api.player.PlayerLanguageMutationResult;
 import nl.hauntedmc.dataregistry.core.player.ReadOnlyPlayerProfiles;
+import nl.hauntedmc.dataregistry.core.player.StalePlayerIdentityException;
 import nl.hauntedmc.dataregistry.core.config.DataRegistrySettings;
 import nl.hauntedmc.dataregistry.core.lifecycle.DisconnectCommand;
 import nl.hauntedmc.dataregistry.core.lifecycle.LoginCommand;
@@ -41,6 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -129,6 +132,39 @@ class DataRegistryMySqlIT {
                     .toCompletableFuture().get(10, TimeUnit.SECONDS);
             assertEquals("NL", registry.players().findLanguage(identity.playerId())
                     .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow().language());
+            assertEquals("NL", registry.players().findLanguageForIdentity(identity.playerId(), PLAYER_UUID)
+                    .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow().language());
+            Throwable mismatch = assertThrows(java.util.concurrent.ExecutionException.class,
+                    () -> registry.players().findLanguageForIdentity(identity.playerId(), UUID.randomUUID())
+                            .toCompletableFuture().get(10, TimeUnit.SECONDS));
+            while (mismatch != null && !(mismatch instanceof StalePlayerIdentityException)) {
+                mismatch = mismatch.getCause();
+            }
+            assertTrue(mismatch instanceof StalePlayerIdentityException);
+            long initialVersion = registry.players().findLanguage(identity.playerId())
+                    .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow().version();
+            UUID requestId = UUID.randomUUID();
+            var websiteWrite = registry.players().saveLanguagePreference(identity.playerId(), PLAYER_UUID,
+                    "EN", initialVersion, requestId).toCompletableFuture().get(10, TimeUnit.SECONDS);
+            assertEquals(PlayerLanguageMutationResult.Status.APPLIED, websiteWrite.status());
+            assertEquals(initialVersion + 1, websiteWrite.version());
+            assertEquals(PlayerLanguageMutationResult.Status.REPLAYED,
+                    registry.players().saveLanguagePreference(identity.playerId(), PLAYER_UUID, "EN",
+                            initialVersion, requestId).toCompletableFuture().get(10, TimeUnit.SECONDS).status());
+            assertEquals(PlayerLanguageMutationResult.Status.CONFLICT,
+                    registry.players().saveLanguageIfVersion(PLAYER_UUID, "NL", "NL", initialVersion)
+                            .toCompletableFuture().get(10, TimeUnit.SECONDS).status());
+            assertEquals(PlayerLanguageMutationResult.Status.STALE_IDENTITY,
+                    registry.players().saveLanguagePreference(identity.playerId(), UUID.randomUUID(), "NL",
+                            websiteWrite.version(), UUID.randomUUID())
+                            .toCompletableFuture().get(10, TimeUnit.SECONDS).status());
+            assertEquals(PlayerLanguageMutationResult.Status.APPLIED,
+                    registry.players().saveLanguageIfVersion(PLAYER_UUID, "NL", "NL", websiteWrite.version())
+                            .toCompletableFuture().get(10, TimeUnit.SECONDS).status());
+            assertEquals("NL", registry.players().findLanguage(identity.playerId())
+                    .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow().language());
+            assertTrue(registry.pendingPlayerDataChanges(10).stream()
+                    .anyMatch(change -> change.eventId().equals(requestId)));
             assertEquals("Registry Tester", registry.players().findNickname(identity.playerId())
                     .toCompletableFuture().get(10, TimeUnit.SECONDS).orElseThrow());
             assertFalse(registry.players().findOnlineStatus(identity.playerId())

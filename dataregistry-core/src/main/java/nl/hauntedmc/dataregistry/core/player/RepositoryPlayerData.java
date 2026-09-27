@@ -15,6 +15,7 @@ import nl.hauntedmc.dataregistry.api.player.PlayerDataVisibility;
 import nl.hauntedmc.dataregistry.api.player.PlayerDirectory;
 import nl.hauntedmc.dataregistry.api.player.PlayerIdentity;
 import nl.hauntedmc.dataregistry.api.player.PlayerLanguageSettings;
+import nl.hauntedmc.dataregistry.api.player.PlayerLanguageMutationResult;
 import nl.hauntedmc.dataregistry.api.player.PlayerLookup;
 import nl.hauntedmc.dataregistry.api.player.PlayerNameHistoryEntry;
 import nl.hauntedmc.dataregistry.api.player.PlayerOnlineSnapshot;
@@ -267,6 +268,25 @@ public final class RepositoryPlayerData implements PlayerData {
     }
 
     @Override
+    public CompletionStage<Optional<PlayerLanguageSettings>> findLanguageForIdentity(long playerId, UUID uuid) {
+        Objects.requireNonNull(uuid, "uuid");
+        return queryExecutor.supply("player.language.identity.find", () -> {
+            requireRepository(languageRepository, DataRegistryFeature.LANGUAGE);
+            requirePositivePlayerId(playerId);
+            return ormContext.runInTransaction(session -> {
+                Object[] row = session.createQuery(
+                                "select p, l from PlayerEntity p left join PlayerLanguageEntity l on l.player = p "
+                                        + "where p.id = :playerId", Object[].class)
+                        .setParameter("playerId", playerId).uniqueResult();
+                if (row == null || !uuid.toString().equalsIgnoreCase(((PlayerEntity) row[0]).getUuid())) {
+                    throw new StalePlayerIdentityException();
+                }
+                return Optional.ofNullable((PlayerLanguageEntity) row[1]).map(RepositoryPlayerData::toLanguageSettings);
+            });
+        });
+    }
+
+    @Override
     public CompletionStage<Void> saveLanguage(long playerId, String language, String effectiveLanguage) {
         return queryExecutor.supply("player.language.save", () -> {
             requireRepository(languageRepository, DataRegistryFeature.LANGUAGE);
@@ -285,6 +305,24 @@ public final class RepositoryPlayerData implements PlayerData {
                 return CompletableFuture.completedFuture(false);
             }
             return saveLanguage(playerId.get(), language, effectiveLanguage).thenApply(ignored -> true);
+        });
+    }
+
+    @Override
+    public CompletionStage<PlayerLanguageMutationResult> saveLanguagePreference(
+            long playerId, UUID uuid, String preference, long expectedVersion, UUID requestId) {
+        return queryExecutor.supply("player.language.preference.save", () -> {
+            requireRepository(languageRepository, DataRegistryFeature.LANGUAGE);
+            return languageRepository.savePreference(playerId, uuid, preference, expectedVersion, requestId);
+        });
+    }
+
+    @Override
+    public CompletionStage<PlayerLanguageMutationResult> saveLanguageIfVersion(
+            UUID uuid, String preference, String effectiveLanguage, long expectedVersion) {
+        return queryExecutor.supply("player.language.cas", () -> {
+            requireRepository(languageRepository, DataRegistryFeature.LANGUAGE);
+            return languageRepository.saveIfVersion(uuid, preference, effectiveLanguage, expectedVersion);
         });
     }
 
@@ -911,7 +949,7 @@ public final class RepositoryPlayerData implements PlayerData {
     }
 
     private static PlayerLanguageSettings toLanguageSettings(PlayerLanguageEntity entity) {
-        return new PlayerLanguageSettings(entity.getPlayerId(), entity.getLanguage(), entity.getEffectiveLanguage());
+        return new PlayerLanguageSettings(entity.getPlayerId(), entity.getLanguage(), entity.getEffectiveLanguage(), entity.getVersion());
     }
 
     private static PlayerConnectionSnapshot toConnectionSnapshot(PlayerConnectionInfoEntity entity) {
