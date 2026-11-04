@@ -3,4 +3,4 @@ main: nl.hauntedmc.dataregistry.platform.bukkit.BukkitDataRegistry
 version: ${project.version}
 author: HauntedMC
 depend: [DataProvider]
-api-version: 1.21
+api-version: '26.3'
